@@ -1,0 +1,14 @@
+# Used when building from repo root (e.g. web image: docker build -f apps/web/Dockerfile .)
+.git
+**/.git
+**/node_modules
+**/.next_local
+**/.next
+**/dist
+**/coverage
+*.md
+.env
+.env.*
+!.env.example
+**/.env.local
+apps/web/.env.local

@@ -1,0 +1,18 @@
+# Governance gate — run before image deploy pipelines.
+# Trigger: push/PR to main, or manual.
+steps:
+  - name: node:22
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        npm ci
+        npm run governance:workspace
+        npm run lint --workspaces --if-present
+        npm run build --workspaces
+        echo "Run npm run governance:automations locally or in deploy smoke (requires DB)."
+    id: governance-check
+
+options:
+  logging: CLOUD_LOGGING_ONLY

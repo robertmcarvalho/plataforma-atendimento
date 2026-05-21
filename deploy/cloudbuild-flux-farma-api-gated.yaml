@@ -1,0 +1,36 @@
+# API image build gated by governance checks.
+# Usage:
+#   gcloud builds submit . --config=deploy/cloudbuild-flux-farma-api-gated.yaml --project=$GCP_PROJECT_ID
+steps:
+  - name: node:22
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        npm ci
+        npm run governance:workspace
+        npm run build --workspace=apps/api-service
+    id: governance-and-build-api
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - deploy/dockerfiles/api.Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/flux-farma-api:${_TAG}
+      - .
+    id: docker-build-api
+    waitFor: ['governance-and-build-api']
+
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/flux-farma-api:${_TAG}
+
+substitutions:
+  _TAG: latest
+  _REGION: us-central1
+  _REPO: panel-services
+
+options:
+  logging: CLOUD_LOGGING_ONLY

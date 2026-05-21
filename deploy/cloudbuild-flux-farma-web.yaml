@@ -1,0 +1,42 @@
+# Build Next.js (monorepo root). Uso:
+#   gcloud builds submit . --config=deploy/cloudbuild-flux-farma-web.yaml --project=$GCP_PROJECT_ID \
+#     --substitutions=_TAG=TAG,_REGION=us-central1,_REPO=panel-services,_NEXT_PUBLIC_API_URL=https://api.aethera.ai,...
+# _NEXT_PUBLIC_SUPABASE_ANON_KEY: chave anónima (pública no cliente); preferir --substitutions em CI.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - apps/web/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/flux-farma-web:${_TAG}
+      - --build-arg
+      - NEXT_PUBLIC_API_URL=${_NEXT_PUBLIC_API_URL}
+      - --build-arg
+      - NEXT_PUBLIC_SUPABASE_URL=${_NEXT_PUBLIC_SUPABASE_URL}
+      - --build-arg
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${_NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - --build-arg
+      - NEXT_PUBLIC_ENABLE_INSTAGRAM=false
+      - --build-arg
+      - NEXT_PUBLIC_ENABLE_EMAIL=true
+      - --build-arg
+      - NEXT_PUBLIC_ENABLE_AI_SUGGESTIONS=false
+      - --build-arg
+      - NEXT_PUBLIC_AI_ANALYSIS_BADGES=true
+      - --build-arg
+      - NEXT_PUBLIC_AI_SUGGEST_REPLY=true
+      - --build-arg
+      - NEXT_PUBLIC_AI_INBOUND_ASSIST=true
+      - --build-arg
+      - NEXT_PUBLIC_ENABLE_TICKETING_PANEL=true
+      - .
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/flux-farma-web:${_TAG}
+substitutions:
+  _TAG: latest
+  _REGION: us-central1
+  _REPO: panel-services
+  _NEXT_PUBLIC_API_URL: https://api.aethera.ai
+  _NEXT_PUBLIC_SUPABASE_URL: https://SEU_PROJETO.supabase.co
+  _NEXT_PUBLIC_SUPABASE_ANON_KEY: ""

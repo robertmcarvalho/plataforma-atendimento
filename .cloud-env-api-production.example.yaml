@@ -1,0 +1,21 @@
+# Copie para .cloud-env-api-production.yaml (gitignored) e preencha.
+# Secrets sensíveis vêm do GCP Secret Manager no deploy (supabase-url, supabase-sr, jwt-secret, smtp-pass, meta-*).
+
+NODE_ENV: production
+WEB_APP_URL: "https://www.aetheraai.online/login"
+SUPABASE_ANON_KEY: "<NEXT_PUBLIC_SUPABASE_ANON_KEY_omhlb>"
+ENABLE_DEV_ROUTES: "false"
+USER_TEMP_PASSWORD_RESPONSE_ENABLED: "false"
+ALLOWED_ORIGINS: "https://www.aetheraai.online,https://aetheraai.online,https://app.aethera.ai"
+JWT_EXPIRES_IN: 8h
+GOOGLE_CLOUD_PROJECT_ID: rh-coopmob-bot
+PUBSUB_TOPIC_CAMPAIGN: campaign.dispatch
+WEBHOOK_PUBLIC_BASE_URL: https://flux-farma-webhook-713561463013.us-central1.run.app
+META_WEBHOOK_SUBSCRIPTION_FIELDS: "messages,message_template_status_update"
+STORAGE_BUCKET: exports
+SMTP_HOST: smtps.example.com
+SMTP_PORT: "465"
+SMTP_USER: atendimento@example.com
+SMTP_FROM_EMAIL: atendimento@example.com
+SMTP_FROM_NAME: Atendimento
+SMTP_SECURE: "true"
