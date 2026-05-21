@@ -1,0 +1,3 @@
+# Imagem de produção: use sempre o contexto na RAIZ do monorepo:
+#   docker build -f apps/web/Dockerfile .
+# Ver [.dockerignore](../../.dockerignore) na raiz.

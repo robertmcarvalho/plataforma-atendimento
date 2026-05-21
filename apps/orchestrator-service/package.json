@@ -1,0 +1,28 @@
+{
+  "name": "orchestrator-service",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "npm run build && node dist/index.js",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@google-cloud/pubsub": "^4.4.0",
+    "@plataforma/ai-core": "file:../../packages/ai-core",
+    "@plataforma/channel-runtime": "file:../../packages/channel-runtime",
+    "@plataforma/channel-runtime": "file:../../packages/channel-runtime",
+    "@plataforma/logger": "file:../../packages/logger",
+    "@plataforma/operational-notes": "file:../../packages/operational-notes",
+    "@supabase/supabase-js": "^2.43.4",
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "ws": "^8.20.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.4.5"
+  }
+}
