@@ -1,8 +1,36 @@
 #!/usr/bin/env node
 import { Client } from 'pg';
-import { readDbUrl } from './lib/readDbUrl.mjs';
+import { tryReadDbUrl } from './lib/readDbUrl.mjs';
 
-const client = new Client({ connectionString: readDbUrl(), ssl: { rejectUnauthorized: false } });
+const dbUrl = tryReadDbUrl();
+if (!dbUrl) {
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        mode: 'read-only',
+        skipped: true,
+        reason:
+          'SUPABASE_DB_URL not configured (CI/local without .secrets). Run with DB credentials locally or in deploy smoke.',
+        official_runtime_order: [
+          'workspace_channels.config',
+          'conversation_flow_bindings',
+          'conversation_flow_definitions',
+          'automation_rules',
+          'fallback_legado',
+        ],
+        legacy_writes_frozen_by_default: process.env.ALLOW_LEGACY_AUTOMATION_WRITES !== 'true',
+        generated_at: new Date().toISOString(),
+        inventory: null,
+      },
+      null,
+      2
+    )
+  );
+  process.exit(0);
+}
+
+const client = new Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
 
 async function count(table, where = 'true') {
   try {

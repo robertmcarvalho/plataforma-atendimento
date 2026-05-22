@@ -12,9 +12,9 @@ dotenv.config({ path: path.join(root, "apps", "api-service", ".env") });
 /**
  * Same resolution order as scripts/ensure-supabase-chat-enhancements.mjs,
  * plus loading root and apps/api-service/.env via dotenv.
- * @returns {string}
+ * @returns {string | null}
  */
-export function readDbUrl() {
+export function tryReadDbUrl() {
   const envUrl = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || process.env.POSTGRES_URL;
   if (envUrl) return envUrl.trim();
 
@@ -39,6 +39,15 @@ export function readDbUrl() {
     if (value) return value;
   }
 
+  return null;
+}
+
+/**
+ * @returns {string}
+ */
+export function readDbUrl() {
+  const url = tryReadDbUrl();
+  if (url) return url;
   throw new Error(
     "Missing SUPABASE_DB_URL. Set SUPABASE_DB_URL, or set SUPABASE_URL + SUPABASE_DB_PASSWORD, or create .secrets/supabase-db-url.txt (gitignored)."
   );
