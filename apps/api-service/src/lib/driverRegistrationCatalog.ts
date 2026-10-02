@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { evaluateDriverDocuments, badgeLabelForState } from '@plataforma/operational-notes';
 import { supabase } from './supabase';
 
 export type DriverFieldRequirement = {
@@ -18,6 +19,9 @@ const WEB_FORM_FIELDS: DriverFieldRequirement[] = [
   { key: 'city', label: 'Cidade', required: true, source: 'web_form' },
   { key: 'primary_pharmacy_id', label: 'Farmácia primária / unidade', required: false, source: 'web_form' },
   { key: 'pix_key', label: 'Chave PIX', required: false, source: 'web_form' },
+  { key: 'cnh_number', label: 'CNH', required: false, source: 'web_form' },
+  { key: 'address_cep', label: 'CEP / endereço', required: false, source: 'web_form' },
+  { key: 'vehicle_plate', label: 'Veículo (placa)', required: false, source: 'web_form' },
   { key: 'mei_cnpj', label: 'CNPJ do MEI', required: false, source: 'web_form' },
   { key: 'digital_certificate_expires_at', label: 'Validade do certificado digital', required: false, source: 'web_form' },
 ];
@@ -73,7 +77,7 @@ export async function analyzeDriverRegistrationGaps(
   const { data: driver, error } = await db
     .from('drivers')
     .select(
-      'id, name, cpf, phone, email, city, state, status, driver_type, pix_key, mei_cnpj, is_mei, primary_pharmacy_id, has_digital_certificate, digital_certificate_expires_at, driver_pharmacy_links(id, is_active, is_primary)'
+      'id, name, cpf, phone, whatsapp, email, city, state, status, driver_type, pix_key, pix_key_type, birth_date, cnh_number, cnh_expires_at, address_cep, address_street, vehicle_plate, mei_cnpj, is_mei, primary_pharmacy_id, has_digital_certificate, digital_certificate_expires_at, flux_delivery_driver_id, driver_pharmacy_links(id, is_active, is_primary)'
     )
     .eq('workspace_id', workspaceId)
     .eq('id', driverId)
@@ -93,12 +97,34 @@ export async function analyzeDriverRegistrationGaps(
     else if (f.key === 'mei_cnpj') filled = !row.is_mei || isFilled(row.mei_cnpj);
     else if (f.key === 'digital_certificate_expires_at') {
       filled = !row.has_digital_certificate || isFilled(row.digital_certificate_expires_at);
+    } else if (f.key === 'address_cep') {
+      filled = Boolean(row.address_cep && row.address_street);
     } else filled = isFilled(row[f.key]);
     return { key: f.key, label: f.label, required: f.required, filled };
   });
 
   const missingRequired = checks.filter((c) => c.required && !c.filled);
   const missingOptional = checks.filter((c) => !c.required && !c.filled);
+
+  const docEval = evaluateDriverDocuments({
+    cnh_expires_at: row.cnh_expires_at as string | null | undefined,
+    has_digital_certificate: row.has_digital_certificate as boolean | null | undefined,
+    digital_certificate_expires_at: row.digital_certificate_expires_at as string | null | undefined,
+  });
+
+  const expiryLines: string[] = [];
+  if (row.cnh_expires_at) {
+    expiryLines.push(`CNH: ${badgeLabelForState(docEval.cnh, String(row.cnh_expires_at))} (${String(row.cnh_expires_at).slice(0, 10)})`);
+  }
+  if (row.has_digital_certificate) {
+    const certDate = row.digital_certificate_expires_at ? String(row.digital_certificate_expires_at).slice(0, 10) : 'sem data';
+    expiryLines.push(`Certificado: ${badgeLabelForState(docEval.certificate, row.digital_certificate_expires_at as string | null)} (${certDate})`);
+  }
+
+  const expirySummary =
+    expiryLines.length === 0
+      ? 'Sem datas de vencimento monitoradas.'
+      : expiryLines.join('; ');
 
   return {
     driver_id: driverId,
@@ -108,9 +134,17 @@ export async function analyzeDriverRegistrationGaps(
     fields: checks,
     missing_required: missingRequired.map((m) => m.label),
     missing_optional: missingOptional.map((m) => m.label),
+    expiry_alerts: {
+      doc_status: docEval.doc_status,
+      cnh_state: docEval.cnh,
+      certificate_state: docEval.certificate,
+      cnh_expires_at: row.cnh_expires_at || null,
+      digital_certificate_expires_at: row.digital_certificate_expires_at || null,
+      lines: expiryLines,
+    },
     summary_pt:
       missingRequired.length === 0
-        ? 'Cadastro com campos obrigatórios preenchidos. Revise opcionais e valide vínculo com farmácia antes de ativar.'
-        : `Faltam ${missingRequired.length} campo(s) obrigatório(s): ${missingRequired.map((m) => m.label).join(', ')}.`,
+        ? `Cadastro com campos obrigatórios preenchidos. ${expirySummary}`
+        : `Faltam ${missingRequired.length} campo(s) obrigatório(s): ${missingRequired.map((m) => m.label).join(', ')}. ${expirySummary}`,
   };
 }

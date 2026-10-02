@@ -1,4 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { LeaderFinancialReviewContext } from './leaderFinancialDemandContext';
+import { formatTaskNotificationSummary } from './advanceDecisionFollowup';
+import { isTaskTypeCreatableForWorkspace } from './opsTaskCatalog';
 import { supabase } from './supabase';
 
 export const ATTENDANCE_PENDING_TASK_TYPES = ['queue_sla_treatment', 'guided_demand'] as const;
@@ -17,6 +20,76 @@ export async function resolveDemandTitle(
   return (data?.title as string | undefined) || null;
 }
 
+export async function upsertFinancialAdvanceRequestTask(
+  db: SupabaseClient,
+  args: {
+    workspaceId: string;
+    conversationId: string;
+    driverId: string;
+    driverName?: string | null;
+    demandTitle: string;
+    sectorId?: string | null;
+    financialReview?: LeaderFinancialReviewContext | Record<string, unknown> | null;
+    requestedAmount?: number | null;
+    requestReason?: string | null;
+  }
+): Promise<void> {
+  const { data: existing } = await db
+    .from('pending_tasks')
+    .select('id')
+    .eq('task_type', 'financial_advance_request')
+    .eq('conversation_id', args.conversationId)
+    .in('status', ['open', 'in_progress'])
+    .limit(1)
+    .maybeSingle();
+
+  const finReview = args.financialReview as LeaderFinancialReviewContext | null | undefined;
+  const summary = formatTaskNotificationSummary(finReview ?? null, args.driverName || 'Entregador', {
+    requestedAmount: args.requestedAmount,
+    requestReason: args.requestReason,
+  });
+
+  const payload: Record<string, unknown> = {
+    title: args.demandTitle,
+    description: summary,
+    priority: 'high',
+    driver_id: args.driverId,
+    sector_id: args.sectorId ?? null,
+    metadata: {
+      source: 'portal_lider',
+      phase: 'review',
+      demand_title: args.demandTitle,
+      notification_summary: summary,
+      ...(args.requestedAmount != null ? { requested_amount: args.requestedAmount } : {}),
+      ...(args.requestReason ? { request_reason: args.requestReason } : {}),
+      ...(args.financialReview ? { financial_review: args.financialReview } : {}),
+    },
+    updated_at: new Date().toISOString(),
+  };
+
+  if (existing?.id) {
+    await db.from('pending_tasks').update(payload).eq('id', existing.id);
+    return;
+  }
+
+  const allowed = await isTaskTypeCreatableForWorkspace(
+    db,
+    args.workspaceId,
+    'financial_advance_request',
+    'guided_demand'
+  );
+  if (!allowed) return;
+
+  await db.from('pending_tasks').insert({
+    task_type: 'financial_advance_request',
+    status: 'open',
+    source: 'system',
+    conversation_id: args.conversationId,
+    workspace_id: args.workspaceId,
+    ...payload,
+  });
+}
+
 export async function upsertGuidedDemandTask(
   db: SupabaseClient,
   args: {
@@ -27,11 +100,15 @@ export async function upsertGuidedDemandTask(
     dueAt?: string | null;
     assigneeId?: string | null;
     sectorId?: string | null;
+    driverId?: string | null;
+    metadataExtra?: Record<string, unknown>;
   }
 ): Promise<void> {
   const { data: conv } = await db
     .from('conversations')
-    .select('attendant_id, sector_id, intent_sector_id, sla_treatment_deadline, workspace_id')
+    .select(
+      'attendant_id, sector_id, intent_sector_id, sla_treatment_deadline, workspace_id, context_driver_id'
+    )
     .eq('id', args.conversationId)
     .maybeSingle();
   if (!conv) return;
@@ -51,6 +128,7 @@ export async function upsertGuidedDemandTask(
     .maybeSingle();
 
   const sectorLabel = args.sectorName?.trim() || 'Triagem guiada';
+  const driverId = args.driverId ?? (conv.context_driver_id as string | null) ?? null;
   const payload: Record<string, unknown> = {
     title: args.demandTitle,
     description: `Demanda registrada no setor ${sectorLabel}.`,
@@ -60,16 +138,23 @@ export async function upsertGuidedDemandTask(
       demand_key: args.demandKey,
       demand_title: args.demandTitle,
       sector_name: sectorLabel,
+      ...(args.metadataExtra || {}),
     },
     updated_at: new Date().toISOString(),
   };
   if (assigneeId) payload.assignee_id = assigneeId;
   if (sectorId) payload.sector_id = sectorId;
+  if (driverId) payload.driver_id = driverId;
 
   if (existing?.id) {
     await db.from('pending_tasks').update(payload).eq('id', existing.id);
     return;
   }
+
+  const workspaceId = String(conv.workspace_id || '');
+  if (!workspaceId) return;
+  const allowed = await isTaskTypeCreatableForWorkspace(db, workspaceId, 'guided_demand', 'guided_demand');
+  if (!allowed) return;
 
   await db.from('pending_tasks').insert({
     task_type: 'guided_demand',
@@ -89,7 +174,9 @@ export async function ensureGuidedDemandTaskForConversation(
 ): Promise<void> {
   const { data: conv } = await db
     .from('conversations')
-    .select('id, demand_key, status, sector_id, intent_sector_id, attendant_id, sla_treatment_deadline')
+    .select(
+      'id, demand_key, status, sector_id, intent_sector_id, attendant_id, sla_treatment_deadline, context_driver_id'
+    )
     .eq('workspace_id', workspaceId)
     .eq('id', conversationId)
     .maybeSingle();
@@ -114,6 +201,7 @@ export async function ensureGuidedDemandTaskForConversation(
     dueAt: (conv.sla_treatment_deadline as string | null) ?? null,
     assigneeId: (conv.attendant_id as string | null) ?? null,
     sectorId,
+    driverId: (conv.context_driver_id as string | null) ?? null,
   });
 }
 

@@ -1,9 +1,11 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { verifyUserPassword } from '../lib/authPassword';
 import { supabase } from '../lib/supabase';
 import { authenticate } from '../middleware/authenticate';
-import { listSectorIdsForUser } from '../lib/userSectorsDb';
+import { listSectorIdsForUser, resolveSectorIdsFromQueueAssignments } from '../lib/userSectorsDb';
 import { getDefaultWorkspace, listWorkspaceMemberships, resolveActiveMembership } from '../lib/workspaceContext';
+import { resolveAuthRolesForUser } from '../lib/membershipRoles';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -32,9 +34,9 @@ export async function authRoutes(app: FastifyInstance) {
 
     if (error || !user) return reply.status(401).send({ error: 'Credenciais inválidas' });
 
-    // Verifica senha (armazenada no Supabase Auth ou campo proprio)
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password });
-    if (authError || !authData.user) return reply.status(401).send({ error: 'Credenciais inválidas' });
+    // Valida senha sem manter sessão Auth no cliente Supabase compartilhado (evita RLS "self only" nas queries seguintes).
+    const passwordOk = await verifyUserPassword(email, password);
+    if (!passwordOk) return reply.status(401).send({ error: 'Credenciais inválidas' });
 
     const memberships = await listWorkspaceMemberships(String(user.id)).catch(() => []);
     const defaultWorkspace = await getDefaultWorkspace().catch(() => null);
@@ -58,13 +60,31 @@ export async function authRoutes(app: FastifyInstance) {
         : null);
 
     const resolvedRole = activeMembership?.workspace_role || user.roles?.name || 'attendant';
-    const resolvedPermissions = activeMembership?.permissions || user.roles?.permissions || {};
+    const activeWs = activeMembership?.workspace_id || null;
+    const authRoles = activeWs
+      ? await resolveAuthRolesForUser(supabase, activeWs, user.id, user.role_id)
+      : {
+          primaryRoleName: String(resolvedRole).toLowerCase(),
+          primaryRoleId: user.role_id ? String(user.role_id) : null,
+          roleNames: [String(resolvedRole).toLowerCase()],
+          roleIds: user.role_id ? [String(user.role_id)] : [],
+          permissions: (user.roles?.permissions as Record<string, unknown>) || {},
+          rows: [],
+        };
+    const resolvedPermissions = authRoles.permissions;
 
     let sector_ids: string[] = [];
     try {
-      sector_ids = await listSectorIdsForUser(supabase, user.id);
+      sector_ids = await listSectorIdsForUser(supabase, user.id, activeWs);
     } catch {
       sector_ids = [];
+    }
+    if (!sector_ids.length && activeWs) {
+      try {
+        sector_ids = await resolveSectorIdsFromQueueAssignments(supabase, activeWs, user.id);
+      } catch {
+        sector_ids = [];
+      }
     }
     if (!sector_ids.length && user.sector_id) sector_ids = [user.sector_id];
 
@@ -73,8 +93,9 @@ export async function authRoutes(app: FastifyInstance) {
         sub: user.id,
         email: user.email,
         name: user.name,
-        role: resolvedRole,
-        workspace_role: resolvedRole,
+        role: authRoles.primaryRoleName,
+        workspace_role: authRoles.primaryRoleName,
+        workspace_roles: authRoles.roleNames,
         platform_role: user.platform_role || 'member',
         workspace_id: activeMembership?.workspace_id || null,
         active_workspace_id: activeMembership?.workspace_id || null,
@@ -93,8 +114,9 @@ export async function authRoutes(app: FastifyInstance) {
         id: user.id,
         name: user.name,
         email: user.email,
-        role: resolvedRole,
-        workspace_role: resolvedRole,
+        role: authRoles.primaryRoleName,
+        workspace_role: authRoles.primaryRoleName,
+        workspace_roles: authRoles.roleNames,
         platform_role: user.platform_role || 'member',
         workspace_id: activeMembership?.workspace_id || null,
         active_workspace_id: activeMembership?.workspace_id || null,
@@ -156,15 +178,22 @@ export async function authRoutes(app: FastifyInstance) {
           }
         : null);
     const effectiveMemberships = memberships.length ? memberships : effectiveActiveMembership ? [effectiveActiveMembership] : [];
+    const activeWs = effectiveActiveMembership?.workspace_id || payload.workspace_id || null;
+    const authRoles = activeWs
+      ? await resolveAuthRolesForUser(supabase, activeWs, payload.sub, user?.role_id ? String(user.role_id) : null)
+      : null;
     return reply.send({
       ...user,
       active_workspace_id: effectiveActiveMembership?.workspace_id || null,
       active_workspace_name: effectiveActiveMembership?.workspace_name || null,
       workspace_memberships: effectiveMemberships,
-      workspace_role: effectiveActiveMembership?.workspace_role || null,
+      workspace_role: authRoles?.primaryRoleName || effectiveActiveMembership?.workspace_role || null,
+      workspace_roles: authRoles?.roleNames || (effectiveActiveMembership?.workspace_role ? [effectiveActiveMembership.workspace_role] : []),
       platform_role: user?.platform_role || 'member',
       effective_permissions:
-        effectiveActiveMembership?.permissions || ((user?.roles as { permissions?: Record<string, unknown> } | null)?.permissions ?? {}),
+        authRoles?.permissions ||
+        effectiveActiveMembership?.permissions ||
+        ((user?.roles as { permissions?: Record<string, unknown> } | null)?.permissions ?? {}),
     });
   });
 
@@ -203,18 +232,27 @@ export async function authRoutes(app: FastifyInstance) {
     } catch {
       sector_ids = [];
     }
+    if (!sector_ids.length) {
+      try {
+        sector_ids = await resolveSectorIdsFromQueueAssignments(supabase, body.data.workspace_id, jwtUser.sub);
+      } catch {
+        sector_ids = [];
+      }
+    }
     if (!sector_ids.length && user?.sector_id) sector_ids = [user.sector_id];
 
     const workspaceRole = target?.workspace_role || 'attendant';
-    const permissions = target?.permissions || {};
+    const authRoles = await resolveAuthRolesForUser(supabase, body.data.workspace_id, jwtUser.sub);
+    const permissions = authRoles.permissions;
 
     const token = app.jwt.sign(
       {
         sub: jwtUser.sub,
         email: user?.email || jwtUser.email,
         name: user?.name || jwtUser.name,
-        role: workspaceRole,
-        workspace_role: workspaceRole,
+        role: authRoles.primaryRoleName,
+        workspace_role: authRoles.primaryRoleName,
+        workspace_roles: authRoles.roleNames,
         platform_role: user?.platform_role || jwtUser.platform_role || 'member',
         workspace_id: body.data.workspace_id,
         active_workspace_id: body.data.workspace_id,
@@ -233,8 +271,9 @@ export async function authRoutes(app: FastifyInstance) {
         id: jwtUser.sub,
         name: user?.name,
         email: user?.email,
-        role: workspaceRole,
-        workspace_role: workspaceRole,
+        role: authRoles.primaryRoleName,
+        workspace_role: authRoles.primaryRoleName,
+        workspace_roles: authRoles.roleNames,
         platform_role: user?.platform_role || jwtUser.platform_role || 'member',
         workspace_id: body.data.workspace_id,
         active_workspace_id: body.data.workspace_id,

@@ -1,18 +1,23 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, type FastifyReply } from 'fastify';
+import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { supabase } from '../lib/supabase';
 import { authenticate, requireRole } from '../middleware/authenticate';
 import { requireCadastroManage } from '../lib/permissions';
 import { writeAuditLog } from '../lib/auditLog';
 import { normalizeNameLike } from '../lib/textNormalization';
+import { normalizeCpf } from '../lib/brCadastroNormalize';
 import {
   buildDriverImportTemplate,
   parseDriverImportWorkbook,
   IMPORT_MAX_BYTES,
 } from '../lib/excelCadastroImport';
 import { syncDriverLeaderContext } from '../lib/driverLeaderSync';
-import { offboardDriver } from '../lib/driverOffboarding';
+import { buildCadastroSearchOrFilter, DRIVER_SEARCH_CONFIG } from '../lib/cadastroSearch';
+import { offboardDriver, endDriverPharmacyLinks } from '../lib/driverOffboarding';
+import { loadDriverOperationalLastWorkedAt } from '../lib/billingSettlementLastWorked';
 import { requireWorkspace } from '../lib/workspaceContext';
+import { syncDriverDocumentsAfterSave, buildDocumentStatusPayload } from '../lib/driverDocumentAlerts';
 
 const driverSchema = z.object({
   name: z.string().min(2),
@@ -37,6 +42,23 @@ const driverSchema = z.object({
   doc_status: z.enum(['ok', 'pending', 'expired']).default('ok'),
   notes: z.string().optional(),
   pix_key: z.string().optional().nullable(),
+  pix_key_type: z.string().optional().nullable(),
+  whatsapp: z.string().optional().nullable(),
+  birth_date: z.string().optional().nullable(),
+  cnh_number: z.string().optional().nullable(),
+  cnh_expires_at: z.string().optional().nullable(),
+  address_cep: z.string().optional().nullable(),
+  address_street: z.string().optional().nullable(),
+  address_number: z.string().optional().nullable(),
+  address_neighborhood: z.string().optional().nullable(),
+  address_complement: z.string().optional().nullable(),
+  vehicle_plate: z.string().optional().nullable(),
+  vehicle_model: z.string().optional().nullable(),
+  vehicle_color: z.string().optional().nullable(),
+  vehicle_renavam: z.string().optional().nullable(),
+  vehicle_model_year: z.string().optional().nullable(),
+  flux_delivery_driver_id: z.string().optional().nullable(),
+  flux_delivery_synced_at: z.string().optional().nullable(),
   tags: z.array(z.string()).default([]),
   work_schedule: z.any().optional(),
 });
@@ -50,6 +72,59 @@ const linkSchema = z.object({
 
 function stripUndefined<T extends Record<string, unknown>>(row: T): Record<string, unknown> {
   return Object.fromEntries(Object.entries(row).filter(([, v]) => v !== undefined));
+}
+
+async function replyDriverUniqueConflict(
+  reply: FastifyReply,
+  db: SupabaseClient,
+  workspaceId: string,
+  error: PostgrestError | { message?: string; code?: string },
+  hints?: { cpf?: string | null; phone?: string | null }
+) {
+  if (error.code !== '23505' && !(error.message || '').toLowerCase().includes('unique')) {
+    return null;
+  }
+  const msg = (error.message || '').toLowerCase();
+  if (msg.includes('cpf')) {
+    let existing: { id: string; name: string } | null = null;
+    if (hints?.cpf) {
+      const { data } = await db
+        .from('drivers')
+        .select('id, name')
+        .eq('workspace_id', workspaceId)
+        .eq('cpf', hints.cpf)
+        .maybeSingle();
+      if (data?.id) existing = { id: String(data.id), name: String(data.name || '') };
+    }
+    return reply.status(409).send({
+      error: 'Já existe um entregador cadastrado com este CPF.',
+      code: 'DUPLICATE_CPF',
+      existing_driver_id: existing?.id ?? null,
+      existing_driver_name: existing?.name ?? null,
+    });
+  }
+  if (msg.includes('phone')) {
+    let existing: { id: string; name: string } | null = null;
+    if (hints?.phone) {
+      const { data } = await db
+        .from('drivers')
+        .select('id, name')
+        .eq('workspace_id', workspaceId)
+        .eq('phone', hints.phone)
+        .maybeSingle();
+      if (data?.id) existing = { id: String(data.id), name: String(data.name || '') };
+    }
+    return reply.status(409).send({
+      error: 'Já existe um entregador cadastrado com este telefone.',
+      code: 'DUPLICATE_PHONE',
+      existing_driver_id: existing?.id ?? null,
+      existing_driver_name: existing?.name ?? null,
+    });
+  }
+  return reply.status(409).send({
+    error: 'Já existe um entregador com os mesmos dados (telefone ou CPF).',
+    code: 'DUPLICATE_DRIVER',
+  });
 }
 
 const importPre = [authenticate, requireRole('admin', 'supervisor')] as const;
@@ -206,12 +281,42 @@ export async function driverRoutes(app: FastifyInstance) {
 
     if (status) query = query.eq('status', status);
     if (doc_status) query = query.eq('doc_status', doc_status);
-    if (search) query = query.or(`name.ilike.%${search}%,cpf.ilike.%${search}%,phone.ilike.%${search}%`);
+    if (search) {
+      const orFilter = buildCadastroSearchOrFilter(search, DRIVER_SEARCH_CONFIG);
+      if (orFilter) query = query.or(orFilter);
+    }
     if (pharmacy_id) query = query.eq('primary_pharmacy_id', pharmacy_id);
+    if (search?.trim()) query = query.limit(25);
 
     const { data, error } = await query;
     if (error) return reply.status(500).send({ error: error.message });
     return reply.send(data);
+  });
+
+  app.get('/:id/registration-gaps', { preHandler: [authenticate] }, async (request, reply) => {
+    const workspaceId = await requireWorkspace(request, reply);
+    if (!workspaceId) return;
+    const { id } = request.params as { id: string };
+    const { getDriverRegistrationGapsPublic } = await import('../lib/driverRegistrationGaps.js');
+    const data = await getDriverRegistrationGapsPublic(id, workspaceId);
+    if ((data as { error?: string }).error === 'not_found') return reply.status(404).send({ error: 'Entregador não encontrado' });
+    if ((data as { error?: string }).error) return reply.status(500).send({ error: String((data as { error?: string }).error) });
+    return reply.send(data);
+  });
+
+  app.get('/:id/document-status', { preHandler: [authenticate] }, async (request, reply) => {
+    const workspaceId = await requireWorkspace(request, reply);
+    if (!workspaceId) return;
+    const { id } = request.params as { id: string };
+    const { data: driver, error } = await supabase
+      .from('drivers')
+      .select('cnh_expires_at, has_digital_certificate, digital_certificate_expires_at, doc_status')
+      .eq('workspace_id', workspaceId)
+      .eq('id', id)
+      .maybeSingle();
+    if (error) return reply.status(500).send({ error: error.message });
+    if (!driver) return reply.status(404).send({ error: 'Entregador não encontrado' });
+    return reply.send(buildDocumentStatusPayload(driver));
   });
 
   app.get('/:id', { preHandler: [authenticate] }, async (request, reply) => {
@@ -222,7 +327,7 @@ export async function driverRoutes(app: FastifyInstance) {
       .from('drivers')
       .select(`
         *,
-        primary_pharmacy:pharmacies!primary_pharmacy_id(id, trade_name, city, primary_attendant_id, leader_id),
+        primary_pharmacy:pharmacies!primary_pharmacy_id(id, trade_name, city, primary_attendant_id, leader_id, leader:leaders(id, name)),
         override_attendant:users!override_attendant_id(id, name),
         override_leader:leaders!override_leader_id(id, name),
         driver_pharmacy_links(
@@ -260,14 +365,39 @@ export async function driverRoutes(app: FastifyInstance) {
       );
       return reply.status(500).send({ error: e instanceof Error ? e.message : 'Falha ao sincronizar líder' });
     }
+    const cpfNorm = body.data.cpf ? normalizeCpf(body.data.cpf) : '';
+    if (cpfNorm) {
+      const { data: existingByCpf } = await supabase
+        .from('drivers')
+        .select('id, name')
+        .eq('workspace_id', workspaceId)
+        .eq('cpf', cpfNorm)
+        .maybeSingle();
+      if (existingByCpf?.id) {
+        return reply.status(409).send({
+          error: 'Já existe um entregador cadastrado com este CPF.',
+          code: 'DUPLICATE_CPF',
+          existing_driver_id: String(existingByCpf.id),
+          existing_driver_name: String(existingByCpf.name || ''),
+        });
+      }
+    }
     const insertRow = stripUndefined({
       workspace_id: workspaceId,
       ...(body.data as Record<string, unknown>),
       name: normalizeNameLike(body.data.name),
+      cpf: cpfNorm || body.data.cpf || undefined,
       override_leader_id: sync.override_leader_id,
     });
     const { data, error } = await supabase.from('drivers').insert({ ...insertRow, workspace_id: workspaceId }).select().single();
-    if (error) return reply.status(500).send({ error: error.message });
+    if (error) {
+      const conflict = await replyDriverUniqueConflict(reply, supabase, workspaceId, error, {
+        cpf: body.data.cpf || null,
+        phone: body.data.phone,
+      });
+      if (conflict) return conflict;
+      return reply.status(500).send({ error: error.message });
+    }
     return reply.status(201).send(data);
   });
 
@@ -284,6 +414,11 @@ export async function driverRoutes(app: FastifyInstance) {
       .eq('id', id)
       .single();
     if (currentDriverError) return reply.status(404).send({ error: 'Entregador nao encontrado' });
+
+    const becomingInactive =
+      body.data.status === 'inactive' && String(currentDriver.status || '') !== 'inactive';
+    const becomingBlocked =
+      body.data.status === 'blocked' && String(currentDriver.status || '') !== 'blocked';
 
     let sync: Awaited<ReturnType<typeof syncDriverLeaderContext>>;
     try {
@@ -314,16 +449,7 @@ export async function driverRoutes(app: FastifyInstance) {
       return reply.status(500).send({ error: e instanceof Error ? e.message : 'Falha ao sincronizar líder' });
     }
 
-    const updateRow = stripUndefined({
-      ...(body.data as Record<string, unknown>),
-      name: body.data.name !== undefined ? normalizeNameLike(body.data.name) : undefined,
-      override_leader_id: sync.override_leader_id,
-      updated_at: new Date().toISOString(),
-    });
-    const { data, error } = await supabase.from('drivers').update(updateRow).eq('workspace_id', workspaceId).eq('id', id).select().single();
-    if (error) return reply.status(500).send({ error: error.message });
-
-    if (body.data.status === 'inactive' && currentDriver.status !== 'inactive') {
+    if (becomingInactive) {
       try {
         const actorId = (request.user as { sub?: string }).sub || null;
         const offboarding = await offboardDriver(supabase, {
@@ -333,10 +459,74 @@ export async function driverRoutes(app: FastifyInstance) {
           source: 'workspace_driver_update',
           reason: 'manual_inactivation',
         });
-        return reply.send({ ...data, offboarding });
+        const { status: _status, ...rest } = body.data;
+        const patch = stripUndefined({
+          ...(rest as Record<string, unknown>),
+          name: body.data.name !== undefined ? normalizeNameLike(body.data.name) : undefined,
+          override_leader_id: sync.override_leader_id,
+          updated_at: new Date().toISOString(),
+        });
+        if (Object.keys(patch).length > 0) {
+          const { data: patched, error: patchErr } = await supabase
+            .from('drivers')
+            .update(patch)
+            .eq('workspace_id', workspaceId)
+            .eq('id', id)
+            .select()
+            .single();
+          if (patchErr) return reply.status(500).send({ error: patchErr.message });
+          await syncDriverDocumentsAfterSave(supabase, id, workspaceId);
+          return reply.send({ ...patched, offboarding });
+        }
+        const { data: refreshed } = await supabase
+          .from('drivers')
+          .select('*')
+          .eq('workspace_id', workspaceId)
+          .eq('id', id)
+          .single();
+        await syncDriverDocumentsAfterSave(supabase, id, workspaceId);
+        return reply.send({ ...(refreshed || {}), offboarding });
       } catch (e) {
-        return reply.status(500).send({ error: e instanceof Error ? e.message : 'Falha ao encerrar vínculos do entregador' });
+        return reply.status(500).send({
+          error: e instanceof Error ? e.message : 'Falha ao encerrar vínculos do entregador',
+        });
       }
+    }
+
+    if (becomingBlocked) {
+      try {
+        await endDriverPharmacyLinks(supabase, {
+          driverId: id,
+          endedAt: new Date().toISOString().slice(0, 10),
+        });
+      } catch (e) {
+        return reply.status(500).send({
+          error: e instanceof Error ? e.message : 'Falha ao encerrar vínculos do entregador',
+        });
+      }
+    }
+
+    const updateRow = stripUndefined({
+      ...(body.data as Record<string, unknown>),
+      name: body.data.name !== undefined ? normalizeNameLike(body.data.name) : undefined,
+      override_leader_id: sync.override_leader_id,
+      updated_at: new Date().toISOString(),
+      ...(becomingBlocked ? { primary_pharmacy_id: null, override_leader_id: null } : {}),
+    });
+    const { data, error } = await supabase.from('drivers').update(updateRow).eq('workspace_id', workspaceId).eq('id', id).select().single();
+    if (error) {
+      const conflict = await replyDriverUniqueConflict(reply, supabase, workspaceId, error, {
+        cpf: (body.data.cpf as string | undefined) ?? null,
+        phone: (body.data.phone as string | undefined) ?? currentDriver.phone,
+      });
+      if (conflict) return conflict;
+      return reply.status(500).send({ error: error.message });
+    }
+
+    try {
+      await syncDriverDocumentsAfterSave(supabase, id, workspaceId);
+    } catch (e) {
+      app.log.warn({ err: e, driver_id: id }, 'Falha ao sincronizar alertas de documentos');
     }
 
     return reply.send(data);
@@ -349,13 +539,44 @@ export async function driverRoutes(app: FastifyInstance) {
     const body = linkSchema.safeParse(request.body);
     if (!body.success) return reply.status(400).send({ error: 'Dados invalidos', details: body.error.flatten() });
 
+    const { data: driverRow, error: driverErr } = await supabase
+      .from('drivers')
+      .select('status')
+      .eq('workspace_id', workspaceId)
+      .eq('id', id)
+      .single();
+    if (driverErr || !driverRow) return reply.status(404).send({ error: 'Entregador nao encontrado' });
+    if (driverRow.status !== 'active') {
+      return reply.status(400).send({ error: 'Entregador inativo ou bloqueado não pode receber vínculo com farmácia' });
+    }
+
+    const { data: pharmacyRow, error: pharmacyErr } = await supabase
+      .from('pharmacies')
+      .select('status')
+      .eq('workspace_id', workspaceId)
+      .eq('id', body.data.pharmacy_id)
+      .single();
+    if (pharmacyErr || !pharmacyRow) return reply.status(404).send({ error: 'Farmácia não encontrada' });
+    if (pharmacyRow.status !== 'active') {
+      return reply.status(400).send({ error: 'Farmácia inativa não pode receber vínculo com entregador' });
+    }
+
     if (body.data.is_primary) {
       await supabase.from('driver_pharmacy_links').update({ is_primary: false }).eq('workspace_id', workspaceId).eq('driver_id', id);
     }
 
     const { data, error } = await supabase
       .from('driver_pharmacy_links')
-      .upsert({ workspace_id: workspaceId, driver_id: id, ...body.data, is_active: true }, { onConflict: 'driver_id,pharmacy_id' })
+      .upsert(
+        {
+          workspace_id: workspaceId,
+          driver_id: id,
+          ...body.data,
+          is_active: true,
+          ended_at: null,
+        },
+        { onConflict: 'driver_id,pharmacy_id' },
+      )
       .select('*, pharmacies(id, trade_name)')
       .single();
 
@@ -387,9 +608,12 @@ export async function driverRoutes(app: FastifyInstance) {
     const { id, pharmacyId } = request.params as { id: string; pharmacyId: string };
     const currentDriver = await supabase.from('drivers').select('primary_pharmacy_id').eq('workspace_id', workspaceId).eq('id', id).single();
 
+    const operationalLastWorked = await loadDriverOperationalLastWorkedAt(workspaceId, id);
+    const endedAt = operationalLastWorked || new Date().toISOString().split('T')[0];
+
     const { error } = await supabase
       .from('driver_pharmacy_links')
-      .update({ is_active: false, ended_at: new Date().toISOString().split('T')[0] })
+      .update({ is_active: false, ended_at: endedAt })
       .eq('workspace_id', workspaceId)
       .eq('driver_id', id)
       .eq('pharmacy_id', pharmacyId);

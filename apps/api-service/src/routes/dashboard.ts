@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { authenticate } from '../middleware/authenticate';
 import { supabase } from '../lib/supabase';
 import { requireWorkspace } from '../lib/workspaceContext';
+import { buildTeamPresence, resolvePresenceState, readPresenceMap } from '../lib/presenceTeam';
 
 type UiAgentStatus = 'online' | 'idle' | 'offline' | 'busy';
 
@@ -118,8 +119,25 @@ export async function dashboardRoutes(app: FastifyInstance) {
       supabase.from('users').select('id, name, role, is_active').order('name'),
     ]);
 
-    const online = (users || []).filter((u) => u.is_active).length;
-    const totalUsers = (users || []).length;
+    const presenceMap = await readPresenceMap(supabase, workspaceId);
+    const { data: staffMemberships } = await supabase
+      .from('workspace_memberships')
+      .select('user_id, roles(name), users!inner(id, name, is_active)')
+      .eq('workspace_id', workspaceId)
+      .eq('is_active', true);
+    const staffForPresence: Array<{ id: string; name: string }> = [];
+    for (const row of staffMemberships || []) {
+      const roles = row.roles as { name?: string } | { name?: string }[] | null;
+      const roleName = String((Array.isArray(roles) ? roles[0] : roles)?.name || '').toLowerCase();
+      if (roleName !== 'attendant' && roleName !== 'supervisor' && roleName !== 'admin') continue;
+      const userRow = row.users as { id?: string; name?: string; is_active?: boolean } | { id?: string; name?: string; is_active?: boolean }[];
+      const user = Array.isArray(userRow) ? userRow[0] : userRow;
+      if (!user?.id || user.is_active === false) continue;
+      staffForPresence.push({ id: String(user.id), name: String(user.name || 'Atendente') });
+    }
+    const teamPresence = await buildTeamPresence(supabase, workspaceId, staffForPresence);
+    const online = teamPresence.online_count;
+    const totalUsers = teamPresence.total;
 
     // Conversas "hoje"
     const todaySince = startOfTodayIso();
@@ -220,13 +238,33 @@ export async function dashboardRoutes(app: FastifyInstance) {
         : 0;
 
     // Top agentes (no período selecionado) — agrupa conversas por atendente
-    const { data: byAttendant } = await supabase
-      .from('conversations')
-      .select('id, attendant:users!attendant_id(id, name, is_active)')
-      .eq('workspace_id', workspaceId)
-      .gte('created_at', since)
-      .not('attendant_id', 'is', null)
-      .limit(5000);
+    const [{ data: byAttendant }, { data: csatRows }] = await Promise.all([
+      supabase
+        .from('conversations')
+        .select('id, attendant:users!attendant_id(id, name, is_active)')
+        .eq('workspace_id', workspaceId)
+        .gte('created_at', since)
+        .not('attendant_id', 'is', null)
+        .limit(5000),
+      supabase
+        .from('conversations')
+        .select('attendant_id, csat_score')
+        .eq('workspace_id', workspaceId)
+        .gte('csat_responded_at', since)
+        .not('csat_score', 'is', null)
+        .limit(5000),
+    ]);
+
+    const csatByAttendant = new Map<string, { sum: number; count: number }>();
+    for (const row of csatRows || []) {
+      const aid = String((row as { attendant_id?: string }).attendant_id || '');
+      const score = Number((row as { csat_score?: number }).csat_score);
+      if (!aid || !Number.isFinite(score)) continue;
+      const cur = csatByAttendant.get(aid) || { sum: 0, count: 0 };
+      cur.sum += score;
+      cur.count += 1;
+      csatByAttendant.set(aid, cur);
+    }
 
     const grouped = new Map<string, { id: string; name: string; is_active: boolean; chats: number }>();
     for (const row of (byAttendant || []) as Array<any>) {
@@ -242,10 +280,29 @@ export async function dashboardRoutes(app: FastifyInstance) {
       .sort((a, b) => b.chats - a.chats)
       .slice(0, 5)
       .map((a) => {
-        const v = hash01(a.id);
-        const status: UiAgentStatus = a.is_active ? (v < 0.15 ? 'busy' : v < 0.3 ? 'idle' : 'online') : 'offline';
-        return { id: a.id, name: a.name, initials: initialsFromName(a.name), chats: a.chats, csat: null, status };
+        const presence = resolvePresenceState(presenceMap[a.id]);
+        const status: UiAgentStatus = a.is_active
+          ? presence === 'online'
+            ? 'online'
+            : presence === 'idle'
+              ? 'idle'
+              : 'offline'
+          : 'offline';
+        const csatAgg = csatByAttendant.get(a.id);
+        const csat =
+          csatAgg && csatAgg.count > 0 ? Number((csatAgg.sum / csatAgg.count).toFixed(1)) : null;
+        return { id: a.id, name: a.name, initials: initialsFromName(a.name), chats: a.chats, csat, status };
       });
+
+    let csatAvg: number | null = null;
+    if (csatRows?.length) {
+      const scores = (csatRows as Array<{ csat_score?: number }>)
+        .map((r) => Number(r.csat_score))
+        .filter((n) => Number.isFinite(n));
+      if (scores.length) {
+        csatAvg = Number((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1));
+      }
+    }
 
     const convTodayDelta = pctDelta(conversationsToday || 0, conversationsYesterday || 0);
     const firstRespDelta = (() => {
@@ -262,6 +319,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
         conversations_today: conversationsToday || 0,
         avg_first_response_seconds: avgFirstResponseSeconds,
         resolution_rate_percent: resolutionRate,
+        csat_avg: csatAvg,
         agents_online: { online, total: totalUsers },
       },
       deltas: {

@@ -55,6 +55,7 @@ export async function loadConversationCopilotContext(
       `
         id, status, priority, tags, summary, opened_at, last_message_at,
         demand_key, sla_applied_from, workspace_channel_id,
+        ai_sentiment_last, ai_urgency_score, ai_topic_id,
         sla_first_response_deadline, sla_first_response_at, sla_first_response_ok,
         sla_treatment_deadline, sla_resolution_deadline, sla_resolved_ok,
         intent_sector_id,
@@ -68,7 +69,7 @@ export async function loadConversationCopilotContext(
         ),
         context_driver:drivers!context_driver_id(id, name, cpf, phone),
         context_leader:leaders!context_leader_id(id, name, phone),
-        messages(id, direction, type, content, created_at)
+        messages(id, direction, type, content, created_at, ai_sentiment, ai_sentiment_score, ai_urgency, ai_urgency_score, ai_analyzed_at)
       `,
     )
     .eq('id', conversationId);
@@ -77,8 +78,19 @@ export async function loadConversationCopilotContext(
 
   if (error || !data) return null;
 
-  const messages = (data as { messages?: Array<{ direction?: string; type?: string; content?: string | null; created_at?: string }> })
-    .messages;
+  const messages = (data as {
+    messages?: Array<{
+      direction?: string;
+      type?: string;
+      content?: string | null;
+      created_at?: string;
+      ai_sentiment?: string | null;
+      ai_sentiment_score?: number | null;
+      ai_urgency?: string | null;
+      ai_urgency_score?: number | null;
+      ai_analyzed_at?: string | null;
+    }>;
+  }).messages;
   const recent = (messages || [])
     .slice(-15)
     .map((m) => ({
@@ -86,6 +98,11 @@ export async function loadConversationCopilotContext(
       type: m.type,
       content: (m.content || '').slice(0, 500),
       created_at: m.created_at,
+      ai_sentiment: m.ai_sentiment ?? null,
+      ai_sentiment_score: m.ai_sentiment_score ?? null,
+      ai_urgency: m.ai_urgency ?? null,
+      ai_urgency_score: m.ai_urgency_score ?? null,
+      ai_analyzed_at: m.ai_analyzed_at ?? null,
     }));
 
   const ctx = data as Record<string, unknown>;
@@ -112,6 +129,9 @@ export async function loadConversationCopilotContext(
       sla_applied_from: ctx.sla_applied_from ?? null,
       workspace_channel_id: ctx.workspace_channel_id ?? null,
       intent_sector_id: ctx.intent_sector_id ?? null,
+      ai_sentiment_last: ctx.ai_sentiment_last ?? null,
+      ai_urgency_score: ctx.ai_urgency_score ?? null,
+      ai_topic_id: ctx.ai_topic_id ?? null,
       sla: {
         first_response_deadline: ctx.sla_first_response_deadline ?? null,
         first_response_at: ctx.sla_first_response_at ?? null,

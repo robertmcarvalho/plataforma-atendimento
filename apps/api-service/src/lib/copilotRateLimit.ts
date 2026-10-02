@@ -19,11 +19,6 @@ function memoryRateLimitHit(userId: string): boolean {
   return false;
 }
 
-/** @deprecated Prefer copilotRateLimitHitAsync for multi-replica deployments. */
-export function copilotRateLimitHit(userId: string): boolean {
-  return memoryRateLimitHit(userId);
-}
-
 export async function copilotRateLimitHitAsync(userId: string): Promise<boolean> {
   const bucketKey = `copilot:${userId}`;
   const now = new Date();

@@ -49,7 +49,13 @@ Resumo: 1 a 2 linhas (pode ser paragrafo ou lista curta).
 
 Dados encontrados: lista ou tabela com fatos das tools.
 
-Resposta sugerida para o cliente: opcional em paragrafo separado, somente quando fizer sentido e sem dados nao confirmados.
+Quando o atendente pedir sugestao de resposta ou rascunho, inclua OBRIGATORIAMENTE a secao abaixo com SOMENTE o texto para WhatsApp (sem analise interna):
+
+## Resposta sugerida para o cliente
+
+(texto pronto para colar no composer — paragrafo(s) direto(s) ao contato, sem bullets de analise)
+
+Resumo, Dados encontrados e Alertas/limitacoes ficam em secoes separadas; nunca misture analise dentro de "Resposta sugerida para o cliente".
 
 Alertas/limitacoes: opcional.
 

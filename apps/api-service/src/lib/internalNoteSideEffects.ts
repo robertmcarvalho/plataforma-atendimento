@@ -1,4 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { formatTaskTitle, isTaskTypeCreatableForWorkspace, loadOpsTaskCatalog, catalogEntryByType } from './opsTaskCatalog';
+import { shouldSkipDriverRegistrationTask } from './driverRegistrationGuards';
+import { evaluateInternalNoteAutomation } from './opsTaskAutomation';
 import { supabase } from './supabase';
 import { isInAppEnabled } from './notificationPreferences';
 
@@ -180,19 +183,24 @@ export async function applyInternalNoteSideEffects(input: {
     }
   }
 
+  const assigneeId =
+    (conv as { attendant_id?: string | null }).attendant_id ||
+    (await resolveSupervisorFallback(db, input.workspaceId));
+
   if (DRIVER_REGISTRATION_NOTE_RE.test(input.content) && driverId) {
+    if (await shouldSkipDriverRegistrationTask(db, input.workspaceId, driverId)) {
+      return result;
+    }
+
     const { data: driver } = await db.from('drivers').select('id, name').eq('id', driverId).maybeSingle();
     const driverName = driver?.name || contact?.display_name || 'Entregador';
-    const assigneeId =
-      (conv as { attendant_id?: string | null }).attendant_id ||
-      (await resolveSupervisorFallback(db, input.workspaceId));
 
     const { data: openDup } = await db
       .from('pending_tasks')
       .select('id, title')
       .eq('workspace_id', input.workspaceId)
       .eq('task_type', 'driver_registration_completion')
-      .eq('conversation_id', input.conversationId)
+      .eq('driver_id', driverId)
       .in('status', ['open', 'in_progress'])
       .limit(1)
       .maybeSingle();
@@ -204,33 +212,69 @@ export async function applyInternalNoteSideEffects(input: {
         title: String(openDup.title),
       });
     } else if (assigneeId) {
-      const { data: regTask, error: regErr } = await db
-        .from('pending_tasks')
-        .insert({
-          workspace_id: input.workspaceId,
-          task_type: 'driver_registration_completion',
-          title: `Finalizar cadastro: ${driverName}`,
-          description: 'Solicitação registrada em nota interna. Validar documentos e concluir cadastro do entregador.',
-          status: 'open',
-          priority: 'normal',
-          conversation_id: input.conversationId,
-          driver_id: driverId,
-          assignee_id: assigneeId,
-          sector_id: (conv as { sector_id?: string | null }).sector_id || null,
-          source: 'manual',
-          metadata: { note_id: input.noteId, author_id: input.authorId },
-        })
-        .select('id, task_type, title')
-        .single();
+      const allowed = await isTaskTypeCreatableForWorkspace(
+        db,
+        input.workspaceId,
+        'driver_registration_completion',
+        'internal_note'
+      );
+      if (allowed) {
+        const catalog = await loadOpsTaskCatalog(db, input.workspaceId);
+        const entry = catalogEntryByType(catalog, 'driver_registration_completion');
+        const { data: regTask, error: regErr } = await db
+          .from('pending_tasks')
+          .insert({
+            workspace_id: input.workspaceId,
+            task_type: 'driver_registration_completion',
+            title: formatTaskTitle(entry?.title_template || 'Finalizar cadastro: {driver_name}', {
+              driver_name: driverName,
+            }),
+            description: 'Solicitação registrada em nota interna. Validar documentos e concluir cadastro do entregador.',
+            status: 'open',
+            priority: 'normal',
+            conversation_id: input.conversationId,
+            driver_id: driverId,
+            assignee_id: assigneeId,
+            sector_id: (conv as { sector_id?: string | null }).sector_id || null,
+            source: 'manual',
+            metadata: { note_id: input.noteId, author_id: input.authorId },
+          })
+          .select('id, task_type, title')
+          .single();
 
-      if (regErr) {
-        result.errors.push({ type: 'registration_task_failed', message: regErr.message });
-      } else if (regTask) {
-        result.tasks_created.push({
-          id: String(regTask.id),
-          task_type: String(regTask.task_type),
-          title: String(regTask.title),
-        });
+        if (regErr) {
+          result.errors.push({ type: 'registration_task_failed', message: regErr.message });
+        } else if (regTask) {
+          result.tasks_created.push({
+            id: String(regTask.id),
+            task_type: String(regTask.task_type),
+            title: String(regTask.title),
+          });
+        }
+      }
+    }
+  }
+
+  if (driverId && assigneeId) {
+    const driverName =
+      (await db.from('drivers').select('name').eq('id', driverId).maybeSingle()).data?.name ||
+      contact?.display_name ||
+      'Entregador';
+    const autoTasks = await evaluateInternalNoteAutomation({
+      db,
+      workspaceId: input.workspaceId,
+      content: input.content,
+      driverId,
+      driverName: String(driverName),
+      assigneeId,
+      conversationId: input.conversationId,
+      sectorId: (conv as { sector_id?: string | null }).sector_id || null,
+      noteId: input.noteId,
+      authorId: input.authorId,
+    });
+    for (const task of autoTasks) {
+      if (!result.tasks_created.some((t) => t.id === task.id)) {
+        result.tasks_created.push(task);
       }
     }
   }

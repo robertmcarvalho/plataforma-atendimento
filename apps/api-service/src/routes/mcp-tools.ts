@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { supabase } from '../lib/supabase';
 import { authenticate } from '../middleware/authenticate';
 import { getToolCatalog, isValidToolAction } from '../lib/mcpCatalog';
+import { assertTaskTypeCreatableForWorkspace } from '../lib/opsTaskCatalog';
 import { computeAdvanceDueAtIso, loadSlaAdvanceRequestConfig } from '../lib/slaAdvanceRequest';
 import { requireWorkspace } from '../lib/workspaceContext';
 import { enrichPharmacyApiRow } from '../lib/pharmacyCommercial';
@@ -120,7 +121,7 @@ async function executeTaskingAction(args: {
 
     const taskType =
       String(input.task_type || '').trim() ||
-      (isAdvanceRequest(input) ? 'financial_advance_request' : 'operational_pending');
+      (isAdvanceRequest(input) ? 'financial_advance_request' : 'guided_demand');
     const conversationId = isUuid(context?.conversation_id) ? context?.conversation_id : null;
     const contactId = isUuid(input.contact_id) ? (input.contact_id as string) : null;
     const driverId = isUuid(input.driver_id) ? (input.driver_id as string) : null;
@@ -183,6 +184,17 @@ async function executeTaskingAction(args: {
       const dueAtRaw = String(input.due_at || '').trim();
       dueAt = dueAtRaw ? dueAtRaw : new Date(Date.now() + 6 * 3600 * 1000).toISOString();
       metadata = baseMeta;
+    }
+
+    try {
+      await assertTaskTypeCreatableForWorkspace(supabase, workspaceId, taskType, 'mcp');
+    } catch (e) {
+      return {
+        ok: false,
+        tool: 'mcp-tasking',
+        action,
+        error: e instanceof Error ? e.message : 'task_type_not_allowed',
+      };
     }
 
     const { data, error } = await supabase

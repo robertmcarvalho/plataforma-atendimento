@@ -5,6 +5,11 @@ import { canViewFinancialData, maskCpf, maskPhone, type JwtUser } from './copilo
 import { buildMonthlyDriverSummary, buildWeeklyDriverSummary } from './financialSummaries';
 import { buildPharmaciesWithDriversForLeader } from './leaderPortalScope';
 import { analyzeDriverRegistrationGaps, getDriverRegistrationRequirements } from './driverRegistrationCatalog';
+import {
+  COMMERCIAL_COPILOT_TOOL_DECLARATIONS,
+  executeCommercialCopilotTool,
+  isCommercialCopilotTool,
+} from './commercial/commercialCopilotTools';
 
 export const LIST_LIMIT_MAX = 25;
 
@@ -223,6 +228,12 @@ export const COPILOT_TOOL_DECLARATIONS: GeminiFunctionDeclaration[] = [
     parameters: obj({ driver_id: strReq }, ['driver_id']),
   },
 ];
+
+export function copilotToolDeclarations(commercialMode = false): GeminiFunctionDeclaration[] {
+  return commercialMode
+    ? [...COPILOT_TOOL_DECLARATIONS, ...COMMERCIAL_COPILOT_TOOL_DECLARATIONS]
+    : COPILOT_TOOL_DECLARATIONS;
+}
 
 export const COPILOT_GEMINI_TOOLS: GeminiTool[] = [{ functionDeclarations: COPILOT_TOOL_DECLARATIONS }];
 
@@ -920,6 +931,15 @@ export async function executeCopilotTool(
   rawArgs: Record<string, unknown> | undefined,
   ctx: CopilotToolContext,
 ): Promise<Record<string, unknown>> {
+  if (isCommercialCopilotTool(name)) {
+    const ws = ctx.workspaceId;
+    if (!ws) return { error: 'workspace_required' };
+    return (await executeCommercialCopilotTool(name, rawArgs ?? {}, { workspaceId: ws })) as Record<
+      string,
+      unknown
+    >;
+  }
+
   switch (name) {
     case 'count_drivers': {
       const p = parseArgs(countDriversSchema, rawArgs);

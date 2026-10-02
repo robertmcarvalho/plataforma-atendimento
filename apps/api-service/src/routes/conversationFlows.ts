@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { compileFlowGraphToV2, isSkeletonFlowGraph } from '@plataforma/channel-runtime';
 import { supabase } from '../lib/supabase';
 import {
   simulateLegacyTrace,
@@ -410,14 +411,39 @@ export async function conversationFlowRoutes(app: FastifyInstance) {
     if (fetchError || !version) return reply.status(404).send({ error: 'Versão não encontrada' });
 
     const validation = validateConversationFlowGraph(version.graph || {});
+    const runtimeMode = String((await readWorkspaceSetting(workspaceId, 'flow_runtime_mode')) || 'catalog').toLowerCase();
+
+    let publishGraph: unknown = version.graph || {};
+    let compiledNote: string | null = null;
+
     if (validation.format === 'revive_ui') {
+      publishGraph = compileFlowGraphToV2(publishGraph);
+      compiledNote = 'revive_blocos compilado para DSL v2 (catalog_guided_intake) na publicação.';
+    } else if (validation.format === 'legacy' || isSkeletonFlowGraph(publishGraph)) {
+      const compiled = compileFlowGraphToV2(publishGraph);
+      if (compiled) {
+        publishGraph = compiled;
+        compiledNote = 'Grafo legado/esqueleto compilado para DSL v2 na publicação.';
+      }
+    }
+
+    const publishedValidation = validateConversationFlowGraph(publishGraph);
+    if (publishedValidation.format === 'revive_ui') {
       return reply.status(400).send({
         error:
           'Este rascunho está só no editor em blocos (Revive). Para publicar, inclua também DSL v2 ou legado no JSON — o motor ainda não executa diretamente revive_blocos.',
-        validation,
+        validation: publishedValidation,
       });
     }
-    if (!validation.valid) return reply.status(400).send({ error: 'Fluxo inválido', validation });
+    if (!publishedValidation.valid && publishedValidation.format !== 'v2') {
+      return reply.status(400).send({ error: 'Fluxo inválido', validation: publishedValidation });
+    }
+    if (runtimeMode === 'flow' && publishedValidation.format !== 'v2') {
+      return reply.status(400).send({
+        error: 'Com flow_runtime_mode=flow, publique um fluxo DSL v2 executável.',
+        validation: publishedValidation,
+      });
+    }
 
     await supabase
       .from('conversation_flow_versions')
@@ -430,7 +456,13 @@ export async function conversationFlowRoutes(app: FastifyInstance) {
       .from('conversation_flow_versions')
       .update({
         status: 'published',
-        validation: { valid: validation.valid, issues: validation.issues, format: validation.format },
+        graph: publishGraph,
+        validation: {
+          valid: publishedValidation.valid,
+          issues: publishedValidation.issues,
+          format: publishedValidation.format,
+          compiled_note: compiledNote,
+        },
         published_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })

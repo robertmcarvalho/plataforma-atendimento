@@ -12,6 +12,7 @@ import { leaderRoutes } from './routes/leaders';
 import { driverRoutes } from './routes/drivers';
 import { contactRoutes } from './routes/contacts';
 import { conversationRoutes } from './routes/conversations';
+import { inboxEventsRoutes } from './routes/inboxEvents';
 import { conversationTagRoutes } from './routes/conversationTags';
 import { messageRoutes } from './routes/messages';
 import { templateRoutes } from './routes/templates';
@@ -19,6 +20,7 @@ import { botRoutes } from './routes/bot';
 import { campaignRoutes } from './routes/campaigns';
 import { automationRoutes } from './routes/automations';
 import { financialRoutes } from './routes/financial';
+import { billingRoutes } from './routes/billing';
 import { reportRoutes } from './routes/reports';
 import { slaRoutes } from './routes/sla';
 import { settingRoutes } from './routes/settings';
@@ -32,6 +34,7 @@ import { apiTokenRoutes } from './routes/apiTokens';
 import { auditLogRoutes } from './routes/auditLogs';
 import { copilotRoutes } from './routes/copilot';
 import { dashboardRoutes } from './routes/dashboard';
+import { opsAnalyticsRoutes } from './routes/ops-analytics';
 import { presenceRoutes } from './routes/presence';
 import { geoRoutes } from './routes/geo';
 import { leaderPortalRoutes } from './routes/leader-portal';
@@ -41,9 +44,14 @@ import { mcpToolRoutes } from './routes/mcp-tools';
 import { mcpMetricsRoutes } from './routes/mcp-metrics';
 import { aiRoutes } from './routes/ai';
 import { devBootstrapRoutes } from './routes/dev-bootstrap';
+import { commercialRoutes } from './routes/commercial';
+import { publicCommercialRoutes } from './routes/publicCommercial';
+import { publicBillingRoutes } from './routes/publicBilling';
+import { webhooksAutentiqueRoutes } from './routes/webhooks-autentique';
 import { rollupWorkspaceChannelStats } from './lib/channelRollup';
 import { createLogger, normalizeError } from '@plataforma/logger';
 import { registerRequestContext } from './middleware/requestContext';
+import { resolveCorsOrigin } from './lib/corsOrigin';
 
 const logger = createLogger('api-service');
 const app = Fastify({ logger: false });
@@ -62,8 +70,12 @@ function resolveJwtSecret() {
 
 // Plugins
 app.register(cors, {
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    cb(null, Boolean(resolveCorsOrigin(origin)));
+  },
   credentials: true,
+  allowedHeaders: ['Authorization', 'Content-Type', 'x-workspace-id', 'x-correlation-id'],
 });
 
 app.register(jwt, {
@@ -85,6 +97,7 @@ app.register(leaderRoutes,        { prefix: '/api/leaders' });
 app.register(driverRoutes,        { prefix: '/api/drivers' });
 app.register(contactRoutes,       { prefix: '/api/contacts' });
 app.register(conversationRoutes,  { prefix: '/api/conversations' });
+app.register(inboxEventsRoutes,    { prefix: '/api/inbox' });
 app.register(conversationTagRoutes, { prefix: '/api/conversation-tags' });
 app.register(messageRoutes,       { prefix: '/api/messages' });
 app.register(templateRoutes,      { prefix: '/api/templates' });
@@ -92,8 +105,10 @@ app.register(botRoutes,           { prefix: '/api/bot' });
 app.register(campaignRoutes,      { prefix: '/api/campaigns' });
 app.register(automationRoutes,    { prefix: '/api/automations' });
 app.register(financialRoutes,     { prefix: '/api/financial' });
+app.register(billingRoutes,       { prefix: '/api/billing' });
 app.register(reportRoutes,        { prefix: '/api/reports' });
 app.register(dashboardRoutes,     { prefix: '/api/dashboard' });
+app.register(opsAnalyticsRoutes,  { prefix: '/api/ops-analytics' });
 app.register(presenceRoutes,      { prefix: '/api/presence' });
 app.register(geoRoutes,           { prefix: '/api/geo' });
 app.register(slaRoutes,           { prefix: '/api/sla' });
@@ -112,6 +127,10 @@ app.register(integrationsRoutes, { prefix: '/api/integrations' });
 app.register(apiTokenRoutes,     { prefix: '/api/api-tokens' });
 app.register(auditLogRoutes,     { prefix: '/api/audit-logs' });
 app.register(copilotRoutes,      { prefix: '/api/copilot' });
+app.register(commercialRoutes,   { prefix: '/api/commercial' });
+app.register(publicCommercialRoutes, { prefix: '/api/public/commercial' });
+app.register(publicBillingRoutes, { prefix: '/api/public/billing' });
+app.register(webhooksAutentiqueRoutes, { prefix: '/api/webhooks' });
 app.register(aiRoutes,          { prefix: '/api/ai' });
 
 const enableDevRoutes = process.env.ENABLE_DEV_ROUTES === 'true';

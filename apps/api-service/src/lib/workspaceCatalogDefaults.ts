@@ -1,3 +1,5 @@
+import { DEFAULT_OUT_OF_HOURS_MESSAGE } from '@plataforma/channel-runtime';
+
 export type WorkspaceCatalogDefaults = {
   profiles: Array<{ code: string; label: string; sort_order: number }>;
   sectors: Array<{ sector_key: string; display_name: string; sort_order: number }>;
@@ -128,7 +130,7 @@ export function buildWorkspaceCatalogDefaults(): WorkspaceCatalogDefaults {
       {
         message_key: 'auto_reply_out_of_hours',
         channel: 'whatsapp',
-        content: 'Obrigado pelo contato. No momento estamos fora do horário de atendimento. Voltamos em {{next_open_at}}.',
+        content: DEFAULT_OUT_OF_HOURS_MESSAGE,
       },
     ],
     slaRules: [
@@ -142,7 +144,7 @@ export function buildWorkspaceCatalogDefaults(): WorkspaceCatalogDefaults {
     outOfHours: {
       channel: 'whatsapp',
       is_active: false,
-      message: 'Obrigado pelo contato. No momento estamos fora do horário de atendimento. Voltamos em {{next_open_at}}.',
+      message: DEFAULT_OUT_OF_HOURS_MESSAGE,
       settings: { fallback_sector: 'atendimento-geral' },
     },
   };

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { listWorkspaceChannels } from './workspaceChannels';
 
 export type SectorPair = { sector_id: string; is_primary: boolean };
 
@@ -30,7 +31,65 @@ export async function listSectorIdsForUser(db: SupabaseClient, userId: string, w
   if (workspaceId) query = query.eq('workspace_id', workspaceId);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return (data || []).map((r) => r.sector_id).filter(Boolean) as string[];
+  const fromTable = (data || []).map((r) => r.sector_id).filter(Boolean) as string[];
+  if (fromTable.length || !workspaceId) return fromTable;
+  return resolveSectorIdsFromQueueAssignments(db, workspaceId, userId);
+}
+
+/** Resolve setores a partir das filas WhatsApp quando user_sectors está vazio ou desatualizado. */
+export async function resolveSectorIdsFromQueueAssignments(
+  db: SupabaseClient,
+  workspaceId: string,
+  userId: string
+): Promise<string[]> {
+  const { data: rows, error } = await db
+    .from('user_channel_queue_assignments')
+    .select('queue_name')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', userId)
+    .eq('is_enabled', true);
+  if (error) {
+    if ((error.message || '').includes('user_channel_queue_assignments')) return [];
+    throw new Error(error.message);
+  }
+
+  const queueKeys = [
+    ...new Set(
+      (rows || [])
+        .map((r) => String(r.queue_name || '').trim())
+        .filter((n) => n && n !== 'default')
+    ),
+  ];
+  if (!queueKeys.length) return [];
+
+  const ids = new Set<string>();
+  const uuidKeys = queueKeys.filter((k) => /^[0-9a-f-]{36}$/i.test(k));
+  if (uuidKeys.length) {
+    const { data: byId } = await db.from('sectors').select('id').eq('workspace_id', workspaceId).in('id', uuidKeys);
+    for (const row of byId || []) ids.add(String(row.id));
+  }
+
+  const channels = await listWorkspaceChannels(workspaceId, db).catch(() => []);
+  const nameByConfigId = new Map<string, string>();
+  for (const channel of channels.filter((c) => c.channel_type === 'whatsapp')) {
+    const sectors = Array.isArray(channel.config?.sectors) ? channel.config.sectors : [];
+    for (const raw of sectors) {
+      const sector = raw as Record<string, unknown>;
+      const id = String(sector.id || '').trim();
+      const name = String(sector.name || sector.label || '').trim();
+      if (id && name) nameByConfigId.set(id, name);
+    }
+  }
+
+  const names = [
+    ...new Set(queueKeys.map((k) => nameByConfigId.get(k) || '').filter(Boolean)),
+  ];
+  if (names.length) {
+    const { data: byName } = await db.from('sectors').select('id').eq('workspace_id', workspaceId).in('name', names);
+    for (const row of byName || []) ids.add(String(row.id));
+  }
+
+  return [...ids];
 }
 
 export function buildSectorPairs(input: {

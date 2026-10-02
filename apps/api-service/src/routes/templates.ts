@@ -3,10 +3,23 @@ import { z } from 'zod';
 import { supabase } from '../lib/supabase';
 import { authenticate, requireRole } from '../middleware/authenticate';
 import { requireWorkspace } from '../lib/workspaceContext';
+import { syncMetaTemplatesForWorkspace } from '../lib/metaTemplateSync';
+import {
+  resolveTemplatePickerPurpose,
+  templateMatchesPickerPurpose,
+} from '../lib/commercial/templatePickerFilter';
+
+const HIDDEN_PICKER_TEMPLATE_NAMES = new Set([
+  // Não devem aparecer para atendimento humano: uso interno/backend ou número Meta diferente.
+  'aethera_envio_matricula',
+  'aethera_leader_otp',
+  'hello_world',
+  'leader_otp',
+]);
 
 const templateSchema = z.object({
   name: z.string().min(2),
-  category: z.enum(['discount', 'document', 'welcome', 'closing', 'operational', 'leader', 'pharmacy', 'other']),
+  category: z.enum(['commercial', 'discount', 'document', 'welcome', 'closing', 'operational', 'leader', 'pharmacy', 'other']),
   body: z.string().min(5),
   variables: z.array(z.string()).default([]),
   meta_template_name: z.string().optional(),
@@ -16,6 +29,62 @@ const templateSchema = z.object({
 });
 
 export async function templateRoutes(app: FastifyInstance) {
+  // Rotas estáticas antes de /:id
+  app.get('/list/approved', { preHandler: [authenticate] }, async (request, reply) => {
+    const workspaceId = await requireWorkspace(request, reply);
+    if (!workspaceId) return;
+    const { workspace_channel_id, purpose } = request.query as {
+      workspace_channel_id?: string;
+      purpose?: 'commercial' | 'operational';
+    };
+
+    let channelPurpose: string | null = null;
+    if (workspace_channel_id) {
+      const { data: channel, error: channelError } = await supabase
+        .from('workspace_channels')
+        .select('config')
+        .eq('workspace_id', workspaceId)
+        .eq('id', workspace_channel_id)
+        .maybeSingle();
+      if (channelError) return reply.status(500).send({ error: channelError.message });
+      const config = (channel?.config as Record<string, unknown> | null) || {};
+      channelPurpose = config.purpose != null ? String(config.purpose) : null;
+    }
+
+    // Sem canal/purpose → operacional (não misturar templates de outra WABA no picker).
+    const resolvedPurpose = resolveTemplatePickerPurpose({ purpose, channelPurpose });
+
+    const { data, error } = await supabase
+      .from('message_templates')
+      .select('id, name, category, body, variables, meta_template_name, meta_template_language')
+      .eq('workspace_id', workspaceId)
+      .eq('meta_template_status', 'approved')
+      .eq('is_active', true)
+      .order('name');
+    if (error) return reply.status(500).send({ error: error.message });
+
+    const filtered = (data || []).filter((template) => {
+      const metaName = String(template.meta_template_name || '').trim();
+      if (HIDDEN_PICKER_TEMPLATE_NAMES.has(metaName)) return false;
+      return templateMatchesPickerPurpose(template, resolvedPurpose);
+    });
+
+    return reply.send(filtered);
+  });
+
+  app.post('/sync-meta', { preHandler: [authenticate, requireRole('admin', 'supervisor')] }, async (request, reply) => {
+    const workspaceId = await requireWorkspace(request, reply);
+    if (!workspaceId) return;
+    const user = request.user as { sub: string };
+    try {
+      const result = await syncMetaTemplatesForWorkspace(supabase, workspaceId, user.sub);
+      return reply.send(result);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao sincronizar templates da Meta';
+      return reply.status(502).send({ error: msg });
+    }
+  });
+
   app.get('/', { preHandler: [authenticate] }, async (request, reply) => {
     const workspaceId = await requireWorkspace(request, reply);
     if (!workspaceId) return;
@@ -76,21 +145,6 @@ export async function templateRoutes(app: FastifyInstance) {
       .from('message_templates')
       .update({ meta_template_status: status, updated_at: new Date().toISOString() })
       .eq('workspace_id', workspaceId).eq('id', id).select().single();
-    if (error) return reply.status(500).send({ error: error.message });
-    return reply.send(data);
-  });
-
-  // GET /api/templates/approved — apenas templates aprovados (para campanhas)
-  app.get('/list/approved', { preHandler: [authenticate] }, async (request, reply) => {
-    const workspaceId = await requireWorkspace(request, reply);
-    if (!workspaceId) return;
-    const { data, error } = await supabase
-      .from('message_templates')
-      .select('id, name, category, body, variables, meta_template_name, meta_template_language')
-      .eq('workspace_id', workspaceId)
-      .eq('meta_template_status', 'approved')
-      .eq('is_active', true)
-      .order('name');
     if (error) return reply.status(500).send({ error: error.message });
     return reply.send(data);
   });

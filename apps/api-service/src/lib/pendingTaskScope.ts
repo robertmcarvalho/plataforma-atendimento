@@ -6,22 +6,14 @@ const MAX_CONV_IN_OR = 120;
 
 export { ATTENDANCE_PENDING_TASK_TYPES };
 
-/** Cláusula PostgREST `.or()` para pendências visíveis a um atendente. */
+/** Cláusula PostgREST `.or()` para pendências visíveis a um atendente (somente as dele). */
 export async function buildAttendantPendingTasksOr(
   db: SupabaseClient,
   workspaceId: string,
   user: { sub: string; sector_id?: string | null; sector_ids?: string[] },
-  sectorIds: string[]
+  _sectorIds: string[]
 ): Promise<string> {
   const parts: string[] = [`assignee_id.eq.${user.sub}`];
-
-  if (sectorIds.length) {
-    parts.push(...sectorIds.map((sid) => `sector_id.eq.${sid}`));
-  } else if (user.sector_id) {
-    parts.push(`sector_id.eq.${user.sector_id}`);
-  } else {
-    parts.push('sector_id.is.null');
-  }
 
   const { data: assignedConvs } = await db
     .from('conversations')

@@ -64,7 +64,7 @@ export async function refreshConversationSla(conversationId: string) {
 
   const { data: policies } = await supabase
     .from('sla_policies')
-    .select('*')
+    .select('id, use_business_hours, first_response_minutes, resolution_minutes, sector_id, priority, profile_type')
     .eq('workspace_id', workspaceId);
   const priority = (conv.priority || 'normal') as string;
   const profile =

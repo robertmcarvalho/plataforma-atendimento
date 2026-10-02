@@ -1,31 +1,11 @@
 import ExcelJS from 'exceljs';
 import { z } from 'zod';
+import { normalizeBrazilPhone, normalizeCnpj, normalizeCpf, onlyDigits } from './brCadastroNormalize';
+
+export { normalizeBrazilPhone, normalizeCnpj, normalizeCpf, onlyDigits };
 
 export const IMPORT_MAX_ROWS = 2000;
 export const IMPORT_MAX_BYTES = 8 * 1024 * 1024;
-
-export function onlyDigits(input: string): string {
-  return String(input || '').replace(/\D/g, '');
-}
-
-/** Telefone BR para armazenamento (55 + DDD + número), alinhado ao web. */
-export function normalizeBrazilPhone(input: string): string {
-  const d = onlyDigits(input);
-  if (!d) return '';
-  if (d.startsWith('55') && d.length >= 12) return d;
-  if (d.length === 10 || d.length === 11) return `55${d}`;
-  return d;
-}
-
-export function normalizeCpf(input: string): string {
-  const d = onlyDigits(input).slice(0, 11);
-  return d.length === 11 ? d : '';
-}
-
-export function normalizeCnpj(input: string): string {
-  const d = onlyDigits(input).slice(0, 14);
-  return d.length === 14 ? d : '';
-}
 
 const emptyToNull = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? null : v);
 const truthy = new Set(['1', 'true', 'sim', 'yes', 'y']);

@@ -7,7 +7,7 @@
 export type GraphValidation = { valid: boolean; issues: string[] };
 export type GraphFormat = 'legacy' | 'v2' | 'revive_ui';
 
-/** Tipos de bloco do editor em árvore (project-revive-main AutomacaoNova / fluxo.ts). */
+/** Tipos de bloco do editor em árvore (fluxo conversacional / fluxo.ts). */
 const REVIVE_BLOCO_TIPOS = new Set<string>([
   'identificar',
   'escolha-perfil',

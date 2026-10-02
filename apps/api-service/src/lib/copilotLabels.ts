@@ -2,6 +2,7 @@ const PROFILE_PT: Record<string, string> = {
   driver: 'Entregador',
   pharmacy: 'Farmácia',
   leader: 'Líder',
+  partner: 'Parceiro',
   unknown: 'Não identificado',
 };
 

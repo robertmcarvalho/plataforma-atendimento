@@ -6,8 +6,7 @@ import {
   type GeminiContent,
   type GeminiContentPart,
 } from '@plataforma/ai-core';
-import { COPILOT_TOOL_DECLARATIONS } from './copilotTools';
-import { executeCopilotTool, type CopilotToolContext } from './copilotTools';
+import { COPILOT_TOOL_DECLARATIONS, copilotToolDeclarations, executeCopilotTool, type CopilotToolContext } from './copilotTools';
 import type { JwtUser } from './copilotContext';
 import type { ResolvedWorkspaceLlm } from './workspaceLlmRuntime';
 
@@ -53,11 +52,11 @@ function geminiSchemaToJsonSchema(node: unknown): unknown {
   return out;
 }
 
-export function copilotToolsOpenAi(): Array<{
+export function copilotToolsOpenAi(commercialMode = false): Array<{
   type: 'function';
   function: { name: string; description?: string; parameters: Record<string, unknown> };
 }> {
-  return COPILOT_TOOL_DECLARATIONS.map((d: GeminiFunctionDeclaration) => ({
+  return copilotToolDeclarations(commercialMode).map((d: GeminiFunctionDeclaration) => ({
     type: 'function' as const,
     function: {
       name: d.name,
@@ -70,8 +69,8 @@ export function copilotToolsOpenAi(): Array<{
   }));
 }
 
-export function copilotToolsAnthropic(): Array<{ name: string; description?: string; input_schema: Record<string, unknown> }> {
-  return COPILOT_TOOL_DECLARATIONS.map((d: GeminiFunctionDeclaration) => ({
+export function copilotToolsAnthropic(commercialMode = false): Array<{ name: string; description?: string; input_schema: Record<string, unknown> }> {
+  return copilotToolDeclarations(commercialMode).map((d: GeminiFunctionDeclaration) => ({
     name: d.name,
     description: d.description,
     input_schema: (geminiSchemaToJsonSchema(d.parameters || { type: 'OBJECT', properties: {} }) || {
@@ -243,10 +242,22 @@ export async function staffCopilotChat(params: {
   workspaceId?: string;
   /** Tokens de saída por turno (default 1200). Inbound assist usa valor maior para JSON após tools. */
   maxOutputTokens?: number;
+  /** Inclui tools comerciais (CRM). */
+  commercialMode?: boolean;
 }): Promise<{ replyText: string; toolCallsTrace: StaffCopilotToolTrace[] }> {
-  const { runtime, jwt, systemInstruction, userText, model, workspaceId, maxOutputTokens = 1200 } = params;
+  const {
+    runtime,
+    jwt,
+    systemInstruction,
+    userText,
+    model,
+    workspaceId,
+    maxOutputTokens = 1200,
+    commercialMode = false,
+  } = params;
   const ctx: CopilotToolContext = { user: jwt, workspaceId };
   const toolCallsTrace: StaffCopilotToolTrace[] = [];
+  const toolDecls = copilotToolDeclarations(commercialMode);
 
   if (runtime.adapter === 'gemini') {
     const apiKey = runtime.credentials.api_key || '';
@@ -258,7 +269,7 @@ export async function staffCopilotChat(params: {
         model,
         systemInstruction,
         contents,
-        tools: [{ functionDeclarations: COPILOT_TOOL_DECLARATIONS }],
+        tools: [{ functionDeclarations: toolDecls }],
         maxOutputTokens,
         temperature: 0.25,
       });
@@ -286,7 +297,7 @@ export async function staffCopilotChat(params: {
   }
 
   if (runtime.adapter === 'openai_compatible') {
-    const tools = copilotToolsOpenAi();
+    const tools = copilotToolsOpenAi(commercialMode);
     type Msg =
       | { role: 'system'; content: string }
       | { role: 'user'; content: string }
@@ -375,7 +386,7 @@ export async function staffCopilotChat(params: {
 
   // anthropic
   const apiKey = runtime.credentials.api_key || '';
-  const tools = copilotToolsAnthropic();
+  const tools = copilotToolsAnthropic(commercialMode);
   type AnthropicMsg =
     | { role: 'user'; content: unknown[] }
     | { role: 'assistant'; content: unknown[] };

@@ -2,12 +2,14 @@ import { FastifyInstance } from 'fastify';
 import { isAiAnalysisEnabled } from '@plataforma/ai-core';
 import { supabase } from '../lib/supabase';
 import { authenticate, requireRole } from '../middleware/authenticate';
+import { requireReportsView } from '../lib/permissions';
 import { requireWorkspace } from '../lib/workspaceContext';
 import {
   aggregateConversations,
   bucketTimeSeries,
   deltaPct,
   parseReportRange,
+  resolveConversationCsatScore,
   unwrapRelation,
   type ConvReportRow,
 } from '../lib/reportsAggregate';
@@ -107,7 +109,7 @@ async function fetchConversationsForReport(
     .select(
       `
       id, status, opened_at, resolved_at, tags, attendant_id, sector_id, demand_key,
-      sla_first_response_at, sla_first_response_ok, sla_resolved_ok, ai_nps_predicted,
+      sla_first_response_at, sla_first_response_ok, sla_resolved_ok, csat_score, ai_nps_predicted,
       contacts(display_name, profile_type),
       sectors:sectors!sector_id(name),
       attendant:users!attendant_id(id, name)
@@ -188,7 +190,7 @@ async function attachMessageCounts(workspaceId: string, since: string, until: st
 
 export async function reportRoutes(app: FastifyInstance) {
   // GET /api/reports/dashboard — painel executivo
-  app.get('/dashboard', { preHandler: [authenticate, requireRole('admin', 'supervisor')] }, async (request, reply) => {
+  app.get('/dashboard', { preHandler: [authenticate, requireReportsView] }, async (request, reply) => {
     const workspaceId = await requireWorkspace(request, reply);
     if (!workspaceId) return;
     const { period = '7' } = request.query as { period?: string };
@@ -221,7 +223,7 @@ export async function reportRoutes(app: FastifyInstance) {
   });
 
   // GET /api/reports/conversations — relatório de atendimento
-  app.get('/conversations', { preHandler: [authenticate, requireRole('admin', 'supervisor')] }, async (request, reply) => {
+  app.get('/conversations', { preHandler: [authenticate, requireReportsView] }, async (request, reply) => {
     const workspaceId = await requireWorkspace(request, reply);
     if (!workspaceId) return;
     const { start_date, end_date, sector_id, attendant_id } = request.query as Record<string, string>;
@@ -244,7 +246,7 @@ export async function reportRoutes(app: FastifyInstance) {
   });
 
   // GET /api/reports/attendants — produtividade por atendente
-  app.get('/attendants', { preHandler: [authenticate, requireRole('admin', 'supervisor')] }, async (request, reply) => {
+  app.get('/attendants', { preHandler: [authenticate, requireReportsView] }, async (request, reply) => {
     const workspaceId = await requireWorkspace(request, reply);
     if (!workspaceId) return;
     const q = request.query as Record<string, string>;
@@ -326,7 +328,7 @@ export async function reportRoutes(app: FastifyInstance) {
   });
 
   // GET /api/reports/operational-kpis — agregados operacionais v1 (tickets + SLA + MCP)
-  app.get('/operational-kpis', { preHandler: [authenticate, requireRole('admin', 'supervisor')] }, async (request, reply) => {
+  app.get('/operational-kpis', { preHandler: [authenticate, requireReportsView] }, async (request, reply) => {
     const workspaceId = await requireWorkspace(request, reply);
     if (!workspaceId) return;
     const { period = '7' } = request.query as { period?: string };
@@ -402,7 +404,7 @@ export async function reportRoutes(app: FastifyInstance) {
   });
 
   // GET /api/reports/ai-summary — agregados de IA (sentimento, urgência, tópicos, NPS) no período
-  app.get('/ai-summary', { preHandler: [authenticate, requireRole('admin', 'supervisor')] }, async (request, reply) => {
+  app.get('/ai-summary', { preHandler: [authenticate, requireReportsView] }, async (request, reply) => {
     const workspaceId = await requireWorkspace(request, reply);
     if (!workspaceId) return;
     const { period = '7' } = request.query as { period?: string };
@@ -516,7 +518,7 @@ export async function reportRoutes(app: FastifyInstance) {
   });
 
   // GET /api/reports/summary — KPIs agregados + série temporal (conversas)
-  app.get('/summary', { preHandler: [authenticate, requireRole('admin', 'supervisor')] }, async (request, reply) => {
+  app.get('/summary', { preHandler: [authenticate, requireReportsView] }, async (request, reply) => {
     const workspaceId = await requireWorkspace(request, reply);
     if (!workspaceId) return;
     const q = request.query as Record<string, string | undefined>;
@@ -583,7 +585,7 @@ export async function reportRoutes(app: FastifyInstance) {
   });
 
   // GET /api/reports/tickets — lista densa para tabela / drill-down
-  app.get('/tickets', { preHandler: [authenticate, requireRole('admin', 'supervisor')] }, async (request, reply) => {
+  app.get('/tickets', { preHandler: [authenticate, requireReportsView] }, async (request, reply) => {
     const workspaceId = await requireWorkspace(request, reply);
     if (!workspaceId) return;
     const q = request.query as Record<string, string | undefined>;
@@ -617,7 +619,7 @@ export async function reportRoutes(app: FastifyInstance) {
           resolved_at: row.resolved_at,
           tmr_seconds: tmr,
           sla_ok: Boolean(row.sla_resolved_ok),
-          csat: row.ai_nps_predicted,
+          csat: resolveConversationCsatScore(row),
           tags: row.tags || [],
           demand_key: row.demand_key || null,
         };
@@ -629,7 +631,7 @@ export async function reportRoutes(app: FastifyInstance) {
   });
 
   // GET /api/reports/export — CSV com filtros aplicados
-  app.get('/export', { preHandler: [authenticate, requireRole('admin', 'supervisor')] }, async (request, reply) => {
+  app.get('/export', { preHandler: [authenticate, requireReportsView] }, async (request, reply) => {
     const workspaceId = await requireWorkspace(request, reply);
     if (!workspaceId) return;
     const q = request.query as Record<string, string | undefined>;
@@ -676,7 +678,10 @@ export async function reportRoutes(app: FastifyInstance) {
             row.opened_at,
             String(tmr),
             row.sla_resolved_ok ? 'sim' : 'não',
-            row.ai_nps_predicted != null ? String(row.ai_nps_predicted) : '',
+            (() => {
+              const csat = resolveConversationCsatScore(row);
+              return csat != null ? String(csat) : '';
+            })(),
           ];
         }),
       ];

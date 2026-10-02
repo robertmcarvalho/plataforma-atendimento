@@ -29,12 +29,26 @@ export type ConvReportRow = {
   sla_first_response_at: string | null;
   sla_first_response_ok: boolean | null;
   sla_resolved_ok: boolean | null;
+  csat_score: number | null;
   ai_nps_predicted: number | null;
   tags: string[] | null;
   attendant_id: string | null;
   sector_id: string | null;
   demand_key?: string | null;
 };
+
+export function resolveConversationCsatScore(row: {
+  csat_score?: number | null;
+  ai_nps_predicted?: number | null;
+}): number | null {
+  if (row.csat_score != null && Number.isFinite(Number(row.csat_score))) {
+    return Number(row.csat_score);
+  }
+  if (row.ai_nps_predicted != null && Number.isFinite(Number(row.ai_nps_predicted))) {
+    return Number(row.ai_nps_predicted);
+  }
+  return null;
+}
 
 export function parseReportRange(query: Record<string, string | undefined>): ReportRange {
   const now = new Date();
@@ -119,8 +133,9 @@ export function aggregateConversations(rows: ConvReportRow[]): ReportKpis {
     }
 
     if (row.sla_resolved_ok || row.sla_first_response_ok) slaOk++;
-    if (row.ai_nps_predicted != null && Number.isFinite(Number(row.ai_nps_predicted))) {
-      csatSum += Number(row.ai_nps_predicted);
+    const csat = resolveConversationCsatScore(row);
+    if (csat != null) {
+      csatSum += csat;
       csatCount++;
     }
   }

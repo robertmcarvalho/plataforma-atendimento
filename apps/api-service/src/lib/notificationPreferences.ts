@@ -7,6 +7,13 @@ export const NOTIFICATION_PREF_KEYS = [
   'open_tasks_inbox',
   'campaign_done',
   'overdue_installment',
+  'driver_document_expiry_warning',
+  'driver_document_expired',
+  'driver_signature_pending',
+  'driver_signature_viewed',
+  'driver_signature_signed',
+  'driver_signature_rejected',
+  'driver_signature_overdue',
 ] as const;
 
 export type NotificationPrefKey = (typeof NOTIFICATION_PREF_KEYS)[number];
@@ -18,6 +25,13 @@ const DEFAULT_BY_KEY: Record<NotificationPrefKey, boolean> = {
   open_tasks_inbox: true,
   campaign_done: false,
   overdue_installment: true,
+  driver_document_expiry_warning: true,
+  driver_document_expired: true,
+  driver_signature_pending: true,
+  driver_signature_viewed: true,
+  driver_signature_signed: true,
+  driver_signature_rejected: true,
+  driver_signature_overdue: true,
 };
 
 /** Valor gravado como boolean OU legado objeto `{ in_app?: boolean }`. */

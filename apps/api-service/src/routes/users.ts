@@ -13,7 +13,9 @@ import {
 import { writeAuditLog } from '../lib/auditLog';
 import { sectorIdsFromJwt } from '../lib/jwtSectorIds';
 import { buildSectorPairs, replaceUserSectors } from '../lib/userSectorsDb';
+import { listMembershipRoles, replaceMembershipRoles } from '../lib/membershipRoles';
 import { effectivePermissions, hasResourcePermission } from '../lib/permissions';
+import { isAttendantLikeRole } from '../lib/roleAliases';
 import { getWorkspaceMembership, hasPlatformAccess, listWorkspaceMemberships, requireWorkspace, upsertWorkspaceMembership, type JwtUser } from '../lib/workspaceContext';
 import {
   buildInviteEmailHtml,
@@ -21,8 +23,15 @@ import {
   workspaceEmailChannelSendOpts,
 } from '../lib/emailSender';
 import { verifyUserPassword } from '../lib/authPassword';
+import { setAuthUserPassword } from '../lib/authUserAdmin';
 import { resolveWebAppLoginUrl } from '../lib/webAppUrl';
-import { generateTemporaryPassword, generateUsername } from '../lib/userProvision';
+import {
+  generateTemporaryPassword,
+  generateUsername,
+  humanizeProvisionAuthError,
+  isDuplicateAuthEmailError,
+  tryLinkLeaderProvisionToExistingUser,
+} from '../lib/userProvision';
 import { listWorkspaceChannels } from '../lib/workspaceChannels';
 import {
   mergeNotificationPrefPatch,
@@ -57,12 +66,14 @@ function temporaryPasswordResponse(password: string) {
   return exposeTemporaryPasswordsInApiResponses() ? password : undefined;
 }
 
-const createUserSchema = z.object({
+const userRoleFieldsSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   password: z.string().min(6),
   phone: z.string().optional(),
-  role_id: z.string().uuid(),
+  role_id: z.string().uuid().optional(),
+  role_ids: z.array(z.string().uuid()).min(1).optional(),
+  primary_role_id: z.string().uuid().optional(),
   sector_id: z.string().uuid().optional(),
   sector_ids: z.array(z.string().uuid()).optional(),
   primary_sector_id: z.string().uuid().optional(),
@@ -70,7 +81,12 @@ const createUserSchema = z.object({
   business_hours: z.record(z.unknown()).optional(),
 });
 
-const updateUserSchema = createUserSchema.partial().omit({ password: true, email: true });
+const createUserSchema = userRoleFieldsSchema.refine((d) => Boolean(d.role_id || d.role_ids?.length), {
+  message: 'Informe role_id ou role_ids',
+  path: ['role_id'],
+});
+
+const updateUserSchema = userRoleFieldsSchema.partial().omit({ password: true, email: true });
 
 const patchMeSchema = z
   .object({
@@ -273,9 +289,10 @@ export async function userRoutes(app: FastifyInstance) {
     const workspaceId = await requireWorkspace(request, reply);
     if (!workspaceId) return;
     const jwtUser = request.user as JwtUser;
-    const query = request.query as { include_supervisors?: string; scope?: string };
+    const query = request.query as { include_supervisors?: string; scope?: string; sector_id?: string };
     const includeSupervisors = query.include_supervisors === '1' || query.include_supervisors === 'true';
     const scope = String(query.scope || 'sector').trim().toLowerCase();
+    const filterSectorId = String(query.sector_id || '').trim();
     if (scope !== 'sector' && scope !== 'workspace') {
       return reply.status(400).send({ error: 'scope deve ser sector ou workspace' });
     }
@@ -299,13 +316,20 @@ export async function userRoutes(app: FastifyInstance) {
     let rows = (await enrichUsersWithWorkspaceRole(workspaceId, (data || []) as Array<Record<string, unknown>>)) as AttendantRow[];
     rows = rows.filter((row) => {
       if (row.membership_is_active === false) return false;
-      return row.workspace_role === 'attendant' || (includeSupervisors && row.workspace_role === 'supervisor');
+      const role = row.workspace_role;
+      return (
+        role === 'attendant' ||
+        role === 'attendant_financeiro' ||
+        role === 'financial' ||
+        role === 'operational' ||
+        (includeSupervisors && role === 'supervisor')
+      );
     });
 
     const role = String(jwtUser.role || jwtUser.workspace_role || '').trim();
     const roleIsElevated = role === 'admin' || role === 'operational' || hasPlatformAccess(jwtUser);
 
-    if (scope === 'workspace' && !roleIsElevated) {
+    if (scope === 'workspace' && !roleIsElevated && role !== 'supervisor') {
       const perms = await effectivePermissions(jwtUser);
       if (!hasResourcePermission({ ...jwtUser, permissions: perms }, 'pharmacies', 'manage')) {
         return reply.status(403).send({ error: 'Acesso negado' });
@@ -314,7 +338,7 @@ export async function userRoutes(app: FastifyInstance) {
 
     const skipSectorFilter = scope === 'workspace' || roleIsElevated;
 
-    if (!skipSectorFilter && (role === 'supervisor' || role === 'attendant')) {
+    if (!skipSectorFilter && (role === 'supervisor' || isAttendantLikeRole(role))) {
       const jwtIds = sectorIdsFromJwt(jwtUser);
       if (jwtIds.length) {
         rows = rows.filter((row) => {
@@ -328,7 +352,28 @@ export async function userRoutes(app: FastifyInstance) {
       }
     }
 
-    return reply.send(rows.map((row) => ({ id: String(row.id), name: String(row.name), role: String(row.workspace_role || 'attendant') })));
+    if (filterSectorId) {
+      rows = rows.filter((row) => {
+        const pairs = row.user_sectors || [];
+        const rowIds = pairs.map((p) => p.sector_id).filter(Boolean);
+        if (rowIds.length) return rowIds.includes(filterSectorId);
+        return row.sector_id === filterSectorId;
+      });
+    }
+
+    return reply.send(
+      rows.map((row) => {
+        const pairs = row.user_sectors || [];
+        const sectorIds = pairs.map((p) => p.sector_id).filter(Boolean);
+        if (!sectorIds.length && row.sector_id) sectorIds.push(String(row.sector_id));
+        return {
+          id: String(row.id),
+          name: String(row.name),
+          role: String(row.workspace_role || 'attendant'),
+          sector_ids: sectorIds,
+        };
+      }),
+    );
   });
 
   // GET /api/users/mention-candidates — nomes para autocomplete @ em notas internas
@@ -449,10 +494,12 @@ export async function userRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Senha atual incorreta.' });
     }
 
-    const { error: authErr } = await supabase.auth.admin.updateUserById(sub, {
-      password: parsed.data.new_password,
-    });
-    if (authErr) return reply.status(400).send({ error: authErr.message });
+    try {
+      await setAuthUserPassword(sub, parsed.data.new_password);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao atualizar senha no Auth';
+      return reply.status(400).send({ error: msg });
+    }
 
     const { error: updErr } = await supabase
       .from('users')
@@ -469,6 +516,52 @@ export async function userRoutes(app: FastifyInstance) {
     });
 
     return reply.send({ ok: true });
+  });
+
+  app.get('/me/inbox-notifications/state', { preHandler: [authenticate] }, async (request, reply) => {
+    const sub = (request.user as { sub: string }).sub;
+    const { data, error } = await supabase
+      .from('users')
+      .select('inbox_notifications_seen_at')
+      .eq('id', sub)
+      .maybeSingle();
+    if (error) {
+      if ((error.message || '').includes('inbox_notifications_seen_at')) {
+        return reply.status(503).send({ error: 'Coluna inbox_notifications_seen_at não aplicada. Execute a migration 080.' });
+      }
+      return reply.status(500).send({ error: error.message });
+    }
+    const raw = data?.inbox_notifications_seen_at;
+    return reply.send({
+      seen_at: raw ? new Date(String(raw)).toISOString() : null,
+    });
+  });
+
+  app.patch('/me/inbox-notifications/mark-all-read', { preHandler: [authenticate] }, async (request, reply) => {
+    const sub = (request.user as { sub: string }).sub;
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from('users')
+      .update({ inbox_notifications_seen_at: now, updated_at: now })
+      .eq('id', sub)
+      .select('inbox_notifications_seen_at')
+      .single();
+    if (error) {
+      if ((error.message || '').includes('inbox_notifications_seen_at')) {
+        return reply.status(503).send({ error: 'Coluna inbox_notifications_seen_at não aplicada. Execute a migration 080.' });
+      }
+      return reply.status(500).send({ error: error.message });
+    }
+    await writeAuditLog({
+      actor_id: sub,
+      action: 'user.inbox_notifications.mark_all_read',
+      entity_type: 'user',
+      entity_id: sub,
+      metadata: {},
+    });
+    return reply.send({
+      seen_at: data.inbox_notifications_seen_at ? new Date(String(data.inbox_notifications_seen_at)).toISOString() : now,
+    });
   });
 
   app.get('/me/notification-preferences', { preHandler: [authenticate] }, async (request, reply) => {
@@ -517,15 +610,26 @@ export async function userRoutes(app: FastifyInstance) {
     );
   });
 
+  const optionalUuid = z.preprocess(
+    (v) => (v === '' || v === null || v === undefined ? undefined : v),
+    z.string().uuid().optional()
+  );
+
   const provisionSchema = z.object({
-    name: z.string().min(2),
-    email: z.string().email(),
-    phone: z.string().optional(),
+    name: z.preprocess((v) => (typeof v === 'string' ? v.trim() : v), z.string().min(2)),
+    email: z.preprocess((v) => (typeof v === 'string' ? v.trim().toLowerCase() : v), z.string().email()),
+    phone: z.preprocess(
+      (v) => {
+        if (v === '' || v === null || v === undefined) return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      },
+      z.string().optional()
+    ),
     role_id: z.string().uuid(),
-    sector_id: z.string().uuid().optional(),
+    sector_id: optionalUuid,
     sector_ids: z.array(z.string().uuid()).optional(),
-    primary_sector_id: z.string().uuid().optional(),
-    leader_id: z.string().uuid().optional(),
+    primary_sector_id: optionalUuid,
+    leader_id: optionalUuid,
     business_hours: z.record(z.unknown()).optional(),
     send_email: z.boolean().optional().default(true),
   });
@@ -547,20 +651,13 @@ export async function userRoutes(app: FastifyInstance) {
     }
 
     const temporaryPassword = generateTemporaryPassword();
-    const username = await generateUsername(workspaceId, body.data.name, body.data.email);
+    let username = await generateUsername(workspaceId, body.data.name, body.data.email);
     const { sector_ids, primary_sector_id, send_email, ...userData } = body.data;
     const { pairs, primarySectorId } = buildSectorPairs({
       sector_ids,
       primary_sector_id,
       sector_id: userData.sector_id,
     });
-
-    const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
-      email: userData.email,
-      password: temporaryPassword,
-      email_confirm: true,
-    });
-    if (authError) return reply.status(400).send({ error: authError.message });
 
     const { leader_id, business_hours, ...insertData } = userData;
     const bhPayload =
@@ -570,33 +667,65 @@ export async function userRoutes(app: FastifyInstance) {
           : normalizeBusinessHours(business_hours)
         : undefined;
 
-    const { data, error } = await supabase
-      .from('users')
-      .insert({
-        id: authUser.user.id,
-        ...insertData,
-        username,
-        must_change_password: true,
-        provisioned_at: new Date().toISOString(),
-        sector_id: primarySectorId ?? insertData.sector_id ?? null,
-        ...(bhPayload !== undefined ? { business_hours: bhPayload } : {}),
-      })
-      .select('*, roles(name), sectors(name), user_sectors(sector_id, is_primary)')
-      .single();
-    if (error) return reply.status(500).send({ error: error.message });
+    let authUserId: string;
+    let data: Record<string, unknown>;
+
+    const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
+      email: userData.email,
+      password: temporaryPassword,
+      email_confirm: true,
+    });
+
+    if (authError) {
+      if (roleName === 'leader' && leader_id && isDuplicateAuthEmailError(authError.message)) {
+        const linked = await tryLinkLeaderProvisionToExistingUser({
+          workspaceId,
+          leaderId: leader_id,
+          email: userData.email,
+          name: userData.name,
+          roleId: body.data.role_id,
+          phone: userData.phone ?? null,
+          temporaryPassword,
+        });
+        if (!linked.ok) return reply.status(400).send({ error: linked.error });
+        authUserId = linked.userId;
+        username = linked.username;
+        data = linked.userRow;
+      } else {
+        return reply.status(400).send({ error: humanizeProvisionAuthError(authError.message) });
+      }
+    } else {
+      authUserId = authUser.user.id;
+
+      const { data: inserted, error } = await supabase
+        .from('users')
+        .insert({
+          id: authUserId,
+          ...insertData,
+          username,
+          must_change_password: true,
+          provisioned_at: new Date().toISOString(),
+          sector_id: primarySectorId ?? insertData.sector_id ?? null,
+          ...(bhPayload !== undefined ? { business_hours: bhPayload } : {}),
+        })
+        .select('*, roles(name), sectors(name), user_sectors(sector_id, is_primary)')
+        .single();
+      if (error) return reply.status(500).send({ error: error.message });
+      data = inserted as Record<string, unknown>;
+    }
 
     try {
-      await replaceUserSectors(supabase, authUser.user.id, pairs, workspaceId);
+      await replaceUserSectors(supabase, authUserId, pairs, workspaceId);
       await upsertWorkspaceMembership({
         workspace_id: workspaceId,
-        user_id: authUser.user.id,
+        user_id: authUserId,
         role_id: body.data.role_id,
         is_active: true,
         is_default: true,
       });
       await syncLeaderProfileForUser({
         workspaceId,
-        userId: authUser.user.id,
+        userId: authUserId,
         roleName,
         leaderId: leader_id,
         name: userData.name,
@@ -646,7 +775,7 @@ export async function userRoutes(app: FastifyInstance) {
       actor_id: (request.user as { sub: string }).sub,
       action: 'user.provision',
       entity_type: 'user',
-      entity_id: authUser.user.id,
+      entity_id: authUserId,
       metadata: { workspace_id: workspaceId, email_sent: emailSent },
     });
 
@@ -667,6 +796,18 @@ export async function userRoutes(app: FastifyInstance) {
 
     const temporaryPassword = generateTemporaryPassword();
     const username = user.username || (await generateUsername(workspaceId, user.name, user.email));
+
+    try {
+      await setAuthUserPassword(id, temporaryPassword);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao atualizar senha no Auth';
+      return reply.status(400).send({ error: msg });
+    }
+
+    await supabase
+      .from('users')
+      .update({ username, must_change_password: true, updated_at: new Date().toISOString() })
+      .eq('id', id);
 
     const loginUrl = resolveWebAppLoginUrl();
     const wsName = await workspaceDisplayName(workspaceId);
@@ -691,16 +832,20 @@ export async function userRoutes(app: FastifyInstance) {
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Falha ao enviar e-mail';
-      return reply.status(502).send({ error: msg, email_sent: false });
+      return reply.status(502).send({
+        error: msg,
+        email_sent: false,
+        note: 'Senha já foi atualizada no Auth; reenvie o convite ou comunique a senha manualmente.',
+      });
     }
 
-    const { error: authErr } = await supabase.auth.admin.updateUserById(id, { password: temporaryPassword });
-    if (authErr) return reply.status(400).send({ error: authErr.message });
-
-    await supabase
-      .from('users')
-      .update({ username, must_change_password: true, updated_at: new Date().toISOString() })
-      .eq('id', id);
+    await writeAuditLog({
+      actor_id: (request.user as { sub: string }).sub,
+      action: 'user.invite.resend',
+      entity_type: 'user',
+      entity_id: id,
+      metadata: { workspace_id: workspaceId },
+    });
 
     return reply.send({ ok: true, username, temporary_password: temporaryPasswordResponse(temporaryPassword) });
   });
@@ -712,7 +857,16 @@ export async function userRoutes(app: FastifyInstance) {
     const { data, error } = await supabase.from('users').select('id, roles(name)').order('name');
     if (error) return reply.status(500).send({ error: error.message });
     const scoped = await enrichUsersWithWorkspaceRole(workspaceId, (data || []) as Array<Record<string, unknown>>);
-    const counts: Record<string, number> = { admin: 0, supervisor: 0, attendant: 0, leader: 0 };
+    const counts: Record<string, number> = {
+      admin: 0,
+      supervisor: 0,
+      financial: 0,
+      operational: 0,
+      attendant: 0,
+      leader: 0,
+      commercial: 0,
+      sales: 0,
+    };
     for (const row of scoped) {
       const role = String((row as { workspace_role?: string }).workspace_role || '').toLowerCase();
       if (role in counts) counts[role] += 1;
@@ -914,6 +1068,32 @@ export async function userRoutes(app: FastifyInstance) {
       if (insErr) return reply.status(500).send({ error: insErr.message });
     }
 
+    const candidateSectorIds = [
+      ...new Set(
+        body.data.channels
+          .filter((ch) => ch.enabled)
+          .flatMap((ch) => (ch.sector_ids || []).map((sid) => String(sid).trim()))
+          .filter((sid) => /^[0-9a-f-]{36}$/i.test(sid))
+      ),
+    ];
+    const { data: validSectorRows } = candidateSectorIds.length
+      ? await supabase.from('sectors').select('id').eq('workspace_id', workspaceId).in('id', candidateSectorIds)
+      : { data: [] as { id: string }[] };
+    const sectorIdsFromQueues = (validSectorRows || []).map((r) => String(r.id));
+    if (sectorIdsFromQueues.length) {
+      const { pairs, primarySectorId } = buildSectorPairs({
+        sector_ids: sectorIdsFromQueues,
+        primary_sector_id: sectorIdsFromQueues[0],
+      });
+      await replaceUserSectors(supabase, id, pairs, workspaceId);
+      if (primarySectorId) {
+        await supabase
+          .from('users')
+          .update({ sector_id: primarySectorId, updated_at: new Date().toISOString() })
+          .eq('id', id);
+      }
+    }
+
     return reply.send({ ok: true, saved: rows.length });
   });
 
@@ -931,8 +1111,12 @@ export async function userRoutes(app: FastifyInstance) {
     const password = body.data.generate !== false && !body.data.password ? generateTemporaryPassword() : body.data.password;
     if (!password) return reply.status(400).send({ error: 'Informe uma senha ou use generate: true' });
 
-    const { error: authErr } = await supabase.auth.admin.updateUserById(id, { password });
-    if (authErr) return reply.status(400).send({ error: authErr.message });
+    try {
+      await setAuthUserPassword(id, password);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao atualizar senha no Auth';
+      return reply.status(400).send({ error: msg });
+    }
 
     await supabase
       .from('users')
@@ -999,10 +1183,17 @@ export async function userRoutes(app: FastifyInstance) {
       .single();
     if (error) return reply.status(404).send({ error: 'Usuário não encontrado' });
     const membership = await getWorkspaceMembership(workspaceId, id);
+    const membershipRoles = await listMembershipRoles(supabase, workspaceId, id);
     const operationalSectors = await userOperationalSectorLabels(workspaceId, [id]);
     return reply.send({
       ...data,
       workspace_role: membership?.workspace_role || null,
+      workspace_roles: membershipRoles.map((r) => r.role_name),
+      membership_roles: membershipRoles.map((r) => ({
+        role_id: r.role_id,
+        is_primary: r.is_primary,
+        name: r.role_name,
+      })),
       permissions: membership?.permissions || {},
       operational_sector_labels: operationalSectors.get(id) || [],
       workspace_id: workspaceId,
@@ -1016,9 +1207,19 @@ export async function userRoutes(app: FastifyInstance) {
     const body = createUserSchema.safeParse(request.body);
     if (!body.success) return reply.status(400).send({ error: 'Dados inválidos', details: body.error.flatten() });
 
+    const effectiveRoleIds = body.data.role_ids?.length
+      ? body.data.role_ids
+      : body.data.role_id
+        ? [body.data.role_id]
+        : [];
+    const primaryRoleId = body.data.primary_role_id || effectiveRoleIds[0];
+    if (!effectiveRoleIds.length || !primaryRoleId) {
+      return reply.status(400).send({ error: 'Informe ao menos um papel.' });
+    }
+
     let roleName: string | null = null;
     try {
-      roleName = await resolveRoleName(workspaceId, body.data.role_id);
+      roleName = await resolveRoleName(workspaceId, primaryRoleId);
     } catch (error) {
       return reply.status(500).send({ error: error instanceof Error ? error.message : 'Falha ao validar perfil do usuário' });
     }
@@ -1026,7 +1227,7 @@ export async function userRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Usuário líder precisa de telefone ou de um perfil de líder vinculado.' });
     }
 
-    const { password, sector_ids, primary_sector_id, ...userData } = body.data;
+    const { password, sector_ids, primary_sector_id, role_ids, primary_role_id, ...userData } = body.data;
     const { pairs, primarySectorId } = buildSectorPairs({
       sector_ids,
       primary_sector_id,
@@ -1056,6 +1257,7 @@ export async function userRoutes(app: FastifyInstance) {
       .insert({
         id: authUser.user.id,
         ...insertData,
+        role_id: primaryRoleId,
         sector_id: primarySectorId ?? insertData.sector_id ?? null,
         ...(bhPayload !== undefined ? { business_hours: bhPayload } : {}),
       })
@@ -1073,10 +1275,11 @@ export async function userRoutes(app: FastifyInstance) {
       await upsertWorkspaceMembership({
         workspace_id: workspaceId,
         user_id: authUser.user.id,
-        role_id: body.data.role_id,
+        role_id: primaryRoleId,
         is_active: true,
         is_default: true,
       });
+      await replaceMembershipRoles(supabase, workspaceId, authUser.user.id, effectiveRoleIds, primaryRoleId);
       await syncLeaderProfileForUser({
         workspaceId,
         userId: authUser.user.id,
@@ -1108,8 +1311,15 @@ export async function userRoutes(app: FastifyInstance) {
       .single();
     if (currentUserError || !currentUser) return reply.status(404).send({ error: 'Usuário não encontrado' });
 
-    const { leader_id, business_hours, sector_ids, primary_sector_id, ...updateData } = body.data;
-    const effectiveRoleId = updateData.role_id ?? currentUser.role_id ?? null;
+    const { leader_id, business_hours, sector_ids, primary_sector_id, role_ids, primary_role_id, ...updateData } = body.data;
+    const roleIdsTouched = role_ids !== undefined || updateData.role_id !== undefined || primary_role_id !== undefined;
+    const effectiveRoleIds = role_ids?.length
+      ? role_ids
+      : updateData.role_id
+        ? [updateData.role_id]
+        : null;
+    const effectiveRoleId =
+      primary_role_id || effectiveRoleIds?.[0] || updateData.role_id || currentUser.role_id || null;
     let roleName: string | null = null;
     try {
       roleName = await resolveRoleName(workspaceId, effectiveRoleId);
@@ -1149,6 +1359,9 @@ export async function userRoutes(app: FastifyInstance) {
           ? {}
           : normalizeBusinessHours(business_hours);
     }
+    if (roleIdsTouched && effectiveRoleId) {
+      updates.role_id = effectiveRoleId;
+    }
 
     const { data, error } = await supabase
       .from('users')
@@ -1163,6 +1376,14 @@ export async function userRoutes(app: FastifyInstance) {
         await replaceUserSectors(supabase, id, pairsToSave, workspaceId);
       } catch (e) {
         return reply.status(500).send({ error: e instanceof Error ? e.message : 'Falha ao salvar setores do usuário' });
+      }
+    }
+
+    if (roleIdsTouched && effectiveRoleIds?.length) {
+      try {
+        await replaceMembershipRoles(supabase, workspaceId, id, effectiveRoleIds, effectiveRoleId);
+      } catch (e) {
+        return reply.status(500).send({ error: e instanceof Error ? e.message : 'Falha ao salvar papéis do usuário' });
       }
     }
 
@@ -1197,7 +1418,45 @@ export async function userRoutes(app: FastifyInstance) {
       }
     }
 
-    return reply.send(data);
+    const actorId = (request.user as { sub: string }).sub;
+    const auditMeta: Record<string, unknown> = { workspace_id: workspaceId };
+    if (roleIdsTouched && effectiveRoleIds?.length) {
+      auditMeta.role_ids = effectiveRoleIds;
+      auditMeta.primary_role_id = effectiveRoleId;
+      if (effectiveRoleId !== currentUser.role_id) {
+        auditMeta.role_id_from = currentUser.role_id;
+        auditMeta.role_id_to = effectiveRoleId;
+      }
+    } else if (updateData.role_id && updateData.role_id !== currentUser.role_id) {
+      auditMeta.role_id_from = currentUser.role_id;
+      auditMeta.role_id_to = updateData.role_id;
+    }
+    if (sectorTouched) {
+      auditMeta.sectors_updated = true;
+      auditMeta.primary_sector_id = updates.sector_id ?? null;
+    }
+    if (auditMeta.role_id_from || auditMeta.role_ids || auditMeta.sectors_updated) {
+      await writeAuditLog({
+        actor_id: actorId,
+        action: auditMeta.role_id_from || auditMeta.role_ids ? 'user.role_or_sectors.update' : 'user.sectors.update',
+        entity_type: 'user',
+        entity_id: id,
+        workspace_id: workspaceId,
+        metadata: auditMeta,
+      });
+    }
+
+    const membershipRoles = await listMembershipRoles(supabase, workspaceId, id);
+    return reply.send({
+      ...data,
+      workspace_role: membershipRoles.find((r) => r.is_primary)?.role_name || roleName,
+      workspace_roles: membershipRoles.map((r) => r.role_name),
+      membership_roles: membershipRoles.map((r) => ({
+        role_id: r.role_id,
+        is_primary: r.is_primary,
+        name: r.role_name,
+      })),
+    });
   });
 
   // PATCH /api/users/:id/toggle

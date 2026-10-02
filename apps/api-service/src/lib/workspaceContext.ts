@@ -17,6 +17,7 @@ export type JwtUser = {
   name?: string;
   role?: string;
   workspace_role?: string;
+  workspace_roles?: string[];
   platform_role?: string;
   workspace_id?: string | null;
   active_workspace_id?: string | null;
@@ -102,6 +103,25 @@ export async function getWorkspaceMembership(
 ): Promise<WorkspaceMembership | null> {
   const items = await listWorkspaceMemberships(userId, db);
   return items.find((item) => item.workspace_id === workspaceId) || null;
+}
+
+/** Membro ativo do workspace (via workspace_memberships, não users.workspace_id legado). */
+export async function isActiveWorkspaceMember(
+  workspaceId: string,
+  userId: string,
+  db: SupabaseClient = supabase
+): Promise<boolean> {
+  const { data: membership, error: memErr } = await db
+    .from('workspace_memberships')
+    .select('user_id, is_active')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (memErr || !membership?.user_id || membership.is_active === false) return false;
+
+  const { data: user, error: userErr } = await db.from('users').select('id, is_active').eq('id', userId).maybeSingle();
+  if (userErr || !user?.id || user.is_active === false) return false;
+  return true;
 }
 
 export async function upsertWorkspaceMembership(

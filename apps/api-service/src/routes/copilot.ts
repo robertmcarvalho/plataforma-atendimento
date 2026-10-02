@@ -4,14 +4,18 @@ import { loadAiFeaturesConfig } from '@plataforma/ai-core';
 import { authenticate } from '../middleware/authenticate';
 import { requireWorkspace } from '../lib/workspaceContext';
 import { resolveWorkspaceLlmRuntime } from '../lib/workspaceLlmRuntime';
+import { extractCopilotComposerText } from '../lib/copilotComposerText';
 import { writeAuditLog } from '../lib/auditLog';
 import { copilotRateLimitHitAsync } from '../lib/copilotRateLimit';
 import { COPILOT_SYSTEM_PROMPT } from '../lib/copilotSystemPrompt';
+import { buildCommercialCopilotSystemPrompt } from '../lib/commercial/commercialCopilotPrompt';
+import { resolveCommercialMotorConfig } from '../lib/commercial/commercialMotorConfig';
 import { gatherEntityToolResults, loadConversationCopilotContext, maskCpf, maskPhone, type JwtUser } from '../lib/copilotContext';
 import { botStepPt, clientSincePt, demandTitleFromKey, profileTypePt } from '../lib/copilotLabels';
 import { isStaffLlmRetryable, staffCopilotChat, staffSuggestReply, type StaffCopilotToolTrace } from '../lib/staffLlmInvoke';
 import { supabase } from '../lib/supabase';
 import { enrichPharmacyApiRow } from '../lib/pharmacyCommercial';
+import { buildCopilotInsightSignals } from '../lib/copilotInsightSignals';
 
 const assistSchema = z.object({
   message: z.string().min(1).max(8000),
@@ -21,6 +25,7 @@ const assistSchema = z.object({
 const chatSchema = z.object({
   message: z.string().min(1).max(8000),
   conversation_id: z.string().uuid().optional(),
+  commercial_lead_id: z.string().uuid().optional(),
 });
 
 const briefingSchema = z.object({
@@ -182,6 +187,10 @@ function recentMessagesFromContext(conversationContext: Record<string, unknown> 
     direction: String(m.direction || ''),
     content: briefText(m.content, 500),
     created_at: String(m.created_at || ''),
+    ai_sentiment: (m.ai_sentiment as string | null | undefined) ?? null,
+    ai_sentiment_score: (m.ai_sentiment_score as number | null | undefined) ?? null,
+    ai_urgency: (m.ai_urgency as string | null | undefined) ?? null,
+    ai_urgency_score: (m.ai_urgency_score as number | null | undefined) ?? null,
   }));
 }
 
@@ -533,7 +542,19 @@ async function buildOperationalProfile(
     });
   }
 
+  const insightSignals = buildCopilotInsightSignals({
+    conversation: {
+      ai_sentiment_last: (conv.ai_sentiment_last as string | null | undefined) ?? null,
+      ai_urgency_score: (conv.ai_urgency_score as number | null | undefined) ?? null,
+      demand_key: (conv.demand_key as string | null | undefined) ?? null,
+      sla: conv.sla as { treatment_deadline?: string | null; first_response_deadline?: string | null } | undefined,
+    },
+    recentMessages: messages,
+    demandTitle: demandLabel,
+  });
+
   const signals: CopilotBriefingPayload['signals'] = [
+    ...insightSignals,
     { label: 'Perfil', value: profilePt, tone: profilePt === 'Não identificado' ? 'warning' : 'primary' },
     { label: 'Etapa', value: stepLabel, tone: currentStep ? 'primary' : 'warning' },
     { label: 'Setor', value: briefText(sector.name || 'não definido'), tone: sector.name ? 'primary' : 'warning' },
@@ -576,7 +597,9 @@ async function loadOperationalEvents(workspaceId: string, conversationId: string
   const events: Array<{ date: string; title: string; summary: string; source: string }> = [];
   const conv = conversationContext?.conversation as Record<string, unknown> | undefined;
   const openedAt = typeof conv?.opened_at === 'string' ? conv.opened_at : '';
-  const demand = briefText(conv?.demand_key || 'Contato atual');
+  const config = await loadChannelConfig(workspaceId, conversationContext);
+  const channelDemands = Array.isArray(config.demands) ? (config.demands as Array<Record<string, unknown>>) : undefined;
+  const demand = demandTitleFromKey(conv?.demand_key, channelDemands);
   if (openedAt) {
     events.push({
       date: openedAt,
@@ -1044,7 +1067,7 @@ export async function copilotRoutes(app: FastifyInstance) {
       return reply.status(429).send({ error: 'Limite de uso do copiloto por minuto excedido. Tente novamente em instantes.' });
     }
 
-    const { message, conversation_id } = parsed.data;
+    const { message, conversation_id, commercial_lead_id } = parsed.data;
 
     let conversationContext: Record<string, unknown> | null = null;
     if (conversation_id) {
@@ -1052,6 +1075,35 @@ export async function copilotRoutes(app: FastifyInstance) {
       if (!conversationContext) {
         return reply.status(404).send({ error: 'Conversa nao encontrada.' });
       }
+    }
+
+    let commercialLeadContext: Record<string, unknown> | null = null;
+    if (commercial_lead_id) {
+      const { data: lead, error: leadErr } = await supabase
+        .from('commercial_leads')
+        .select('*, stage:commercial_pipeline_stages!stage_id(id, name, probability_pct, is_won, is_lost)')
+        .eq('workspace_id', workspaceId)
+        .eq('id', commercial_lead_id)
+        .maybeSingle();
+      if (leadErr) return reply.status(500).send({ error: leadErr.message });
+      if (!lead) return reply.status(404).send({ error: 'Lead comercial não encontrado.' });
+
+      let recentMessages: unknown[] = [];
+      const convId = lead.primary_conversation_id as string | null;
+      if (convId) {
+        const { data: msgs } = await supabase
+          .from('messages')
+          .select('direction, content, created_at, status')
+          .eq('workspace_id', workspaceId)
+          .eq('conversation_id', convId)
+          .order('created_at', { ascending: false })
+          .limit(15);
+        recentMessages = (msgs || []).reverse();
+        if (!conversationContext) {
+          conversationContext = await loadConversationCopilotContext(convId, workspaceId);
+        }
+      }
+      commercialLeadContext = { lead, recent_messages: recentMessages };
     }
 
     const toolResults = await gatherEntityToolResults({
@@ -1063,6 +1115,7 @@ export async function copilotRoutes(app: FastifyInstance) {
 
     const contextPayload = {
       conversation: conversationContext,
+      commercial_lead: commercialLeadContext,
       entity_search: toolResults,
     };
 
@@ -1076,6 +1129,10 @@ export async function copilotRoutes(app: FastifyInstance) {
 
     let lastError: unknown = null;
     let usedModel = runtime.models[0] || 'gpt-4o-mini';
+    const commercialMode = Boolean(commercial_lead_id);
+    const systemInstruction = commercialMode
+      ? buildCommercialCopilotSystemPrompt(await resolveCommercialMotorConfig(workspaceId))
+      : COPILOT_SYSTEM_PROMPT;
 
     for (const model of runtime.models) {
       for (let attempt = 1; attempt <= MAX_RETRIES_PER_MODEL; attempt += 1) {
@@ -1085,18 +1142,20 @@ export async function copilotRoutes(app: FastifyInstance) {
             runtime,
             jwt,
             workspaceId,
-            systemInstruction: COPILOT_SYSTEM_PROMPT,
+            systemInstruction,
             userText,
             model,
+            commercialMode,
           });
 
           const replyText = normalizeCopilotReply(rawReply);
+          const composerText = extractCopilotComposerText(replyText);
 
           await writeAuditLog({
             actor_id: userId,
             action: 'copilot.query',
-            entity_type: conversation_id ? 'conversation' : null,
-            entity_id: conversation_id ?? null,
+            entity_type: commercial_lead_id ? 'commercial_leads' : conversation_id ? 'conversation' : null,
+            entity_id: commercial_lead_id ?? conversation_id ?? null,
             workspace_id: workspaceId,
             metadata: {
               model,
@@ -1104,6 +1163,7 @@ export async function copilotRoutes(app: FastifyInstance) {
               attempt,
               message_preview: message.slice(0, 200),
               has_conversation: Boolean(conversation_id),
+              commercial_lead_id: commercial_lead_id ?? null,
               tool_calls: toolCallsTrace,
               turns: toolCallsTrace.length,
             },
@@ -1111,6 +1171,7 @@ export async function copilotRoutes(app: FastifyInstance) {
 
           return reply.send({
             reply: replyText,
+            composer_text: composerText || replyText,
             model,
             sources: {
               has_conversation_context: Boolean(conversationContext),

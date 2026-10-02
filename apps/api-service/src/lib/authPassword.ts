@@ -1,23 +1,13 @@
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from './supabase';
 
 /**
- * Valida senha com cliente anon (não polui o client service-role nem cria sessão persistente).
+ * Valida a senha atual no mesmo projeto Supabase usado no login (SUPABASE_URL + service role).
+ * Não usar SUPABASE_ANON_KEY de outro projeto — após o cutover omhlb/ojzzx isso invalidava a troca de senha.
  */
 export async function verifyUserPassword(email: string, password: string): Promise<boolean> {
-  const url = process.env.SUPABASE_URL?.trim();
-  const anonKey =
-    process.env.SUPABASE_ANON_KEY?.trim() || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() || '';
-  if (!url || !anonKey) {
-    throw new Error('SUPABASE_ANON_KEY não configurada no api-service (necessária para validar senha atual).');
-  }
-
-  const client = createClient(url, anonKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-
-  const { data, error } = await client.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error || !data.user) return false;
 
-  await client.auth.signOut().catch(() => undefined);
+  await supabase.auth.signOut().catch(() => undefined);
   return true;
 }
