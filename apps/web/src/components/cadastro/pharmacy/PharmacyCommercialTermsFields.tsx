@@ -1,6 +1,6 @@
 'use client';
 
-import { DollarSign } from 'lucide-react';
+import { DollarSign, Truck } from 'lucide-react';
 import { BrCentsInput } from '@/components/form/BrCentsInput';
 import { CadastroField } from '@/components/cadastro/CadastroPrimitives';
 import {
@@ -14,6 +14,7 @@ type Props = {
   disabled?: boolean;
 };
 
+/** Layout Revive `FarmaciaCadastro` — Condições comerciais. */
 export function PharmacyCommercialTermsFields({ value, onChange, disabled }: Props) {
   const feeWarn = validateCommercialPayoutWarning(
     value.delivery_fee_cents,
@@ -29,44 +30,40 @@ export function PharmacyCommercialTermsFields({ value, onChange, disabled }: Pro
   return (
     <div className="space-y-4">
       <div className="grid gap-4 md:grid-cols-2">
-        <CadastroField icon={DollarSign} label="Taxa de entrega (cobrada da farmácia)">
+        <CadastroField icon={DollarSign} label="Taxa de entrega" required>
           <BrCentsInput
             value={value.delivery_fee_cents}
             onChange={(cents) => patch({ delivery_fee_cents: cents })}
             disabled={disabled}
-            className="h-10"
           />
         </CadastroField>
-        <CadastroField icon={DollarSign} label="Repasse da taxa ao entregador">
+        <CadastroField icon={Truck} label="Taxa de entrega repassada ao entregador" required>
           <BrCentsInput
             value={value.delivery_fee_driver_payout_cents}
             onChange={(cents) => patch({ delivery_fee_driver_payout_cents: cents })}
             disabled={disabled}
-            className="h-10"
           />
         </CadastroField>
-      </div>
-      {feeWarn ? <p className="text-xs text-warning">{feeWarn}</p> : null}
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <CadastroField icon={DollarSign} label="Mínimo garantido (opcional)">
+        <CadastroField icon={DollarSign} label="Mínimo garantido">
           <BrCentsInput
             value={value.minimum_guaranteed_cents}
             onChange={(cents) => patch({ minimum_guaranteed_cents: cents })}
             disabled={disabled}
-            className="h-10"
           />
         </CadastroField>
-        <CadastroField icon={DollarSign} label="Repasse do mínimo ao entregador">
+        <CadastroField icon={Truck} label="Mínimo garantido repassado ao entregador">
           <BrCentsInput
             value={value.minimum_guaranteed_driver_payout_cents}
             onChange={(cents) => patch({ minimum_guaranteed_driver_payout_cents: cents })}
             disabled={disabled}
-            className="h-10"
           />
         </CadastroField>
       </div>
+      {feeWarn ? <p className="text-xs text-warning">{feeWarn}</p> : null}
       {minWarn ? <p className="text-xs text-warning">{minWarn}</p> : null}
+      <div className="rounded-md border border-dashed border-border bg-background/40 p-3 text-[11px] text-muted-foreground">
+        Valores em reais (BRL). O repasse ao entregador não pode exceder o valor cobrado da farmácia.
+      </div>
     </div>
   );
 }

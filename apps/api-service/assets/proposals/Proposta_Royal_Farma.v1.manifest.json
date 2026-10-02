@@ -1,0 +1,30 @@
+{
+  "id": "royal_farma",
+  "version": 1,
+  "file": "Proposta_Royal_Farma.v1.docx",
+  "fields": [
+    "NOME_FANTASIA",
+    "RAZAO_SOCIAL",
+    "CNPJ",
+    "CONTATO",
+    "TAXA_1",
+    "QT_ENTREGAS",
+    "MINIMO_GARANTIDO",
+    "SETUP",
+    "QT_ENTREGADORES",
+    "SEG_A_SEX",
+    "SAB",
+    "DOM",
+    "FER"
+  ],
+  "optional_fields": [
+    "SETUP_PAGAMENTO",
+    "QT_DIARIAS_SEMANA",
+    "VALOR_DIARIA",
+    "TEXTO_FOLGUISTA",
+    "TEXTO_ESCALA_RESUMIDA",
+    "DATA_PROPOSTA"
+  ],
+  "currency_fields": ["SETUP", "MINIMO_GARANTIDO", "TAXA_1", "VALOR_DIARIA"],
+  "notes": "R$ permanece fixo no template; valores sem prefixo R$"
+}

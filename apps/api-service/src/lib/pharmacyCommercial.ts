@@ -1,6 +1,7 @@
 import {
   getPartsInTimeZone,
   hasCanonicalBusinessHours,
+  isMinuteWithinBusinessInterval,
   isOpen,
   normalizeBusinessHours,
   type BusinessHoursConfig,
@@ -126,19 +127,11 @@ export function normalizeDeliveryScheduleInput(raw: unknown): Record<string, unk
   return base;
 }
 
-function parseHM(s: string): number {
-  const [h, m] = s.split(':').map((x) => Number(x));
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
-  return h * 60 + m;
-}
-
 function isOpenForDaySchedule(day: DaySchedule, hour: number, minute: number): boolean {
   if (!day.is_open || !day.intervals.length) return false;
   const cur = hour * 60 + minute;
   for (const iv of day.intervals) {
-    const sm = parseHM(iv.start);
-    const em = parseHM(iv.end);
-    if (cur >= sm && cur < em) return true;
+    if (isMinuteWithinBusinessInterval(cur, iv.start, iv.end)) return true;
   }
   return false;
 }
