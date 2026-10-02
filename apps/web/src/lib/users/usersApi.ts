@@ -1,5 +1,11 @@
 import api from '@/lib/api';
 
+export type MembershipRoleRecord = {
+  role_id: string;
+  is_primary?: boolean;
+  name?: string;
+};
+
 export type UserRecord = {
   id: string;
   name: string;
@@ -10,6 +16,8 @@ export type UserRecord = {
   role_id?: string | null;
   sector_id?: string | null;
   workspace_role?: string | null;
+  workspace_roles?: string[];
+  membership_roles?: MembershipRoleRecord[];
   permissions?: Record<string, unknown>;
   user_sectors?: Array<{ sector_id: string; is_primary?: boolean; sectors?: { name: string } | null }>;
   roles?: { name: string } | null;
@@ -132,4 +140,22 @@ export async function resendUserInvite(userId: string): Promise<{ username: stri
 
 export async function toggleUserActive(userId: string): Promise<void> {
   await api.patch(`/api/users/${userId}/toggle`);
+}
+
+export async function updateUser(
+  userId: string,
+  payload: {
+    name?: string;
+    phone?: string;
+    role_id?: string;
+    role_ids?: string[];
+    primary_role_id?: string;
+    sector_id?: string;
+    sector_ids?: string[];
+    primary_sector_id?: string;
+    leader_id?: string | null;
+  }
+): Promise<UserRecord> {
+  const { data } = await api.put<UserRecord>(`/api/users/${userId}`, payload);
+  return data;
 }

@@ -1,5 +1,6 @@
-'use client';
+﻿'use client';
 
+import { campaignsPageApi } from '@/lib/campaigns/campaignsPageApi';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
@@ -7,6 +8,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Clock,
+  Megaphone,
   MessageSquare,
   MoreHorizontal,
   Pause,
@@ -16,9 +18,11 @@ import {
   Send,
   Users,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { DEFAULT_LIST_PAGE_SIZE, PaginationControls } from '@/components/ui/PaginationControls';
-import api from '@/lib/api';
+import { FormControl, formTextareaClassName } from '@/components/form/FormControl';
+import { FormSelect } from '@/components/form/FormSelect';
 import { useAuth } from '@/store/auth';
 import { cn } from '@/lib/utils';
 import { formatDayMonthTimeBr } from '@/lib/datetimeBr';
@@ -97,10 +101,10 @@ function Modal({
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-lg rounded-2xl border border-border bg-surface-elevated shadow-glow">
+      <div className="w-full max-w-lg rounded-2xl border border-border bg-surface shadow-md">
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div className="text-sm font-semibold tracking-tight">{title}</div>
-          <button onClick={onClose} className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground">
+          <button onClick={onClose} className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground">
             Fechar
           </button>
         </div>
@@ -133,13 +137,13 @@ export default function CampaignsPage() {
   const campaignsQuery = useQuery({
     queryKey: ['campaigns'],
     enabled: canFetch,
-    queryFn: async () => (await api.get('/api/campaigns')).data as ApiCampaign[],
+    queryFn: async () => await campaignsPageApi.list() as ApiCampaign[],
   });
 
   const templatesQuery = useQuery({
     queryKey: ['campaigns', 'templates-approved'],
     enabled: canFetch && createOpen,
-    queryFn: async () => (await api.get('/api/templates/list/approved')).data as ApiTemplate[],
+    queryFn: async () => await campaignsPageApi.listApprovedTemplates() as ApiTemplate[],
   });
 
   useEffect(() => {
@@ -226,7 +230,7 @@ export default function CampaignsPage() {
             : {},
       };
       if (formType === 'scheduled') body.scheduled_at = new Date(formScheduledAt).toISOString();
-      await api.post('/api/campaigns', body);
+      await campaignsPageApi.create(body);
       setCreateOpen(false);
       await campaignsQuery.refetch();
     } catch (err: unknown) {
@@ -238,17 +242,17 @@ export default function CampaignsPage() {
   };
 
   const pauseCampaign = async (id: string) => {
-    await api.patch(`/api/campaigns/${id}/pause`);
+    await campaignsPageApi.pause(id);
     await campaignsQuery.refetch();
   };
 
   const resumeCampaign = async (id: string) => {
-    await api.patch(`/api/campaigns/${id}/resume`);
+    await campaignsPageApi.resume(id);
     await campaignsQuery.refetch();
   };
 
   const dispatchCampaign = async (id: string) => {
-    await api.post(`/api/campaigns/${id}/dispatch`);
+    await campaignsPageApi.dispatch(id);
     await campaignsQuery.refetch();
   };
 
@@ -256,24 +260,18 @@ export default function CampaignsPage() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-7xl px-8 py-8">
         <PageHeader
+          icon={Megaphone}
           eyebrow="Engajamento"
           title="Campanhas"
           description="Disparos em massa via WhatsApp com templates aprovados."
           actions={
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => void campaignsQuery.refetch()}
-                className="flex items-center gap-1.5 rounded-md border border-border bg-background/40 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface-hover hover:text-foreground transition-colors"
-                title="Atualizar"
-              >
+              <Button type="button" variant="outline" size="sm" onClick={() => void campaignsQuery.refetch()} title="Atualizar">
                 <RefreshCcw className="h-3.5 w-3.5" /> Atualizar
-              </button>
-              <button
-                onClick={openCreate}
-                className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-glow transition-colors"
-              >
+              </Button>
+              <Button type="button" size="sm" onClick={openCreate}>
                 <Plus className="h-3.5 w-3.5" /> Nova campanha
-              </button>
+              </Button>
             </div>
           }
         />
@@ -316,7 +314,7 @@ export default function CampaignsPage() {
                     ? 'Em andamento'
                     : formatDayMonthTimeBr(c.started_at);
               return (
-                <div key={c.id} className="group rounded-xl border border-border bg-surface p-5 hover:bg-surface-elevated transition-colors">
+                <div key={c.id} className="group rounded-xl border border-border bg-surface p-5 transition-colors hover:bg-sidebar-accent/40 hover:border-primary/40">
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
@@ -338,7 +336,7 @@ export default function CampaignsPage() {
                         const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
                         setMenu((cur) => (cur?.id === c.id ? null : { id: c.id, x: rect.right, y: rect.bottom }));
                       }}
-                      className="rounded p-1.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+                      className="rounded p-1.5 text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
                       title="Ações"
                     >
                       <MoreHorizontal className="h-4 w-4" />
@@ -348,7 +346,7 @@ export default function CampaignsPage() {
                           <div
                             ref={menuRef}
                             style={{ position: 'fixed', top: menu.y + 6, left: menu.x, transform: 'translateX(-100%)' }}
-                            className="z-[100] w-44 rounded-xl border border-border bg-surface-elevated p-1 shadow-glow"
+                            className="z-[100] w-44 rounded-xl border border-border bg-surface p-1 shadow-md"
                           >
                             <button
                               onClick={() => {
@@ -356,7 +354,7 @@ export default function CampaignsPage() {
                                 void dispatchCampaign(c.id);
                               }}
                               disabled={!['draft', 'scheduled'].includes(c.status)}
-                              className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-surface-hover disabled:opacity-50"
+                              className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-sidebar-accent/60 disabled:opacity-50"
                             >
                               Disparar agora
                             </button>
@@ -366,7 +364,7 @@ export default function CampaignsPage() {
                                 void pauseCampaign(c.id);
                               }}
                               disabled={c.status !== 'running'}
-                              className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-surface-hover disabled:opacity-50"
+                              className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-sidebar-accent/60 disabled:opacity-50"
                             >
                               Pausar
                             </button>
@@ -376,7 +374,7 @@ export default function CampaignsPage() {
                                 void resumeCampaign(c.id);
                               }}
                               disabled={c.status !== 'paused'}
-                              className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-surface-hover disabled:opacity-50"
+                              className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-sidebar-accent/60 disabled:opacity-50"
                             >
                               Retomar
                             </button>
@@ -441,65 +439,61 @@ export default function CampaignsPage() {
           {createError ? <div className="text-xs text-destructive">{createError}</div> : null}
           <div>
             <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Nome</label>
-            <input
+            <FormControl
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
-              className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none"
+              className="mt-1"
               required
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Tipo</label>
-              <select
+              <FormSelect
                 value={formType}
-                onChange={(e) => setFormType(e.target.value as CampaignType)}
-                className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none"
-              >
-                <option value="manual">Manual</option>
-                <option value="scheduled">Agendada</option>
-              </select>
+                onChange={(v) => setFormType(v as CampaignType)}
+                className="mt-1"
+                options={[
+                  { value: 'manual', label: 'Manual' },
+                  { value: 'scheduled', label: 'Agendada' },
+                ]}
+              />
             </div>
             <div>
               <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Agendar para</label>
-              <input
+              <FormControl
                 value={formScheduledAt}
                 onChange={(e) => setFormScheduledAt(e.target.value)}
                 disabled={formType !== 'scheduled'}
                 type="datetime-local"
-                className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none disabled:opacity-60"
+                className="mt-1 disabled:opacity-60"
               />
             </div>
           </div>
           <div>
             <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Template</label>
-            <select
+            <FormSelect
               value={formTemplateId}
-              onChange={(e) => setFormTemplateId(e.target.value)}
-              className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none"
-              required
-            >
-              <option value="">—</option>
-              {(templatesQuery.data || []).map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
+              onChange={setFormTemplateId}
+              className="mt-1"
+              placeholder="—"
+              options={(templatesQuery.data || []).map((t) => ({ value: t.id, label: t.name }))}
+            />
             <div className="mt-1 text-[11px] text-muted-foreground">Somente templates aprovados aparecem aqui.</div>
           </div>
           <div>
             <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Audiência</label>
-            <select
+            <FormSelect
               value={formAudience}
-              onChange={(e) => setFormAudience(e.target.value as AudienceType)}
-              className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none"
-            >
-              <option value="drivers">Entregadores</option>
-              <option value="leaders">Líderes</option>
-              <option value="pharmacies">Farmácias</option>
-              <option value="custom">Custom (telefones)</option>
-            </select>
+              onChange={(v) => setFormAudience(v as AudienceType)}
+              className="mt-1"
+              options={[
+                { value: 'drivers', label: 'Entregadores' },
+                { value: 'leaders', label: 'Líderes' },
+                { value: 'pharmacies', label: 'Farmácias' },
+                { value: 'custom', label: 'Custom (telefones)' },
+              ]}
+            />
           </div>
           {formAudience === 'custom' ? (
             <div>
@@ -507,28 +501,19 @@ export default function CampaignsPage() {
               <textarea
                 value={formPhones}
                 onChange={(e) => setFormPhones(e.target.value)}
-                className="mt-1 w-full min-h-[96px] rounded-md border border-border bg-surface px-3 py-2 text-sm font-mono outline-none"
+                className={cn(formTextareaClassName, 'mt-1 min-h-[96px] font-mono')}
                 placeholder="(11) 99999-9999 ou +55 11 99999-9999"
                 required
               />
             </div>
           ) : null}
           <div className="flex items-center justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={() => setCreateOpen(false)}
-              disabled={creating}
-              className="rounded-md border border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground disabled:opacity-60"
-            >
+            <Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={creating}>
               Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={creating}
-              className="rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary-glow disabled:opacity-60"
-            >
+            </Button>
+            <Button type="submit" disabled={creating}>
               {creating ? 'Salvando...' : 'Criar'}
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>

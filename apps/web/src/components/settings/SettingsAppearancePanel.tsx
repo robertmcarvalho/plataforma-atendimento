@@ -1,10 +1,11 @@
-'use client';
+﻿'use client';
 
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/store/auth';
 import { useThemePreference, type ThemePreference } from '@/hooks/useThemePreference';
 import { useInboxDensity, type InboxDensity } from '@/hooks/useInboxDensity';
+import { Card, CardContent } from '@/components/ui/card';
 
 const THEME_OPTIONS: { value: ThemePreference; label: string; desc: string }[] = [
   { value: 'dark', label: 'Escuro', desc: 'Tema atual da plataforma' },
@@ -16,6 +17,32 @@ const INBOX_DENSITY_OPTIONS: { value: InboxDensity; label: string; desc: string 
   { value: 'compact', label: 'Compacto', desc: 'Mais conversas visíveis na lista (padrão)' },
   { value: 'comfort', label: 'Confortável', desc: 'Textos maiores na inbox para leitura prolongada' },
 ];
+
+function OptionCard({
+  active,
+  label,
+  desc,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  desc: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'w-full rounded-xl border px-4 py-3 text-left transition-colors',
+        active ? 'border-primary bg-primary/10 ring-2 ring-primary/25' : 'border-border bg-background hover:bg-sidebar-accent/60'
+      )}
+    >
+      <p className="text-sm font-semibold text-foreground">{label}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{desc}</p>
+    </button>
+  );
+}
 
 export function SettingsAppearancePanel() {
   const { preference, setPreference } = useThemePreference();
@@ -37,62 +64,50 @@ export function SettingsAppearancePanel() {
   };
 
   return (
-    <div className="space-y-8">
-      <section className="space-y-4">
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">Tema</h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Sincroniza com a sua conta quando estiver autenticado; também fica guardado neste navegador.
-          </p>
-        </div>
-        <div className="grid gap-2 sm:grid-cols-3">
-          {THEME_OPTIONS.map((opt) => {
-            const active = preference === opt.value;
-            return (
-              <button
+    <div className="space-y-6">
+      <Card>
+        <CardContent className="space-y-4 p-5">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">Tema</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Sincroniza com a sua conta quando estiver autenticado; também fica guardado neste navegador.
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {THEME_OPTIONS.map((opt) => (
+              <OptionCard
                 key={opt.value}
-                type="button"
+                active={preference === opt.value}
+                label={opt.label}
+                desc={opt.desc}
                 onClick={() => pickTheme(opt.value)}
-                className={cn(
-                  'rounded-xl border px-4 py-3 text-left transition-colors',
-                  active ? 'border-primary bg-primary/10 ring-2 ring-primary/25' : 'border-border bg-surface hover:bg-surface-hover'
-                )}
-              >
-                <p className="text-sm font-semibold text-foreground">{opt.label}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{opt.desc}</p>
-              </button>
-            );
-          })}
-        </div>
-      </section>
+              />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
-      <section className="space-y-4">
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">Densidade da inbox</h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Ajusta o tamanho dos textos na caixa de entrada. Útil para quem passa o dia no atendimento.
-          </p>
-        </div>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {INBOX_DENSITY_OPTIONS.map((opt) => {
-            const active = density === opt.value;
-            return (
-              <button
+      <Card>
+        <CardContent className="space-y-4 p-5">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">Densidade da inbox</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Ajusta o tamanho dos textos na caixa de entrada. Útil para quem passa o dia no atendimento.
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {INBOX_DENSITY_OPTIONS.map((opt) => (
+              <OptionCard
                 key={opt.value}
-                type="button"
+                active={density === opt.value}
+                label={opt.label}
+                desc={opt.desc}
                 onClick={() => pickInboxDensity(opt.value)}
-                className={cn(
-                  'rounded-xl border px-4 py-3 text-left transition-colors',
-                  active ? 'border-primary bg-primary/10 ring-2 ring-primary/25' : 'border-border bg-surface hover:bg-surface-hover'
-                )}
-              >
-                <p className="text-sm font-semibold text-foreground">{opt.label}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{opt.desc}</p>
-              </button>
-            );
-          })}
-        </div>
-      </section>
+              />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

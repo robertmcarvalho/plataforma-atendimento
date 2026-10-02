@@ -1,12 +1,16 @@
 'use client';
 
+import { platformPageApi } from '@/lib/platform/platformPageApi';
+
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Mail } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
-import api from '@/lib/api';
+import { FormControl } from '@/components/form/FormControl';
 import { useAuth } from '@/store/auth';
+import { cn } from '@/lib/utils';
+import { reviveTableHeadRowClassName, reviveTableShellClassName } from '@/lib/reviveSurfaces';
 
 type SystemEmail = {
   configured: boolean;
@@ -33,13 +37,13 @@ export default function PlatformSettingsPage() {
 
   const emailQuery = useQuery({
     queryKey: ['platform-system-email'],
-    queryFn: async () => (await api.get<SystemEmail>('/api/platform/settings/system-email')).data,
+    queryFn: async () => await platformPageApi.fetchSystemEmail(),
     enabled: platformRole.includes('platform'),
   });
 
   const logQuery = useQuery({
     queryKey: ['platform-email-log'],
-    queryFn: async () => (await api.get<{ items: DeliveryLogRow[] }>('/api/platform/email-delivery-log?limit=40')).data.items,
+    queryFn: async () => await platformPageApi.fetchEmailDeliveryLog(40),
     enabled: platformRole.includes('platform'),
   });
 
@@ -61,7 +65,7 @@ export default function PlatformSettingsPage() {
 
   const saveMut = useMutation({
     mutationFn: async () => {
-      await api.put('/api/platform/settings/system-email', {
+      await platformPageApi.putSystemEmail({
         provider: 'smtp',
         from_email: fromEmail,
         from_name: fromName,
@@ -84,7 +88,7 @@ export default function PlatformSettingsPage() {
       <Link href="/platform/workspaces" className="mb-4 inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-3.5 w-3.5" /> Workspaces
       </Link>
-      <PageHeader eyebrow="Plataforma" title="E-mail do sistema" description="SMTP global e log de entregas." />
+      <PageHeader icon={Mail} eyebrow="Plataforma" title="E-mail do sistema" description="SMTP global e log de entregas." />
 
       <section className="mt-6 space-y-3 rounded-xl border border-border bg-surface p-6">
         <h3 className="text-sm font-semibold">Configuração SMTP</h3>
@@ -106,11 +110,11 @@ export default function PlatformSettingsPage() {
         </button>
       </section>
 
-      <section className="mt-6 rounded-xl border border-border bg-surface p-6">
+      <section className={cn(reviveTableShellClassName, 'mt-6 p-6')}>
         <h3 className="mb-3 text-sm font-semibold">Log de entregas</h3>
         <table className="w-full text-xs">
           <thead>
-            <tr className="border-b border-border text-left text-[10px] uppercase text-muted-foreground">
+            <tr className={reviveTableHeadRowClassName}>
               <th className="py-2">Quando</th>
               <th className="py-2">Template</th>
               <th className="py-2">Para</th>
@@ -149,12 +153,7 @@ function Field({
   return (
     <label className="block text-xs text-muted-foreground">
       {label}
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
-      />
+      <FormControl type={type} value={value} onChange={(e) => onChange(e.target.value)} className="mt-1" />
     </label>
   );
 }

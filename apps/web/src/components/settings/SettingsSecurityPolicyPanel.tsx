@@ -19,7 +19,7 @@ export function SettingsSecurityPolicyPanel() {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-xl border border-border bg-surface p-6">
+      <div className="rounded-xl border border-border bg-background p-6">
         <h3 className="text-sm font-semibold tracking-tight text-foreground">Autenticação em dois fatores (2FA)</h3>
         <p className="mt-2 text-xs text-muted-foreground">
           {isLoading ? 'A carregar política…' : data?.summary}
@@ -43,7 +43,7 @@ export function SettingsSecurityPolicyPanel() {
         ) : null}
       </div>
 
-      <div className="rounded-xl border border-border bg-surface p-6">
+      <div className="rounded-xl border border-border bg-background p-6">
         <h3 className="text-sm font-semibold tracking-tight text-foreground">Sessões e auditoria</h3>
         <p className="mt-2 text-xs text-muted-foreground">
           Revogação de sessões continua centralizada no Supabase Auth. As alterações sensíveis (definições, tokens de

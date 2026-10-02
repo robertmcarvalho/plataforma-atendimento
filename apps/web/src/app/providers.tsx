@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { ThemeAwareFavicon } from '@/components/branding/ThemeAwareFavicon';
 import { ThemeBoot } from '@/components/theme/ThemeBoot';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { useAuth } from '@/store/auth';
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -23,9 +24,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeBoot />
-      <ThemeAwareFavicon />
-      {children}
+      <TooltipProvider>
+        <ThemeBoot />
+        <ThemeAwareFavicon />
+        {children}
+      </TooltipProvider>
     </QueryClientProvider>
   );
 }

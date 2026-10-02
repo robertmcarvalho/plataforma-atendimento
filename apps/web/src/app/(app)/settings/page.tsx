@@ -1,6 +1,6 @@
 'use client';
 
-import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Suspense, useEffect, useMemo, useSyncExternalStore, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -9,6 +9,8 @@ import {
   Bot,
   Building2,
   ChevronRight,
+  ClipboardList,
+  Headphones,
   Key,
   Layers,
   MessageSquare,
@@ -21,8 +23,13 @@ import {
   Webhook,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import api from '@/lib/api';
+import { settingsPageApi } from '@/lib/settings/settingsPageApi';
+import { apiErrorMessage } from '@/lib/apiErrorMessage';
+import { settingsNavItem } from '@/lib/interactiveRow';
 import { cn } from '@/lib/utils';
+import { FormSelect } from '@/components/form/FormSelect';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/Switch';
 import { PageHeader } from '@/components/ui/PageHeader';
 import {
   SettingsAppearancePanel,
@@ -33,9 +40,13 @@ import {
   SettingsProfilePanel,
   SettingsRolesPanel,
   SettingsSecurityPolicyPanel,
+  SettingsOperacaoPanel,
+  SettingsServicePanel,
+  SettingsTemplatesPanel,
   SettingsWorkspaceIdentityPanel,
 } from '@/components/settings/settingsPanels';
 import { BusinessHoursEditor } from '@/components/settings/BusinessHoursEditor';
+import { SettingsMobileSectionPicker } from '@/components/settings/SettingsMobileSectionPicker';
 import { useAuth } from '@/store/auth';
 import { formatDateTimeBr } from '@/lib/datetimeBr';
 import { roleDisplayNamePt } from '@/lib/roleLabels';
@@ -43,6 +54,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { DEFAULT_AI_FEATURES, mergeAiFeatures, type AiFeaturesState } from '@/lib/ai/defaults';
 import { BrPhoneInput } from '@/components/form/BrInputs';
 import { normalizeBrazilPhone } from '@/lib/brFormat';
+import { pageContainerClassName } from '@/lib/pageLayout';
 
 // Avoid calling the API during `next build` prerendering.
 const IS_BROWSER = typeof window !== 'undefined';
@@ -80,6 +92,7 @@ type SystemSettingsSection =
   | 'appearance';
 
 type OpsSettingsSection =
+  | 'operacao'
   | 'service'
   | 'automations'
   | 'ai'
@@ -100,6 +113,7 @@ const SYSTEM_SETTINGS_SECTIONS: SystemSettingsSection[] = [
 ];
 
 const OPS_SETTINGS_SECTIONS: OpsSettingsSection[] = [
+  'operacao',
   'service',
   'automations',
   'ai',
@@ -115,13 +129,14 @@ function settingsSectionsForRole(role: string | undefined): SettingsSection[] {
   if (r === 'leader') return [];
   const system = [...SYSTEM_SETTINGS_SECTIONS];
   if (r === 'admin') return [...system, ...OPS_SETTINGS_SECTIONS];
-  if (r === 'supervisor') return [...system, 'automations', 'ai', 'templates'];
+  if (r === 'supervisor') return [...system, 'operacao', 'automations', 'ai', 'templates'];
   return system;
 }
 
 function canViewSettingsSection(section: SettingsSection, ctx: { isAdmin: boolean; isSupervisor: boolean }): boolean {
   if (SYSTEM_SETTINGS_SECTIONS.includes(section as SystemSettingsSection)) return true;
   if (ctx.isAdmin) return OPS_SETTINGS_SECTIONS.includes(section as OpsSettingsSection);
+  if (section === 'operacao') return ctx.isSupervisor || ctx.isAdmin;
   if (section === 'automations') return ctx.isSupervisor;
   if (section === 'templates') return ctx.isSupervisor;
   return false;
@@ -136,6 +151,7 @@ function cardTitleForSection(section: SettingsSection): string {
     security_2fa: 'Segurança',
     api_tokens: 'API e Webhooks',
     appearance: 'Aparência',
+    operacao: 'Operação',
     service: 'Atendimento',
     automations: 'Automações',
     ai: 'Inteligência Artificial',
@@ -167,13 +183,14 @@ function buildSystemNavDefs(): NavDef[] {
 }
 
 function showOpsDecisionSummary(section: SettingsSection): boolean {
-  return ['service', 'automations', 'templates', 'users'].includes(section);
+  return ['automations', 'users'].includes(section);
 }
 
 function buildOpsNavDefs(counts: { templates: number; users: number }): NavDef[] {
   return [
     { key: 'automations', label: 'Automações', desc: 'Roteamento e bot (sem canvas)', icon: Bot, count: null },
-    { key: 'service', label: 'Atendimento', desc: 'Assinatura global e preferências do chat', icon: Settings, count: null },
+    { key: 'operacao', label: 'Operação', desc: 'Checklists e SLA das tarefas operacionais', icon: ClipboardList, count: null },
+    { key: 'service', label: 'Atendimento', desc: 'Assinatura global e preferências do chat', icon: Headphones, count: null },
     { key: 'ai', label: 'IA', desc: 'Habilitar/desabilitar capacidades por recurso', icon: Sparkles, count: null },
     { key: 'templates', label: 'Templates', desc: 'Mensagens e aprovação Meta', icon: Layers, count: counts.templates },
     { key: 'users', label: 'Usuários e perfis', desc: 'Atendentes, papéis e permissões de acesso', icon: Key, count: counts.users },
@@ -189,11 +206,8 @@ interface Sector {
   business_hours?: Record<string, unknown>;
 }
 
-interface TemplateRecord {
+interface TemplateCountRow {
   id: string;
-  name: string;
-  category: string;
-  meta_template_status: string;
 }
 
 interface UserLite {
@@ -236,27 +250,6 @@ interface LeaderRecord {
   name: string;
 }
 
-function getErrorMessage(err: unknown, fallback: string) {
-  if (!err) return fallback;
-  if (typeof err === 'string') return err;
-  if (typeof err === 'object') {
-    const anyErr = err as {
-      response?: { data?: { error?: unknown; message?: unknown } };
-      data?: { error?: unknown; message?: unknown };
-      message?: unknown;
-    };
-    const apiMsg =
-      anyErr?.response?.data?.error ||
-      anyErr?.response?.data?.message ||
-      anyErr?.data?.error ||
-      anyErr?.data?.message;
-    if (apiMsg) return String(apiMsg);
-    if (anyErr?.message) return String(anyErr.message);
-  }
-  if (err instanceof Error) return err.message || fallback;
-  return fallback;
-}
-
 function ModalShell({
   eyebrow,
   title,
@@ -283,13 +276,13 @@ function ModalShell({
           <div className="mb-6 flex shrink-0 items-start justify-between gap-3">
             <div className="min-w-0 pr-2">
               <p className="eyebrow mb-2">{eyebrow}</p>
-              <h3 className="text-2xl font-semibold" style={{ color: 'var(--text)' }}>
+              <h3 className="text-2xl font-semibold text-foreground">
                 {title}
               </h3>
             </div>
-            <button type="button" onClick={onClose} className="icon-button shrink-0" title="Fechar">
+            <Button type="button" variant="ghost" size="icon-sm" onClick={onClose} className="shrink-0" title="Fechar">
               <span className="text-base font-bold">x</span>
-            </button>
+            </Button>
           </div>
           {children}
         </div>
@@ -357,7 +350,7 @@ function UserModal({
           leader_id: form.leader_id || undefined,
           business_hours: hoursPayload,
         };
-        await api.post('/api/users', payload);
+        await settingsPageApi.createUser(payload);
       } else {
         const payload = {
           name: form.name.trim(),
@@ -367,13 +360,13 @@ function UserModal({
           leader_id: form.leader_id || undefined,
           business_hours: hoursPayload,
         };
-        await api.put(`/api/users/${user.id}`, payload);
+        await settingsPageApi.updateUser(user.id, payload);
       }
 
       onSaved();
       onClose();
     } catch (e) {
-      setError(getErrorMessage(e, 'Falha ao salvar usuario.'));
+      setError(apiErrorMessage(e, 'Falha ao salvar usuario.'));
     } finally {
       setSaving(false);
     }
@@ -383,26 +376,24 @@ function UserModal({
 
   return (
     <ModalShell eyebrow="Usuários" title={creating ? 'Novo usuário' : 'Editar usuário'} onClose={onClose}>
-      <div className="mb-4 flex gap-2 border-b pb-2" style={{ borderColor: 'var(--border)' }}>
+      <div className="mb-4 flex gap-2 border-b border-border pb-2">
         <button
           type="button"
           onClick={() => setUserTab('geral')}
-          className="rounded-full px-4 py-2 text-sm font-medium"
-          style={{
-            background: userTab === 'geral' ? 'var(--accent)' : 'var(--surface-2)',
-            color: userTab === 'geral' ? 'hsl(var(--background))' : 'var(--text-muted)',
-          }}
+          className={cn(
+            'rounded-full px-4 py-2 text-sm font-medium transition-colors',
+            userTab === 'geral' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+          )}
         >
           Geral
         </button>
         <button
           type="button"
           onClick={() => setUserTab('horario')}
-          className="rounded-full px-4 py-2 text-sm font-medium"
-          style={{
-            background: userTab === 'horario' ? 'var(--accent)' : 'var(--surface-2)',
-            color: userTab === 'horario' ? 'hsl(var(--background))' : 'var(--text-muted)',
-          }}
+          className={cn(
+            'rounded-full px-4 py-2 text-sm font-medium transition-colors',
+            userTab === 'horario' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+          )}
         >
           Horário do atendente
         </button>
@@ -411,78 +402,67 @@ function UserModal({
       {userTab === 'geral' ? (
         <div className="grid gap-4 lg:grid-cols-2">
           <label className="flex flex-col gap-2 lg:col-span-2">
-            <span className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+            <span className="text-sm font-medium text-muted-foreground">
               Nome
             </span>
             <input
               value={form.name}
               onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-              className="rounded-[1rem] border px-4 py-3 text-sm outline-none"
-              style={{ background: 'var(--surface-2)', borderColor: 'var(--border)', color: 'var(--text)' }}
+              className="rounded-[1rem] border px-4 py-3 text-sm outline-none rounded-md border border-border bg-muted text-foreground"
             />
           </label>
 
           <label className="flex flex-col gap-2">
-            <span className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+            <span className="text-sm font-medium text-muted-foreground">
               Email
             </span>
             <input
               value={form.email}
               disabled={!creating}
               onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
-              className="rounded-[1rem] border px-4 py-3 text-sm outline-none disabled:opacity-70"
-              style={{ background: 'var(--surface-2)', borderColor: 'var(--border)', color: 'var(--text)' }}
+              className="rounded-[1rem] border px-4 py-3 text-sm outline-none disabled:opacity-70 rounded-md border border-border bg-muted text-foreground"
             />
           </label>
 
           <label className="flex flex-col gap-2">
-            <span className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+            <span className="text-sm font-medium text-muted-foreground">
               Telefone
             </span>
             <BrPhoneInput
               value={form.phone}
               onChange={(phone) => setForm((prev) => ({ ...prev, phone }))}
-              className="rounded-[1rem] border px-4 py-3 text-sm outline-none"
-              style={{ background: 'var(--surface-2)', borderColor: 'var(--border)', color: 'var(--text)' }}
+              className="rounded-[1rem] border px-4 py-3 text-sm outline-none rounded-md border border-border bg-muted text-foreground"
             />
           </label>
 
           {creating ? (
             <label className="flex flex-col gap-2 lg:col-span-2">
-              <span className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+              <span className="text-sm font-medium text-muted-foreground">
                 Senha
               </span>
               <input
                 type="password"
                 value={form.password}
                 onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
-                className="rounded-[1rem] border px-4 py-3 text-sm outline-none"
-                style={{ background: 'var(--surface-2)', borderColor: 'var(--border)', color: 'var(--text)' }}
+                className="rounded-[1rem] border px-4 py-3 text-sm outline-none rounded-md border border-border bg-muted text-foreground"
               />
             </label>
           ) : null}
 
           <label className="flex flex-col gap-2">
-            <span className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+            <span className="text-sm font-medium text-muted-foreground">
               Perfil
             </span>
-            <select
+            <FormSelect
               value={form.role_id}
-              onChange={(e) => setForm((prev) => ({ ...prev, role_id: e.target.value }))}
-              className="rounded-[1rem] border px-4 py-3 text-sm outline-none"
-              style={{ background: 'var(--surface-2)', borderColor: 'var(--border)', color: 'var(--text)' }}
-            >
-              <option value="">Selecionar perfil</option>
-              {roles.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {roleDisplayNamePt(r.name)}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setForm((prev) => ({ ...prev, role_id: v }))}
+              placeholder="Selecionar perfil"
+              options={roles.map((r) => ({ value: r.id, label: roleDisplayNamePt(r.name) }))}
+            />
           </label>
 
           <div className="flex flex-col gap-3 lg:col-span-2">
-            <span className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+            <span className="text-sm font-medium text-muted-foreground">
               Setores (atendente pode ter vários)
             </span>
             <div className="flex flex-wrap gap-3">
@@ -514,46 +494,32 @@ function UserModal({
             </div>
             {form.sector_ids.length > 0 ? (
               <label className="flex flex-col gap-2">
-                <span className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+                <span className="text-sm font-medium text-muted-foreground">
                   Setor principal
                 </span>
-                <select
+                <FormSelect
                   value={form.primary_sector_id}
-                  onChange={(e) => setForm((prev) => ({ ...prev, primary_sector_id: e.target.value }))}
-                  className="rounded-[1rem] border px-4 py-3 text-sm outline-none"
-                  style={{ background: 'var(--surface-2)', borderColor: 'var(--border)', color: 'var(--text)' }}
-                >
-                  {form.sector_ids.map((id) => {
+                  onChange={(v) => setForm((prev) => ({ ...prev, primary_sector_id: v }))}
+                  options={form.sector_ids.map((id) => {
                     const s = sectors.find((x) => x.id === id);
-                    return (
-                      <option key={id} value={id}>
-                        {s?.name || id}
-                      </option>
-                    );
+                    return { value: id, label: s?.name || id };
                   })}
-                </select>
+                />
               </label>
             ) : null}
           </div>
 
           {roles.find((r) => r.id === form.role_id)?.name === 'leader' ? (
             <label className="flex flex-col gap-2 lg:col-span-2">
-              <span className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+              <span className="text-sm font-medium text-muted-foreground">
                 Perfil de líder vinculado
               </span>
-              <select
+              <FormSelect
                 value={form.leader_id}
-                onChange={(e) => setForm((prev) => ({ ...prev, leader_id: e.target.value }))}
-                className="rounded-[1rem] border px-4 py-3 text-sm outline-none"
-                style={{ background: 'var(--surface-2)', borderColor: 'var(--border)', color: 'var(--text)' }}
-              >
-                <option value="">Nao vinculado</option>
-                {leaders.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(v) => setForm((prev) => ({ ...prev, leader_id: v }))}
+                placeholder="Nao vinculado"
+                options={leaders.map((l) => ({ value: l.id, label: l.name }))}
+              />
             </label>
           ) : null}
         </div>
@@ -561,10 +527,10 @@ function UserModal({
         <div className="grid gap-4">
           <label className="panel-muted flex items-center justify-between gap-3 rounded-[1rem] px-4 py-3">
             <div className="min-w-0">
-              <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
+              <p className="text-sm font-semibold text-foreground">
                 Usar horario proprio do atendente
               </p>
-              <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+              <p className="mt-1 text-xs text-muted-foreground">
                 Desligado: nao restringe pelo horario individual (herda políticas de SLA sem bloquear roteamento por este JSON).
               </p>
             </div>
@@ -577,7 +543,7 @@ function UserModal({
           {customHours ? (
             <BusinessHoursEditor value={businessHours} onChange={setBusinessHours} />
           ) : (
-            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+            <p className="text-sm text-muted-foreground">
               Sem grade individual: o sistema nao trata este usuario como &quot;fechado&quot; por ausência de weekly.
             </p>
           )}
@@ -586,12 +552,7 @@ function UserModal({
 
       {error ? (
         <div
-          className="mt-4 rounded-[1rem] border px-4 py-3 text-sm"
-          style={{
-            background: 'rgba(220, 38, 38, 0.08)',
-            borderColor: 'rgba(220, 38, 38, 0.25)',
-            color: 'rgb(185, 28, 28)',
-          }}
+          className="mt-4 rounded-md border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive"
         >
           {error}
         </div>
@@ -601,8 +562,7 @@ function UserModal({
         <button
           type="button"
           onClick={onClose}
-          className="rounded-[1rem] px-4 py-3 text-sm font-medium"
-          style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}
+          className="rounded-md bg-muted px-4 py-3 text-sm font-medium text-muted-foreground"
         >
           Cancelar
         </button>
@@ -615,8 +575,7 @@ function UserModal({
             !form.role_id ||
             (creating && (!String(form.email || '').trim() || String(form.password || '').length < 6))
           }
-          className="rounded-[1rem] px-4 py-3 text-sm font-semibold disabled:opacity-50"
-          style={{ background: 'var(--accent)', color: 'hsl(var(--background))' }}
+          className="rounded-md bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50"
         >
           {saving ? 'Salvando...' : 'Salvar'}
         </button>
@@ -668,8 +627,6 @@ function SettingsPageInner() {
   const [editingUser, setEditingUser] = useState<UserRecord | undefined>(undefined);
   const [showUserModal, setShowUserModal] = useState(false);
 
-  const [chatSignatureEnabled, setChatSignatureEnabled] = useState(true);
-  const [chatSignatureDraft, setChatSignatureDraft] = useState(true);
   const [aiFeatures, setAiFeatures] = useState<AiFeaturesState>(DEFAULT_AI_FEATURES);
   const [aiFeaturesDraft, setAiFeaturesDraft] = useState<AiFeaturesState>(DEFAULT_AI_FEATURES);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -696,13 +653,13 @@ function SettingsPageInner() {
     refetch: refetchWorkspace,
   } = useQuery<WorkspacePayload>({
     queryKey: ['workspace'],
-    queryFn: async () => (await api.get<WorkspacePayload>('/api/workspace')).data,
+    queryFn: async () => settingsPageApi.fetchWorkspace() as Promise<WorkspacePayload>,
     enabled: IS_BROWSER,
     staleTime: 45_000,
   });
 
   const workspaceLoadError = workspaceQueryFailed
-    ? getErrorMessage(workspaceQueryErr, 'Não foi possível carregar o workspace.')
+    ? apiErrorMessage(workspaceQueryErr, 'Não foi possível carregar o workspace.')
     : null;
 
   useEffect(() => {
@@ -718,33 +675,33 @@ function SettingsPageInner() {
 
   const { data: sectors = [] } = useQuery<Sector[]>({
     queryKey: ['sectors'],
-    queryFn: async () => (await api.get<Sector[]>('/api/sectors')).data,
+    queryFn: async () => settingsPageApi.fetchSectors() as Promise<Sector[]>,
     enabled: IS_BROWSER && isAdmin && section === 'users',
   });
-  const { data: templateItems = [] } = useQuery<TemplateRecord[]>({
+  const { data: templateItems = [] } = useQuery<TemplateCountRow[]>({
     queryKey: ['templates-all'],
-    queryFn: async () => (await api.get<TemplateRecord[]>('/api/templates')).data,
+    queryFn: async () => settingsPageApi.fetchTemplates() as Promise<TemplateCountRow[]>,
     enabled: IS_BROWSER && (isAdmin || isSupervisor),
   });
   useQuery<UserLite[]>({
     queryKey: ['users-lite'],
-    queryFn: async () => (await api.get<UserLite[]>('/api/users')).data,
+    queryFn: async () => settingsPageApi.fetchUsersLite() as Promise<UserLite[]>,
     enabled: IS_BROWSER && isAdmin,
   });
   const { data: usersFull = [], refetch: refetchUsers } = useQuery<UserRecord[]>({
     queryKey: ['users-full'],
-    queryFn: async () => (await api.get<UserRecord[]>('/api/users')).data,
+    queryFn: async () => settingsPageApi.fetchUsers() as Promise<UserRecord[]>,
     enabled: IS_BROWSER && isAdmin,
   });
   const { data: roles = [] } = useQuery<RoleRecord[]>({
     queryKey: ['roles'],
-    queryFn: async () => (await api.get<RoleRecord[]>('/api/roles')).data,
+    queryFn: async () => settingsPageApi.fetchRoles() as Promise<RoleRecord[]>,
     enabled: IS_BROWSER && isAdmin,
   });
 
   const { data: leadersData = [] } = useQuery<LeaderRecord[]>({
     queryKey: ['leaders-lite'],
-    queryFn: async () => (await api.get<LeaderRecord[]>('/api/leaders')).data,
+    queryFn: async () => settingsPageApi.fetchLeaders() as Promise<LeaderRecord[]>,
     enabled: IS_BROWSER && section === 'users' && isAdmin,
   });
 
@@ -755,7 +712,7 @@ function SettingsPageInner() {
       queryKey: ['user-status', u.id] as const,
       queryFn: async () => {
         try {
-          return (await api.get<{ is_open: boolean; next_open_at_label: string | null }>(`/api/users/${u.id}/status`)).data;
+          return settingsPageApi.fetchUserStatus(u.id) as Promise<{ is_open: boolean; next_open_at_label: string | null }>;
         } catch {
           return { is_open: true, next_open_at_label: null };
         }
@@ -769,12 +726,7 @@ function SettingsPageInner() {
   useQuery({
     queryKey: ['global-settings'],
     queryFn: async () => {
-      const response = await api.get<Record<string, unknown>>('/api/settings');
-      const data = response.data || {};
-      if (data.chat_signature_enabled !== undefined) {
-        setChatSignatureEnabled(Boolean(data.chat_signature_enabled));
-        setChatSignatureDraft(Boolean(data.chat_signature_enabled));
-      }
+      const data = (await settingsPageApi.fetchSettings()) || {};
       const merged = mergeAiFeatures(data.ai_features_config);
       setAiFeatures(merged);
       setAiFeaturesDraft(merged);
@@ -785,11 +737,6 @@ function SettingsPageInner() {
 
   useEffect(() => {
     // Keep the draft aligned if the source value changes (first load / refetch).
-    setChatSignatureDraft(chatSignatureEnabled);
-  }, [chatSignatureEnabled]);
-
-  useEffect(() => {
-    // Keep the draft aligned if the source value changes (first load / refetch).
     setAiFeaturesDraft(aiFeatures);
   }, [aiFeatures]);
 
@@ -797,7 +744,7 @@ function SettingsPageInner() {
     setSavingSettings(true);
     setSettingsNote(null);
     try {
-      await api.put('/api/settings', { key, value });
+      await settingsPageApi.putSetting(key, value);
       setSettingsLastSavedAt(new Date().toISOString());
       setSettingsNote({ tone: 'ok', message: 'Configuracao salva.' });
       return true;
@@ -822,7 +769,7 @@ function SettingsPageInner() {
   };
 
   const toggleUser = async (userId: string) => {
-    await api.patch(`/api/users/${userId}/toggle`);
+    await settingsPageApi.toggleUser(userId);
     await refetchUsers();
   };
 
@@ -845,12 +792,12 @@ function SettingsPageInner() {
     setSavingSettings(true);
     setWorkspaceTzNote(null);
     try {
-      await api.patch('/api/workspace', { timezone: workspaceTimezoneDraft });
+      await settingsPageApi.patchWorkspace({ timezone: workspaceTimezoneDraft });
       await queryClient.invalidateQueries({ queryKey: ['workspace'] });
       await queryClient.invalidateQueries({ queryKey: ['global-settings'] });
       setWorkspaceTzNote({ tone: 'ok', message: 'Fuso horário salvo.' });
     } catch (err) {
-      setWorkspaceTzNote({ tone: 'err', message: getErrorMessage(err, 'Não foi possível salvar o fuso horário.') });
+      setWorkspaceTzNote({ tone: 'err', message: apiErrorMessage(err, 'Não foi possível salvar o fuso horário.') });
     } finally {
       setSavingSettings(false);
     }
@@ -861,7 +808,7 @@ function SettingsPageInner() {
     setSavingWorkspaceIdentity(true);
     setWorkspaceIdentityNote(null);
     try {
-      await api.patch('/api/workspace', {
+      await settingsPageApi.patchWorkspace({
         display_name: workspaceIdentityDraft.display_name.trim(),
         slug: workspaceIdentityDraft.slug.trim(),
         cnpj: workspaceIdentityDraft.cnpj.trim(),
@@ -873,16 +820,39 @@ function SettingsPageInner() {
     } catch (err) {
       setWorkspaceIdentityNote({
         tone: 'err',
-        message: getErrorMessage(err, 'Não foi possível salvar a identidade do workspace.'),
+        message: apiErrorMessage(err, 'Não foi possível salvar a identidade do workspace.'),
       });
     } finally {
       setSavingWorkspaceIdentity(false);
     }
   };
 
+  const allNavItems = useMemo(() => [...systemNav, ...opsNav], [systemNav, opsNav]);
+
+  const sectionPickerOptions = useMemo(
+    () =>
+      allNavItems.map((item) => ({
+        value: item.key,
+        label: item.label,
+      })),
+    [allNavItems],
+  );
+
+  const handleSectionPickerChange = (key: string) => {
+    if (key === 'automations') {
+      router.push('/automacoes');
+      return;
+    }
+    if (key === 'users' && isAdmin) {
+      router.push('/settings/users');
+      return;
+    }
+    setSection(key as SettingsSection);
+  };
+
   if (allowedSections.length === 0) {
     return (
-      <div className="mx-auto flex min-h-[320px] max-w-lg flex-col items-center justify-center gap-4 rounded-2xl border border-border bg-card p-10 text-center shadow-sm">
+      <div className="mx-auto flex min-h-[320px] max-w-lg flex-col items-center justify-center gap-4 rounded-2xl border border-border bg-surface p-10 text-center shadow-sm">
         <AlertTriangle className="h-10 w-10 text-amber-600" />
         <div>
           <p className="text-lg font-semibold tracking-tight text-foreground">Configurações indisponíveis</p>
@@ -912,15 +882,14 @@ function SettingsPageInner() {
           }
           setSection(item.key);
         }}
-        className={cn(
-          'flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors',
-          active ? 'bg-surface-elevated' : 'hover:bg-surface-hover'
-        )}
+        className={settingsNavItem(active)}
       >
         <div
           className={cn(
             'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
-            active ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
+            active
+              ? 'bg-primary/15 text-primary'
+              : 'bg-muted text-muted-foreground group-hover:bg-primary/15 group-hover:text-primary'
           )}
         >
           <Icon className="h-4 w-4" />
@@ -946,15 +915,22 @@ function SettingsPageInner() {
   return (
     <>
       <div className="h-full min-h-0 overflow-y-auto">
-        <div className="mx-auto max-w-7xl px-6 py-6 md:px-8 md:py-8">
+        <div className={pageContainerClassName}>
           <PageHeader
+            icon={Settings}
             eyebrow="Sistema"
             title="Configurações"
             description="Gerencie workspace, canais, segurança e integrações."
           />
 
+          <SettingsMobileSectionPicker
+            value={section}
+            onChange={handleSectionPickerChange}
+            options={sectionPickerOptions}
+          />
+
           <div className="grid grid-cols-12 gap-6">
-            <nav className="col-span-12 space-y-0.5 lg:col-span-4 xl:col-span-3">
+            <nav className="col-span-12 hidden space-y-0.5 lg:block lg:col-span-4 xl:col-span-3">
               {systemNav.map(renderNavItem)}
               {opsNav.length > 0 ? (
                 <>
@@ -984,26 +960,26 @@ function SettingsPageInner() {
               ) : null}
               </div>
 
-              <div className="flex flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-sm lg:max-h-[min(70vh,calc(100dvh-10.5rem))]">
+              <div
+                className={cn(
+                  'flex flex-col overflow-hidden lg:max-h-[min(70vh,calc(100dvh-10.5rem))]',
+                  section !== 'templates' && section !== 'service' && 'rounded-xl border border-border bg-surface shadow-sm',
+                )}
+              >
+                {section !== 'templates' && section !== 'service' ? (
                 <div className="shrink-0 border-b border-border/60 bg-surface px-5 py-4">
                   <h2 className="text-sm font-semibold tracking-tight text-foreground">{cardTitleForSection(section)}</h2>
                 </div>
-                <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-                  <div className="space-y-5">
+                ) : null}
+                <div className={cn('min-h-0 flex-1 overflow-y-auto', section === 'templates' || section === 'service' ? 'p-0' : 'px-5 py-4')}>
+                  <div className={section === 'templates' || section === 'service' ? '' : 'space-y-5'}>
             {!canViewSettingsSection(section, { isAdmin, isSupervisor }) ? (
               <div className="p-4">
-                <div
-                  className="flex items-start gap-3 rounded-[1.1rem] border px-4 py-3 text-sm"
-                  style={{
-                    background: 'rgba(245, 158, 11, 0.08)',
-                    borderColor: 'rgba(245, 158, 11, 0.25)',
-                    color: 'rgb(180, 83, 9)',
-                  }}
-                >
+                <div className="flex items-start gap-3 rounded-md border border-warning/25 bg-warning/10 px-4 py-3 text-sm text-warning">
                   <AlertTriangle size={18} style={{ marginTop: 2 }} />
                   <div className="min-w-0">
                     <p className="font-semibold">Acesso restrito</p>
-                    <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+                    <p className="mt-1 text-xs text-muted-foreground">
                       Secao nao permitida para o seu perfil (<span className="font-semibold">{user?.role || 'desconhecido'}</span>). Administradores veem todas as secoes (incluindo <span className="font-semibold">Usuários e perfis</span> em Operação); supervisores veem templates, automações e IA.
                     </p>
                   </div>
@@ -1049,29 +1025,10 @@ function SettingsPageInner() {
                   <SettingsApiTokensPanel />
                 ) : section === 'appearance' ? (
                   <SettingsAppearancePanel />
+                ) : section === 'operacao' ? (
+                  <SettingsOperacaoPanel isAdmin={isAdmin} />
                 ) : section === 'service' ? (
-              <div className="rounded-xl border border-border bg-muted/20 p-6">
-                <div className="rounded-xl border border-border bg-background/60 p-6">
-                  <p className="eyebrow mb-2">Chat</p>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
-                        Assinatura de atendente
-                      </p>
-                      <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
-                        Default global da assinatura no composer.
-                      </p>
-                    </div>
-
-                    <label className="inline-flex items-center gap-3 rounded-[1.1rem] border px-4 py-3" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
-                      <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
-                        {chatSignatureDraft ? 'Ativa' : 'Desativada'}
-                      </span>
-                      <input type="checkbox" checked={chatSignatureDraft} onChange={(e) => setChatSignatureDraft(e.target.checked)} />
-                    </label>
-                  </div>
-                </div>
-              </div>
+              <SettingsServicePanel />
             ) : section === 'ai' ? (
               <div>
                 <p className="text-xs text-muted-foreground">
@@ -1125,24 +1082,12 @@ function SettingsPageInner() {
                         <div className="text-sm font-medium text-foreground">{item.label}</div>
                         <div className="text-[11px] text-muted-foreground">{item.desc}</div>
                       </div>
-                      <button
-                        type="button"
+                      <Switch
+                        checked={aiFeaturesDraft[item.key]}
                         disabled={!isAdmin || savingSettings}
-                        onClick={() => void toggleAiFeature(item.key)}
-                        className={cn(
-                          'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-50',
-                          aiFeaturesDraft[item.key] ? 'bg-primary' : 'bg-muted'
-                        )}
-                        aria-pressed={aiFeaturesDraft[item.key]}
+                        onCheckedChange={() => void toggleAiFeature(item.key)}
                         aria-label={item.label}
-                      >
-                        <span
-                          className={cn(
-                            'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
-                            aiFeaturesDraft[item.key] ? 'translate-x-5' : 'translate-x-1'
-                          )}
-                        />
-                      </button>
+                      />
                     </div>
                   ))}
                 </div>
@@ -1153,44 +1098,10 @@ function SettingsPageInner() {
                 ) : null}
               </div>
             ) : section === 'templates' ? (
-              <div className="overflow-x-auto rounded-lg border border-border/60 bg-background/30">
-              <table className="workspace-table min-w-[520px]">
-                <thead>
-                  <tr>
-                    <th>Template</th>
-                    <th>Categoria</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {templateItems.map((template) => {
-                    const approved = template.meta_template_status === 'approved';
-                    return (
-                      <tr key={template.id} className="workspace-row">
-                        <td className="workspace-cell">
-                          <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
-                            {template.name}
-                          </p>
-                        </td>
-                        <td className="workspace-cell">
-                          <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                            {template.category}
-                          </span>
-                        </td>
-                        <td className="workspace-cell">
-                          <span className="status-chip" style={{ background: approved ? 'var(--success-soft)' : 'var(--warning-soft)', color: approved ? 'var(--success)' : 'var(--warning)' }}>
-                            {approved ? 'Aprovado' : template.meta_template_status}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              </div>
+              <SettingsTemplatesPanel />
             ) : section === 'users' ? (
               <>
-              <div className="overflow-x-auto rounded-lg border border-border/60 bg-background/30">
+              <div className="overflow-x-auto rounded-lg border border-border/60 bg-muted/30">
               <table className="workspace-table min-w-[720px]">
                 <thead>
                   <tr>
@@ -1204,75 +1115,80 @@ function SettingsPageInner() {
                 </thead>
                 <tbody>
                   {usersFull.map((u, idx) => (
-                    <tr key={u.id} className="workspace-row">
-                      <td className="workspace-cell">
-                        <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
+                    <tr key={u.id} className="border-b border-border hover:bg-sidebar-accent/60">
+                      <td className="px-3 py-2 align-middle">
+                        <p className="text-sm font-semibold text-foreground">
                           {u.name}
                         </p>
-                        <p className="mt-1 text-[11px]" style={{ color: 'var(--text-soft)' }}>
+                        <p className="mt-1 text-[11px] text-subtle-foreground">
                           {u.email || '-'}
                         </p>
                       </td>
-                      <td className="workspace-cell">
-                        <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                      <td className="px-3 py-2 align-middle">
+                        <span className="text-sm text-muted-foreground">
                           {u.roles?.name ? roleDisplayNamePt(u.roles.name) : '-'}
                         </span>
                       </td>
-                      <td className="workspace-cell">
-                        <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                      <td className="px-3 py-2 align-middle">
+                        <span className="text-sm text-muted-foreground">
                           {u.sectors?.name || sectors.find((s) => s.id === u.sector_id)?.name || '-'}
                         </span>
                       </td>
-                      <td className="workspace-cell">
-                        <span className="status-chip" style={{ background: u.is_active !== false ? 'var(--success-soft)' : 'var(--surface-2)', color: u.is_active !== false ? 'var(--success)' : 'var(--text-muted)' }}>
+                      <td className="px-3 py-2 align-middle">
+                        <span
+                          className={cn(
+                            'inline-flex items-center rounded-full border border-transparent px-2.5 py-0.5 text-xs font-semibold',
+                            u.is_active !== false ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'
+                          )}
+                        >
                           {u.is_active !== false ? 'Ativo' : 'Inativo'}
                         </span>
                       </td>
-                      <td className="workspace-cell">
+                      <td className="px-3 py-2 align-middle">
                         {(() => {
                           const qh = userHourQueries[idx]?.data;
                           if (!qh) {
                             return (
-                              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                              <span className="text-xs text-muted-foreground">
                                 ...
                               </span>
                             );
                           }
                           return (
                             <span
-                              className="status-chip"
+                              className={cn(
+                                'inline-flex items-center rounded-full border border-transparent px-2.5 py-0.5 text-xs font-semibold',
+                                qh.is_open ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'
+                              )}
                               title={qh.next_open_at_label || undefined}
-                              style={{
-                                background: qh.is_open ? 'var(--success-soft)' : 'rgba(245, 158, 11, 0.12)',
-                                color: qh.is_open ? 'var(--success)' : 'rgb(180, 83, 9)',
-                              }}
                             >
                               {qh.is_open ? 'Aberto' : 'Fechado'}
                             </span>
                           );
                         })()}
                       </td>
-                      <td className="workspace-cell">
+                      <td className="px-3 py-2 align-middle">
                         <div className="flex items-center gap-2">
-                          <button
+                          <Button
                             type="button"
                             onClick={() => {
                               setEditingUser(u);
                               setShowUserModal(true);
                             }}
-                            className="icon-button"
+                            variant="ghost"
+                            size="icon-sm"
                             title="Editar"
                           >
                             <Settings size={16} />
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             type="button"
                             onClick={() => void toggleUser(u.id)}
-                            className="button-secondary"
+                            variant="secondary"
                             style={{ padding: '0.55rem 0.75rem' }}
                           >
                             {u.is_active !== false ? 'Desativar' : 'Ativar'}
-                          </button>
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -1286,7 +1202,7 @@ function SettingsPageInner() {
               <SettingsAuditPanel />
             ) : (
               <div className="rounded-xl border border-border bg-muted/20 p-6">
-                <div className="rounded-xl border border-border bg-background/60 p-6">
+                <div className="rounded-xl border border-border bg-surface p-6">
                   <p className="text-sm font-semibold tracking-tight text-foreground">Secção</p>
                   <p className="mt-1 text-xs text-muted-foreground">Conteúdo em preparação.</p>
                 </div>
@@ -1295,134 +1211,75 @@ function SettingsPageInner() {
 
                 {showOpsDecisionSummary(section) ? (
                 <div className="space-y-4 border-t border-border pt-6">
-            {section === 'service' ? (
+            {section === 'ai' ? (
               <div className="grid gap-3">
                 <div className="rounded-xl border border-border bg-muted/20 p-6">
                   <p className="eyebrow mb-2">Mudancas</p>
-                  <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
-                    Assinatura (default)
-                  </p>
-                  <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
-                    {chatSignatureDraft ? 'Ativa' : 'Desativada'}
-                  </p>
-                  <p className="mt-3 text-xs" style={{ color: 'var(--text-soft)' }}>
-                    Impacto: mensagens enviadas pelo atendente podem incluir a assinatura automaticamente.
-                  </p>
-                  {settingsLastSavedAt ? (
-                    <p className="mt-2 text-xs mono" style={{ color: 'var(--text-soft)' }}>
-                      ultimo update: {formatDateTimeBr(settingsLastSavedAt)}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="grid gap-2">
-                  <button
-                    type="button"
-                    disabled={savingSettings || chatSignatureDraft === chatSignatureEnabled}
-                    onClick={() => void (async () => {
-                      const ok = await updateGlobalSetting('chat_signature_enabled', chatSignatureDraft);
-                      if (ok) setChatSignatureEnabled(chatSignatureDraft);
-                    })()}
-                    className="button-primary disabled:opacity-50"
-                  >
-                    {savingSettings ? 'Salvando...' : 'Salvar'}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={savingSettings || chatSignatureDraft === chatSignatureEnabled}
-                    onClick={() => {
-                      setChatSignatureDraft(chatSignatureEnabled);
-                      setSettingsNote(null);
-                    }}
-                    className="button-secondary disabled:opacity-50"
-                  >
-                    Desfazer
-                  </button>
-                  {settingsNote ? (
-                    <p className="text-xs font-semibold" style={{ color: settingsNote.tone === 'ok' ? 'var(--success)' : 'var(--danger)' }}>
-                      {settingsNote.message}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            ) : section === 'ai' ? (
-              <div className="grid gap-3">
-                <div className="rounded-xl border border-border bg-muted/20 p-6">
-                  <p className="eyebrow mb-2">Mudancas</p>
-                  <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
+                  <p className="text-sm font-semibold text-foreground">
                     Capacidades de IA (runtime)
                   </p>
-                  <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+                  <p className="mt-1 text-xs text-muted-foreground">
                     sentiment: {aiFeaturesDraft.sentiment ? 'on' : 'off'} · urgency: {aiFeaturesDraft.urgency ? 'on' : 'off'} · suggest_reply:{' '}
                     {aiFeaturesDraft.suggest_reply ? 'on' : 'off'} · briefing_copilot: {aiFeaturesDraft.inbound_assist ? 'on' : 'off'} · nps_predicted:{' '}
                     {aiFeaturesDraft.nps_predicted ? 'on' : 'off'}
                   </p>
-                  <p className="mt-3 text-xs" style={{ color: 'var(--text-soft)' }}>
+                  <p className="mt-3 text-xs text-subtle-foreground">
                     Impacto: afeta execução do orchestrator e disponibilidade de recursos/insights na UI.
                   </p>
                   {settingsLastSavedAt ? (
-                    <p className="mt-2 text-xs mono" style={{ color: 'var(--text-soft)' }}>
+                    <p className="mt-2 text-xs mono text-subtle-foreground">
                       ultimo update: {formatDateTimeBr(settingsLastSavedAt)}
                     </p>
                   ) : null}
                 </div>
                 <div className="grid gap-2">
-                  <button
+                  <Button
                     type="button"
                     disabled={!isAdmin || savingSettings || JSON.stringify(aiFeaturesDraft) === JSON.stringify(aiFeatures)}
                     onClick={() => void (async () => {
                       const ok = await updateGlobalSetting('ai_features_config', aiFeaturesDraft);
                       if (ok) setAiFeatures(aiFeaturesDraft);
                     })()}
-                    className="button-primary disabled:opacity-50"
                   >
                     {savingSettings ? 'Salvando...' : isAdmin ? 'Salvar' : 'Somente admin'}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
+                    variant="secondary"
                     disabled={savingSettings || JSON.stringify(aiFeaturesDraft) === JSON.stringify(aiFeatures)}
                     onClick={() => {
                       setAiFeaturesDraft(aiFeatures);
                       setSettingsNote(null);
                     }}
-                    className="button-secondary disabled:opacity-50"
                   >
                     Desfazer
-                  </button>
+                  </Button>
                   {settingsNote ? (
-                    <p className="text-xs font-semibold" style={{ color: settingsNote.tone === 'ok' ? 'var(--success)' : 'var(--danger)' }}>
+                    <p className={cn('text-xs font-semibold', settingsNote.tone === 'ok' ? 'text-success' : 'text-destructive')}>
                       {settingsNote.message}
                     </p>
                   ) : null}
-                </div>
-              </div>
-            ) : section === 'templates' ? (
-              <div className="grid gap-3">
-                <div className="panel-muted rounded-[1.1rem] p-4">
-                  <p className="eyebrow mb-2">Recorte</p>
-                  <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
-                    {templateItems.filter((t) => t.meta_template_status === 'approved').length} aprovados / {templateItems.length} total
-                  </p>
                 </div>
               </div>
             ) : section === 'users' ? (
               <div className="grid gap-3">
                 <div className="panel-muted rounded-[1.1rem] p-4">
                   <p className="eyebrow mb-2">Acoes</p>
-                  <button
+                  <Button
                     type="button"
                     onClick={() => {
                       setEditingUser(undefined);
                       setShowUserModal(true);
                     }}
-                    className="button-primary w-full"
+                    className="w-full"
                   >
                     <Plus size={16} />
                     Novo usuário
-                  </button>
+                  </Button>
                 </div>
                 <div className="panel-muted rounded-[1.1rem] p-4">
                   <p className="eyebrow mb-2">Recorte</p>
-                  <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
+                  <p className="text-sm font-semibold text-foreground">
                     {usersFull.filter((u) => u.is_active !== false).length} ativos / {usersFull.length} total
                   </p>
                 </div>
@@ -1431,7 +1288,7 @@ function SettingsPageInner() {
               <div className="grid gap-3">
                 <div className="panel-muted rounded-[1.1rem] p-4">
                   <p className="eyebrow mb-2">Proximo</p>
-                  <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
+                  <p className="text-sm font-semibold text-foreground">
                     Consolidar usuarios/roles/auditoria
                   </p>
                 </div>
@@ -1469,7 +1326,7 @@ export default function SettingsPage() {
   return (
     <Suspense
       fallback={
-        <div className="p-6 text-sm" style={{ color: 'var(--text-muted)' }}>
+        <div className="p-6 text-sm text-muted-foreground">
           Carregando configuracoes...
         </div>
       }

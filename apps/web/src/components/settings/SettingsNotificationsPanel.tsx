@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import Link from 'next/link';
 import api from '@/lib/api';
-import { cn } from '@/lib/utils';
+import { Switch } from '@/components/ui/Switch';
 
 const LABELS: { key: string; label: string; desc: string }[] = [
   {
@@ -20,12 +20,12 @@ const LABELS: { key: string; label: string; desc: string }[] = [
   {
     key: 'sla_warning',
     label: 'SLA prestes a vencer',
-    desc: 'Alertas de prazo na plataforma (painel de atividade na inbox)',
+    desc: 'Alertas de prazo na plataforma (painel Operação)',
   },
   {
     key: 'open_tasks_inbox',
     label: 'Pendências na caixa de entrada',
-    desc: 'Lista de tarefas no painel de atividade',
+    desc: 'Lista de pendências e alertas no sino da inbox',
   },
   {
     key: 'campaign_done',
@@ -36,6 +36,41 @@ const LABELS: { key: string; label: string; desc: string }[] = [
     key: 'overdue_installment',
     label: 'Parcela em atraso',
     desc: 'Alertas financeiros na plataforma quando o fluxo existir',
+  },
+  {
+    key: 'driver_document_expiry_warning',
+    label: 'Vencimento de documento (30/7 dias)',
+    desc: 'CNH ou certificado digital de entregador próximo do vencimento',
+  },
+  {
+    key: 'driver_document_expired',
+    label: 'Documento vencido',
+    desc: 'CNH ou certificado digital de entregador já vencido',
+  },
+  {
+    key: 'driver_signature_pending',
+    label: 'Assinatura pendente (Autentique)',
+    desc: 'Documento detectado no Autentique aguardando assinatura do entregador',
+  },
+  {
+    key: 'driver_signature_viewed',
+    label: 'Documento visualizado (Autentique)',
+    desc: 'Entregador abriu o documento no Autentique',
+  },
+  {
+    key: 'driver_signature_signed',
+    label: 'Assinatura concluída (Autentique)',
+    desc: 'Entregador assinou matrícula ou termo de desligamento',
+  },
+  {
+    key: 'driver_signature_rejected',
+    label: 'Assinatura recusada (Autentique)',
+    desc: 'Entregador recusou assinar no Autentique',
+  },
+  {
+    key: 'driver_signature_overdue',
+    label: 'Prazo de assinatura estourado',
+    desc: 'Prazo configurado para assinatura foi ultrapassado',
   },
 ];
 
@@ -104,24 +139,12 @@ export function SettingsNotificationsPanel() {
               <div className="text-sm font-medium text-foreground">{n.label}</div>
               <div className="text-[11px] text-muted-foreground">{n.desc}</div>
             </div>
-            <button
-              type="button"
+            <Switch
+              checked={merged[n.key]}
               disabled={saveMut.isPending}
-              onClick={() => toggle(n.key)}
-              className={cn(
-                'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-50',
-                merged[n.key] ? 'bg-primary' : 'bg-muted'
-              )}
-              aria-pressed={merged[n.key]}
+              onCheckedChange={() => toggle(n.key)}
               aria-label={n.label}
-            >
-              <span
-                className={cn(
-                  'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
-                  merged[n.key] ? 'translate-x-5' : 'translate-x-1'
-                )}
-              />
-            </button>
+            />
           </div>
         ))}
       </div>

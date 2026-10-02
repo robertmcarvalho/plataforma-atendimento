@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState } from 'react';
 import { Camera, Mail, MessageSquare, Sparkles } from 'lucide-react';
@@ -32,7 +32,7 @@ function ChannelTab({
       onClick={() => onClick(id)}
       className={cn(
         'flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors',
-        current === id ? 'bg-surface-elevated text-foreground' : 'text-muted-foreground hover:bg-surface-hover'
+        current === id ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-sidebar-accent/60'
       )}
     >
       <span className={current === id ? color : ''}>{icon}</span> {label}
@@ -53,7 +53,7 @@ export function ChannelsPanel({ isAdmin = false, sectors }: { isAdmin?: boolean;
         channelTypes={['whatsapp', 'instagram', 'email', 'webchat']}
         note="Contexto usado pelas telas operacionais"
       />
-      <div className="flex items-center gap-1 rounded-xl border border-border bg-surface p-1">
+      <div className="flex items-center gap-1 rounded-xl border border-border bg-background p-1">
         <ChannelTab
           id="whatsapp"
           current={tab}

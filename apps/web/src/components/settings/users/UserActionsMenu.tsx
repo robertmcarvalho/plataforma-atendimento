@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -63,7 +63,7 @@ export function UserActionsMenu({
         ref={buttonRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="rounded p-1 text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+        className="rounded p-1 text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
@@ -75,7 +75,7 @@ export function UserActionsMenu({
         >
           <Link
             href={`/settings/users/${user.id}`}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-hover"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-sidebar-accent/60"
             onClick={() => setOpen(false)}
           >
             <Eye className="h-3.5 w-3.5" /> Ver ficha
@@ -86,7 +86,7 @@ export function UserActionsMenu({
               setOpen(false);
               onEditPassword();
             }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-hover"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-sidebar-accent/60"
           >
             <Key className="h-3.5 w-3.5" /> Editar senha
           </button>
@@ -96,7 +96,7 @@ export function UserActionsMenu({
               setOpen(false);
               onResend();
             }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-hover"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-sidebar-accent/60"
           >
             <RotateCcw className="h-3.5 w-3.5" /> Reenviar acesso
           </button>
@@ -107,7 +107,7 @@ export function UserActionsMenu({
               setOpen(false);
               onToggleActive();
             }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-hover"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-sidebar-accent/60"
           >
             {active ? <UserX className="h-3.5 w-3.5" /> : <UserCog className="h-3.5 w-3.5" />}
             {active ? 'Desativar' : 'Ativar'}

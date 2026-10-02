@@ -1,13 +1,16 @@
-'use client';
+﻿'use client';
 
 import { useMemo, useState } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, BarChart3, Bot, Clock, Copy, GitBranch, ListTree, MessageSquare, MoreHorizontal, Pencil, Play, Plus, Trash2, X, Zap } from 'lucide-react';
 import api from '@/lib/api';
+import { iconButtonHover, interactiveRowMuted, interactiveRowPrimary, interactiveRowSurface } from '@/lib/interactiveRow';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/store/auth';
+import { buttonVariants } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { Switch } from '@/components/ui/Switch';
 import Link from 'next/link';
 import { OperationalContextBar } from '@/components/operational/OperationalContextBar';
 import { useOperationalContext } from '@/hooks/useOperationalContext';
@@ -386,14 +389,12 @@ export default function AutomationsListPage() {
           </Link>
 
           <PageHeader
+            icon={Bot}
             eyebrow="Inteligência"
             title="Automações"
             description="Fluxos, bots de triagem e regras de roteamento."
             actions={
-              <Link
-                href="/automacoes/nova"
-                className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-glow transition-colors"
-              >
+              <Link href="/automacoes/nova" className={buttonVariants({ size: 'xs' })}>
                 <Plus className="h-3.5 w-3.5" /> Nova automação
               </Link>
             }
@@ -450,7 +451,7 @@ export default function AutomationsListPage() {
                     <tr
                       key={`${a.kind}:${a.id}`}
                       onClick={() => router.push(`/automacoes/${encodeURIComponent(a.id)}?kind=${encodeURIComponent(a.kind)}`)}
-                      className="cursor-pointer border-b border-border/50 last:border-0 hover:bg-surface-hover transition-colors"
+                      className={cn('cursor-pointer border-b border-border/50 last:border-0', interactiveRowSurface())}
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5">
@@ -458,8 +459,8 @@ export default function AutomationsListPage() {
                             <Icon className="h-4 w-4" />
                           </div>
                           <div className="min-w-0">
-                            <div className="text-sm font-medium truncate">{a.name}</div>
-                            <div className="text-[10px] text-subtle-foreground">
+                            <div className={cn('truncate text-sm font-medium', interactiveRowPrimary())}>{a.name}</div>
+                            <div className={cn('text-[10px]', interactiveRowMuted())}>
                               ID:{' '}
                               {a.kind === 'automation_rule'
                                 ? `AUT-${shortId(a.id)}`
@@ -481,24 +482,19 @@ export default function AutomationsListPage() {
                         <span className={cn('font-mono text-sm', successTone)}>{formatSuccess(a.success_pct)}</span>
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void toggleItem(a);
-                          }}
-                          disabled={
-                            a.kind === 'automation_rule' || a.kind === 'conversation_flow'
-                              ? !(isAdmin || isSupervisor)
-                              : !isAdmin
-                          }
-                          className={cn(
-                            'relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:opacity-60 disabled:cursor-not-allowed',
-                            a.enabled ? 'bg-primary' : 'bg-muted'
-                          )}
-                          title={a.enabled ? 'Desativar' : 'Ativar'}
-                        >
-                          <span className={cn('inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform', a.enabled ? 'translate-x-5' : 'translate-x-1')} />
-                        </button>
+                        <span onClick={(e) => e.stopPropagation()}>
+                          <Switch
+                            checked={a.enabled}
+                            disabled={
+                              a.kind === 'automation_rule' || a.kind === 'conversation_flow'
+                                ? !(isAdmin || isSupervisor)
+                                : !isAdmin
+                            }
+                            onCheckedChange={() => void toggleItem(a)}
+                            title={a.enabled ? 'Desativar' : 'Ativar'}
+                            aria-label={a.enabled ? 'Desativar' : 'Ativar'}
+                          />
+                        </span>
                       </td>
                       <td className="relative px-4 py-3">
                         <button
@@ -506,7 +502,7 @@ export default function AutomationsListPage() {
                             e.stopPropagation();
                             setOpenMenu((cur) => (cur?.id === a.id && cur.kind === a.kind ? null : { kind: a.kind, id: a.id }));
                           }}
-                          className="flex h-7 w-7 items-center justify-center rounded hover:bg-surface-elevated"
+                          className={cn('flex h-7 w-7 items-center justify-center', iconButtonHover)}
                           title="Ações"
                         >
                           <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
@@ -517,7 +513,7 @@ export default function AutomationsListPage() {
                             className="absolute right-2 top-10 z-20 w-48 rounded-lg border border-border bg-popover py-1 shadow-elevated"
                           >
                             <button
-                              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-surface-hover"
+                              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-sidebar-accent/60"
                               onClick={() => {
                                 setOpenMenu(null);
                                 router.push(`/automacoes/nova?kind=${encodeURIComponent(a.kind)}&id=${encodeURIComponent(a.id)}`);
@@ -526,7 +522,7 @@ export default function AutomationsListPage() {
                               <Pencil className="h-3.5 w-3.5" /> Editar fluxo
                             </button>
                             <button
-                              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-surface-hover"
+                              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-sidebar-accent/60"
                               onClick={() => {
                                 setOpenMenu(null);
                                 router.push(`/automacoes/${encodeURIComponent(a.id)}?kind=${encodeURIComponent(a.kind)}`);
@@ -535,7 +531,7 @@ export default function AutomationsListPage() {
                               <BarChart3 className="h-3.5 w-3.5" /> Ver execuções
                             </button>
                             <button
-                              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-surface-hover"
+                              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-sidebar-accent/60"
                               onClick={() => {
                                 setOpenMenu(null);
                                 if (a.kind === 'automation_rule') {
@@ -549,7 +545,7 @@ export default function AutomationsListPage() {
                               <Copy className="h-3.5 w-3.5" /> Duplicar
                             </button>
                             <button
-                              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-surface-hover"
+                              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-sidebar-accent/60"
                               onClick={() => {
                                 setOpenMenu(null);
                                 setConfirmDelete(a);
@@ -598,7 +594,7 @@ export default function AutomationsListPage() {
             <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
               <button
                 onClick={() => setConfirmDelete(null)}
-                className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium hover:bg-surface-hover"
+                className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent/60"
               >
                 Cancelar
               </button>

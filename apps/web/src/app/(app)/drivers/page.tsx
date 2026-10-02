@@ -1,21 +1,40 @@
 'use client';
 
+import { cadastroPageApi } from '@/lib/cadastro/cadastroPageApi';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Edit3, MapPin, MoreHorizontal, Plus, Search, Truck } from 'lucide-react';
+import { Edit3, MapPin, MoreHorizontal, Plus, Truck } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { ListToolbar } from '@/components/ui/ListToolbar';
 import { StatusDot } from '@/components/ui/StatusDot';
-import api from '@/lib/api';
 import { useAuth } from '@/store/auth';
 import { canManageCadastro } from '@/lib/cadastroPermissions';
+import {
+  interactiveRowMuted,
+  interactiveRowPrimary,
+  interactiveRowSecondary,
+} from '@/lib/interactiveRow';
 import { cn } from '@/lib/utils';
+import {
+  reviveKpiCardClassName,
+  reviveTableHeadRowClassName,
+  reviveTableRowClassName,
+  reviveTableShellClassName,
+  reviveToolbarButtonClassName,
+  reviveStatusPill,
+} from '@/lib/reviveSurfaces';
 import { CadastroImportTrigger } from '@/components/cadastros/CadastroImportModal';
 import { formatBrazilPhone } from '@/lib/brFormat';
 import { DEFAULT_LIST_PAGE_SIZE, PaginationControls } from '@/components/ui/PaginationControls';
-import { reviveHeaderPrimaryActionClass, revivePrimarySmActionClass } from '@/components/ui/reviveActionButtonStyles';
+import { buttonVariants } from '@/components/ui/button';
+import { cadastroStatusDot } from '@/lib/cadastroStatus';
+import { ToolbarSelect } from '@/components/form/ToolbarSelect';
+import { DriverDocumentHeaderBadge } from '@/components/cadastro/driver/DriverDocumentStatusBadge';
+
+type DriverDocStatus = 'ok' | 'pending' | 'expired';
 
 type DriverStatus = 'active' | 'inactive' | 'blocked';
 type DriverType = 'fixed' | 'daily';
@@ -47,6 +66,8 @@ type ApiDriver = {
   leader_notes?: string | null;
   has_digital_certificate?: boolean | null;
   digital_certificate_expires_at?: string | null;
+  cnh_expires_at?: string | null;
+  doc_status?: DriverDocStatus | null;
   work_schedule?: Record<string, unknown> | null;
   pix_key?: string | null;
   created_at?: string;
@@ -62,12 +83,6 @@ function initials(input: string) {
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase())
     .join('');
-}
-
-function statusToDot(status: DriverStatus) {
-  if (status === 'active') return 'online';
-  if (status === 'blocked') return 'busy';
-  return 'offline';
 }
 
 function statusLabel(status: DriverStatus) {
@@ -92,25 +107,26 @@ export default function DriversPage() {
   const canFetch = hasHydrated && isAuthenticated;
 
   const [q, setQ] = useState('');
-  const [status, setStatus] = useState<DriverStatus | 'all'>('all');
+  const [status, setStatus] = useState<DriverStatus>('active');
   const [typeFilter, setTypeFilter] = useState<DriverType | 'all'>('all');
   const [cityFilter, setCityFilter] = useState<string>('all');
   const [stateFilter, setStateFilter] = useState<string>('all');
   const [leaderFilter, setLeaderFilter] = useState<string>('all');
+  const [docStatusFilter, setDocStatusFilter] = useState<DriverDocStatus | 'all'>('all');
   const [currentPage, setCurrentPage] = useState(1);
 
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   const driversQuery = useQuery({
-    queryKey: ['drivers', { q, status }],
+    queryKey: ['drivers', { q, status, docStatusFilter }],
     enabled: canFetch,
     queryFn: async () => {
       const params: Record<string, string> = {};
       if (q.trim()) params.search = q.trim();
-      if (status !== 'all') params.status = status;
-      const res = await api.get('/api/drivers', { params });
-      return res.data as ApiDriver[];
+      params.status = status;
+      if (docStatusFilter !== 'all') params.doc_status = docStatusFilter;
+      return (await cadastroPageApi.fetchDrivers(params)) as ApiDriver[];
     },
   });
 
@@ -179,7 +195,7 @@ export default function DriversPage() {
 
   const setDriverStatus = async (d: ApiDriver, next: DriverStatus) => {
     try {
-      await api.put(`/api/drivers/${d.id}`, { status: next });
+      await cadastroPageApi.patchDriverStatus(d.id, next);
       await driversQuery.refetch();
     } catch {
       // ignore
@@ -188,11 +204,12 @@ export default function DriversPage() {
 
   const clearFilters = () => {
     setCurrentPage(1);
-    setStatus('all');
+    setStatus('active');
     setTypeFilter('all');
     setCityFilter('all');
     setStateFilter('all');
     setLeaderFilter('all');
+    setDocStatusFilter('all');
     setQ('');
   };
 
@@ -206,9 +223,11 @@ export default function DriversPage() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-7xl px-8 py-8">
         <PageHeader
+          icon={Truck}
+          live
           eyebrow="Operação"
           title="Entregadores"
-          description="Cadastro e vínculo de entregadores."
+          description="Equipe de entrega vinculada às farmácias."
           actions={
             <>
               <CadastroImportTrigger
@@ -219,7 +238,7 @@ export default function DriversPage() {
                 onImported={() => void driversQuery.refetch()}
               />
               {canManage ? (
-                <Link href="/drivers/new" className={reviveHeaderPrimaryActionClass}>
+                <Link href="/drivers/new" className={buttonVariants({ size: 'sm' })}>
                   <Plus className="h-3.5 w-3.5" /> Cadastrar entregador
                 </Link>
               ) : null}
@@ -233,113 +252,103 @@ export default function DriversPage() {
             { label: 'Ativos', value: String(stats.active), accent: stats.active ? 'text-success' : undefined },
             { label: 'Inativos', value: String(stats.inactive) },
           ].map((s) => (
-            <div key={s.label} className="rounded-xl border border-border bg-surface p-4">
+            <div key={s.label} className={reviveKpiCardClassName}>
               <div className={cn('text-xl font-semibold tracking-tight', s.accent)}>{s.value}</div>
               <div className="mt-0.5 text-xs text-muted-foreground">{s.label}</div>
             </div>
           ))}
         </div>
 
-        {/* Toolbar (sem tabs Todos/Disponível/Em rota/Pausa/Offline) */}
-        <div className="mb-4 flex items-center gap-2">
-          <div className="flex flex-1 items-center gap-2 rounded-md border border-border bg-surface px-3 py-2">
-            <Search className="h-3.5 w-3.5 text-muted-foreground" />
-            <input
-              value={q}
-              onChange={(e) => {
-                setCurrentPage(1);
-                setQ(e.target.value);
-              }}
-              placeholder="Buscar entregador..."
-              className="flex-1 bg-transparent text-sm outline-none placeholder:text-subtle-foreground"
-            />
-          </div>
-          <select
+        <ListToolbar
+          searchValue={q}
+          onSearchChange={(value) => {
+            setCurrentPage(1);
+            setQ(value);
+          }}
+          searchPlaceholder="Buscar entregador..."
+        >
+          <ToolbarSelect
             value={status}
-            onChange={(e) => {
+            onChange={(v) => {
               setCurrentPage(1);
-              setStatus(e.target.value as DriverStatus | 'all');
+              setStatus(v as DriverStatus);
             }}
-            className="rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground outline-none"
-          >
-            <option value="all">Status</option>
-            <option value="active">Ativo</option>
-            <option value="inactive">Inativo</option>
-            <option value="blocked">Bloqueado</option>
-          </select>
-          <select
+            options={[
+              { value: 'active', label: 'Ativo' },
+              { value: 'inactive', label: 'Inativo' },
+              { value: 'blocked', label: 'Bloqueado' },
+            ]}
+          />
+          <ToolbarSelect
             value={typeFilter}
-            onChange={(e) => {
+            onChange={(v) => {
               setCurrentPage(1);
-              setTypeFilter(e.target.value as DriverType | 'all');
+              setTypeFilter(v as DriverType | 'all');
             }}
-            className="rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground outline-none"
-          >
-            <option value="all">Tipo</option>
-            <option value="fixed">Fixo</option>
-            <option value="daily">Diarista</option>
-          </select>
-          <select
+            options={[
+              { value: 'all', label: 'Tipo' },
+              { value: 'fixed', label: 'Fixo' },
+              { value: 'daily', label: 'Diarista' },
+            ]}
+          />
+          <ToolbarSelect
+            wideMenu
             value={cityFilter}
-            onChange={(e) => {
+            onChange={(v) => {
               setCurrentPage(1);
-              setCityFilter(e.target.value);
+              setCityFilter(v);
             }}
-            className="rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground outline-none"
-          >
-            <option value="all">Cidade</option>
-            {cityOptions.map((city) => (
-              <option key={city} value={city}>
-                {city}
-              </option>
-            ))}
-          </select>
-          <select
+            options={[{ value: 'all', label: 'Cidade' }, ...cityOptions.map((city) => ({ value: city, label: city }))]}
+          />
+          <ToolbarSelect
             value={stateFilter}
-            onChange={(e) => {
+            onChange={(v) => {
               setCurrentPage(1);
-              setStateFilter(e.target.value);
+              setStateFilter(v);
             }}
-            className="rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground outline-none"
-          >
-            <option value="all">Estado</option>
-            {stateOptions.map((uf) => (
-              <option key={uf} value={uf}>
-                {uf}
-              </option>
-            ))}
-          </select>
-          <select
+            options={[{ value: 'all', label: 'Estado' }, ...stateOptions.map((uf) => ({ value: uf, label: uf }))]}
+          />
+          <ToolbarSelect
+            value={docStatusFilter}
+            onChange={(v) => {
+              setCurrentPage(1);
+              setDocStatusFilter(v as DriverDocStatus | 'all');
+            }}
+            options={[
+              { value: 'all', label: 'Documentação' },
+              { value: 'ok', label: 'Doc. OK' },
+              { value: 'pending', label: 'Doc. pendente' },
+              { value: 'expired', label: 'Doc. vencida' },
+            ]}
+          />
+          <ToolbarSelect
+            wideMenu
             value={leaderFilter}
-            onChange={(e) => {
+            onChange={(v) => {
               setCurrentPage(1);
-              setLeaderFilter(e.target.value);
+              setLeaderFilter(v);
             }}
-            className="rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground outline-none"
-          >
-            <option value="all">Líder</option>
-            {leaderOptions.map(([id, name]) => (
-              <option key={id} value={id}>
-                {name}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: 'all', label: 'Líder' },
+              ...leaderOptions.map(([id, name]) => ({ value: id, label: name })),
+            ]}
+          />
           <button
             type="button"
             onClick={clearFilters}
-            className="rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+            className={reviveToolbarButtonClassName}
           >
             Limpar filtros
           </button>
-        </div>
+        </ListToolbar>
 
         {driversQuery.isError ? <div className="mb-3 text-xs text-destructive">Falha ao carregar entregadores.</div> : null}
 
         {/* Table */}
-        <div className="overflow-hidden rounded-xl border border-border bg-surface">
+        <div className={reviveTableShellClassName}>
           <table className="w-full">
             <thead>
-              <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wider text-subtle-foreground">
+              <tr className={reviveTableHeadRowClassName}>
                 <th className="px-4 py-3">Entregador</th>
                 <th className="px-4 py-3">Farmácia primária</th>
                 <th className="px-4 py-3">Cidade</th>
@@ -362,39 +371,51 @@ export default function DriversPage() {
                 </tr>
               ) : (
                 pagedItems.map((d) => (
-                  <tr key={d.id} data-driver-id={d.id} className="border-b border-border/50 last:border-0 hover:bg-surface-hover transition-colors">
+                  <tr
+                    key={d.id}
+                    data-driver-id={d.id}
+                    onClick={() => router.push(`/drivers/${d.id}`)}
+                    className={reviveTableRowClassName}
+                  >
                     <td className="px-4 py-3">
-                      <Link href={`/drivers/${d.id}`} className="flex items-center gap-2.5 hover:underline">
+                      <div className="flex items-center gap-2.5">
                         <div className="relative">
                           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-channel-whatsapp/40 to-primary/40 text-[11px] font-semibold">
                             {initials(d.name)}
                           </div>
-                          <StatusDot status={statusToDot(d.status)} className="absolute -bottom-0.5 -right-0.5" />
+                          <StatusDot status={cadastroStatusDot(d.status)} pulse={d.status === 'active'} className="absolute -bottom-0.5 -right-0.5" />
                         </div>
-                      <div>
-                        <div className="text-sm font-medium">{d.name}</div>
-                        <div className="font-mono text-[10px] text-muted-foreground">{formatBrazilPhone(d.phone) || d.phone}</div>
+                        <div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <div className={cn('text-sm font-medium', interactiveRowPrimary())}>{d.name}</div>
+                            {(d.doc_status && d.doc_status !== 'ok') || d.cnh_expires_at ? (
+                              <DriverDocumentHeaderBadge
+                                cnhExpiresAt={d.cnh_expires_at}
+                                hasDigitalCertificate={d.has_digital_certificate}
+                                digitalCertificateExpiresAt={d.digital_certificate_expires_at}
+                                className="shrink-0"
+                              />
+                            ) : null}
+                          </div>
+                          <div className={cn('font-mono text-[10px]', interactiveRowSecondary())}>{formatBrazilPhone(d.phone) || d.phone}</div>
+                        </div>
                       </div>
-                    </Link>
-                  </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">{d.primary_pharmacy?.trade_name || '—'}</td>
+                    </td>
+                    <td className={cn('px-4 py-3 text-xs', interactiveRowSecondary())}>{d.primary_pharmacy?.trade_name || '—'}</td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <div className={cn('flex items-center gap-1 text-xs', interactiveRowSecondary())}>
                         <MapPin className="h-3 w-3" /> {d.city || '—'}
                       </div>
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={cn(
-                          'rounded px-2 py-0.5 text-[10px] font-medium',
-                          d.status === 'active' && 'bg-success/15 text-success',
-                          d.status === 'blocked' && 'bg-warning/15 text-warning',
-                          d.status === 'inactive' && 'bg-muted text-muted-foreground'
+                        className={reviveStatusPill(
+                          d.status === 'active' ? 'success' : d.status === 'blocked' ? 'warning' : 'muted'
                         )}
                       >
                         {statusLabel(d.status)}
                       </span>
-                      <div className="mt-1 text-[10px] text-subtle-foreground">
+                      <div className={cn('mt-1 text-[10px]', interactiveRowMuted())}>
                         {d.driver_type === 'daily' ? 'Diarista' : 'Fixo'}
                       </div>
                     </td>
@@ -402,10 +423,11 @@ export default function DriversPage() {
                       <div className="relative">
                         <button
                           onClick={(e) => {
+                            e.stopPropagation();
                             const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
                             setMenu((cur) => (cur?.id === d.id ? null : { id: d.id, x: rect.right, y: rect.bottom }));
                           }}
-                          className="flex h-7 w-7 items-center justify-center rounded hover:bg-surface-elevated"
+                          className="flex h-7 w-7 items-center justify-center rounded hover:bg-sidebar-accent/40"
                           title="Ações"
                         >
                           <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
@@ -415,13 +437,13 @@ export default function DriversPage() {
                               <div
                                 ref={menuRef}
                                 style={{ position: 'fixed', top: menu.y + 6, left: menu.x, transform: 'translateX(-100%)' }}
-                                className="z-[100] w-44 rounded-xl border border-border bg-surface-elevated p-1 shadow-glow"
+                                className="z-[100] w-44 rounded-xl border border-border bg-card p-1 shadow-md"
                               >
                                 {canManage ? (
                                   <Link
                                     href={`/drivers/new?id=${encodeURIComponent(d.id)}`}
                                     onClick={() => setMenu(null)}
-                                    className={`${revivePrimarySmActionClass} flex w-full justify-start`}
+                                    className={`${buttonVariants()} flex w-full justify-start`}
                                   >
                                     <Edit3 className="h-3.5 w-3.5" /> Editar
                                   </Link>
@@ -431,7 +453,7 @@ export default function DriversPage() {
                                     setMenu(null);
                                     navigator.clipboard?.writeText(d.phone || '').catch(() => undefined);
                                   }}
-                                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-surface-hover"
+                                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-sidebar-accent/60"
                                 >
                                   Copiar telefone
                                 </button>
@@ -440,7 +462,7 @@ export default function DriversPage() {
                                     setMenu(null);
                                     void setDriverStatus(d, d.status === 'active' ? 'inactive' : 'active');
                                   }}
-                                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-surface-hover"
+                                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-sidebar-accent/60"
                                 >
                                   {d.status === 'active' ? 'Inativar' : 'Ativar'}
                                 </button>
@@ -449,7 +471,7 @@ export default function DriversPage() {
                                     setMenu(null);
                                     void setDriverStatus(d, d.status === 'blocked' ? 'active' : 'blocked');
                                   }}
-                                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-surface-hover"
+                                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-sidebar-accent/60"
                                 >
                                   {d.status === 'blocked' ? 'Desbloquear' : 'Bloquear'}
                                 </button>

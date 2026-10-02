@@ -1,12 +1,17 @@
-'use client';
+﻿'use client';
 
+import { automationsPageApi } from '@/lib/automations/automationsPageApi';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { Bot, Clock, GitBranch, MessageSquare, MoreHorizontal, Play, Plus, RefreshCcw, Zap } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/PageHeader';
-import api from '@/lib/api';
+import { Switch } from '@/components/ui/Switch';
 import { useAuth } from '@/store/auth';
+import { iconButtonHover, interactiveRowMuted, interactiveRowPrimary, interactiveRowSurface } from '@/lib/interactiveRow';
+import { FormControl } from '@/components/form/FormControl';
+import { FormSelect } from '@/components/form/FormSelect';
 import { cn } from '@/lib/utils';
 import { formatDateTimeBr } from '@/lib/datetimeBr';
 import { ToolCallMcpNode } from './components/ToolCallMcpNode';
@@ -69,10 +74,10 @@ function Modal({
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-sm p-4">
-      <div className={cn('w-full rounded-2xl border border-border bg-surface-elevated shadow-glow', maxWidthClassName)}>
+      <div className={cn('w-full rounded-2xl border border-border bg-muted shadow-md', maxWidthClassName)}>
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div className="text-sm font-semibold tracking-tight">{title}</div>
-          <button onClick={onClose} className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground">
+          <button onClick={onClose} className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground">
             Fechar
           </button>
         </div>
@@ -120,19 +125,19 @@ export default function AutomationsPage() {
   const rulesQuery = useQuery({
     queryKey: ['automations'],
     enabled: canFetch,
-    queryFn: async () => (await api.get('/api/automations')).data as ApiAutomationRule[],
+    queryFn: async () => await automationsPageApi.list() as ApiAutomationRule[],
   });
 
   const templatesQuery = useQuery({
     queryKey: ['automations', 'templates-approved'],
     enabled: canFetch && createOpen,
-    queryFn: async () => (await api.get('/api/templates/list/approved')).data as ApiTemplate[],
+    queryFn: async () => await automationsPageApi.listApprovedTemplates() as ApiTemplate[],
   });
 
   const mcpToolsQuery = useQuery({
     queryKey: ['automations', 'mcp-tools'],
     enabled: canFetch && createOpen && formUseMcp,
-    queryFn: async () => (await api.get('/api/mcp/tools')).data as McpToolCatalogItem[],
+    queryFn: async () => await automationsPageApi.listMcpTools() as McpToolCatalogItem[],
   });
 
   const mcpActions = useMemo(() => {
@@ -144,7 +149,7 @@ export default function AutomationsPage() {
   const runsQuery = useQuery({
     queryKey: ['automations', 'runs', runsRule?.id],
     enabled: canFetch && runsOpen && Boolean(runsRule?.id),
-    queryFn: async () => (await api.get(`/api/automations/${runsRule!.id}/runs`)).data as ApiAutomationRun[],
+    queryFn: async () => await automationsPageApi.listRuns(runsRule!.id) as ApiAutomationRun[],
   });
 
   useEffect(() => {
@@ -164,7 +169,7 @@ export default function AutomationsPage() {
     };
   }, [menu]);
 
-  const items = rulesQuery.data || [];
+  const items = useMemo(() => rulesQuery.data || [], [rulesQuery.data]);
   const kpis = useMemo(() => {
     const active = items.filter((r) => r.is_active).length;
     const total = items.length;
@@ -197,7 +202,7 @@ export default function AutomationsPage() {
     setCreating(true);
     setCreateError(null);
     try {
-      const body: any = {
+      const body: Record<string, unknown> = {
         name: formName.trim(),
         trigger_type: formTrigger,
         event_type: formTrigger === 'event' ? formEventType.trim() : null,
@@ -217,7 +222,7 @@ export default function AutomationsPage() {
         is_active: false,
         require_approval: false,
       };
-      await api.post('/api/automations', body);
+      await automationsPageApi.create(body);
       setCreateOpen(false);
       await rulesQuery.refetch();
     } catch (err: unknown) {
@@ -229,12 +234,12 @@ export default function AutomationsPage() {
   };
 
   const toggleRule = async (rule: ApiAutomationRule) => {
-    await api.patch(`/api/automations/${rule.id}/toggle`);
+    await automationsPageApi.toggle(rule.id);
     await rulesQuery.refetch();
   };
 
   const runNow = async (rule: ApiAutomationRule) => {
-    await api.post(`/api/automations/${rule.id}/run`, { context: {} });
+    await automationsPageApi.run(rule.id, {});
     await rulesQuery.refetch();
   };
 
@@ -242,24 +247,18 @@ export default function AutomationsPage() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-7xl px-8 py-8">
         <PageHeader
+          icon={Bot}
           eyebrow="Inteligência"
           title="Automações"
           description="Fluxos, bots de triagem e regras de roteamento."
           actions={
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => void rulesQuery.refetch()}
-                className="flex items-center gap-1.5 rounded-md border border-border bg-background/40 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface-hover hover:text-foreground transition-colors"
-                title="Atualizar"
-              >
+              <Button type="button" variant="outline" size="sm" onClick={() => void rulesQuery.refetch()} title="Atualizar">
                 <RefreshCcw className="h-3.5 w-3.5" /> Atualizar
-              </button>
-              <button
-                onClick={openCreate}
-                className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-glow transition-colors"
-              >
+              </Button>
+              <Button type="button" size="sm" onClick={openCreate}>
                 <Plus className="h-3.5 w-3.5" /> Nova automação
-              </button>
+              </Button>
             </div>
           }
         />
@@ -309,15 +308,15 @@ export default function AutomationsPage() {
                   const Icon = meta.icon;
                   const trigger = a.trigger_type === 'schedule' ? `Cron: ${a.cron_expression || '—'}` : a.event_type || 'Evento';
                   return (
-                    <tr key={a.id} className="border-b border-border/50 last:border-0 hover:bg-surface-hover transition-colors">
+                    <tr key={a.id} className={cn('border-b border-border/50 last:border-0', interactiveRowSurface())}>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5">
                           <div className={cn('flex h-8 w-8 items-center justify-center rounded-lg', meta.color)}>
                             <Icon className="h-4 w-4" />
                           </div>
                           <div className="min-w-0">
-                            <div className="text-sm font-medium truncate">{a.name}</div>
-                            <div className="text-[10px] text-subtle-foreground">Template: {a.template?.name || '—'}</div>
+                            <div className={cn('truncate text-sm font-medium', interactiveRowPrimary())}>{a.name}</div>
+                            <div className={cn('text-[10px]', interactiveRowMuted())}>Template: {a.template?.name || '—'}</div>
                           </div>
                         </div>
                       </td>
@@ -327,13 +326,12 @@ export default function AutomationsPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={() => void toggleRule(a)}
-                          className={cn('relative inline-flex h-5 w-9 items-center rounded-full transition-colors', a.is_active ? 'bg-primary' : 'bg-muted')}
+                        <Switch
+                          checked={a.is_active}
+                          onCheckedChange={() => void toggleRule(a)}
                           title={a.is_active ? 'Desativar' : 'Ativar'}
-                        >
-                          <span className={cn('inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform', a.is_active ? 'translate-x-5' : 'translate-x-1')} />
-                        </button>
+                          aria-label={a.is_active ? 'Desativar' : 'Ativar'}
+                        />
                       </td>
                       <td className="px-4 py-3">
                         <button
@@ -341,7 +339,7 @@ export default function AutomationsPage() {
                             const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
                             setMenu((cur) => (cur?.id === a.id ? null : { id: a.id, x: rect.right, y: rect.bottom }));
                           }}
-                          className="flex h-7 w-7 items-center justify-center rounded hover:bg-surface-elevated"
+                          className={cn('flex h-7 w-7 items-center justify-center', iconButtonHover)}
                           title="Ações"
                         >
                           <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
@@ -351,7 +349,7 @@ export default function AutomationsPage() {
                               <div
                                 ref={menuRef}
                                 style={{ position: 'fixed', top: menu.y + 6, left: menu.x, transform: 'translateX(-100%)' }}
-                                className="z-[100] w-44 rounded-xl border border-border bg-surface-elevated p-1 shadow-glow"
+                                className="z-[100] w-44 rounded-xl border border-border bg-muted p-1 shadow-md"
                               >
                                 <button
                                   onClick={() => {
@@ -359,7 +357,7 @@ export default function AutomationsPage() {
                                     setRunsRule(a);
                                     setRunsOpen(true);
                                   }}
-                                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-surface-hover"
+                                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-sidebar-accent/60"
                                 >
                                   Ver execuções
                                 </button>
@@ -369,7 +367,7 @@ export default function AutomationsPage() {
                                     void runNow(a);
                                   }}
                                   disabled={a.require_approval}
-                                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-surface-hover disabled:opacity-50"
+                                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-sidebar-accent/60 disabled:opacity-50"
                                 >
                                   Executar agora
                                 </button>
@@ -399,65 +397,64 @@ export default function AutomationsPage() {
           {createError ? <div className="text-xs text-destructive">{createError}</div> : null}
           <div>
             <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Nome</label>
-            <input
+            <FormControl
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
-              className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none"
+              className="mt-1"
               required
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Gatilho</label>
-              <select
+              <FormSelect
                 value={formTrigger}
-                onChange={(e) => setFormTrigger(e.target.value as any)}
-                className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none"
-              >
-                <option value="event">Evento</option>
-                <option value="schedule">Agenda</option>
-              </select>
+                onChange={(v) => setFormTrigger(v as 'event' | 'schedule')}
+                className="mt-1"
+                options={[
+                  { value: 'event', label: 'Evento' },
+                  { value: 'schedule', label: 'Agenda' },
+                ]}
+              />
             </div>
             <div>
               <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">
                 {formTrigger === 'schedule' ? 'Cron' : 'Event type'}
               </label>
-              <input
+              <FormControl
                 value={formTrigger === 'schedule' ? formCron : formEventType}
                 onChange={(e) => (formTrigger === 'schedule' ? setFormCron(e.target.value) : setFormEventType(e.target.value))}
-                className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none"
+                className="mt-1"
                 placeholder={formTrigger === 'schedule' ? '0 9 * * 1-5' : 'bot'}
               />
             </div>
           </div>
           <div>
             <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Audiência</label>
-            <select
+            <FormSelect
               value={formAudience}
-              onChange={(e) => setFormAudience(e.target.value)}
-              className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none"
-            >
-              <option value="drivers">Entregadores</option>
-              <option value="leaders">Líderes</option>
-              <option value="pharmacies">Farmácias</option>
-              <option value="custom">Custom</option>
-            </select>
+              onChange={setFormAudience}
+              className="mt-1"
+              options={[
+                { value: 'drivers', label: 'Entregadores' },
+                { value: 'leaders', label: 'Líderes' },
+                { value: 'pharmacies', label: 'Farmácias' },
+                { value: 'custom', label: 'Custom' },
+              ]}
+            />
           </div>
           <div>
             <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Template</label>
-            <select
+            <FormSelect
               value={formTemplateId}
-              onChange={(e) => setFormTemplateId(e.target.value)}
-              className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none"
-              required
-            >
-              <option value="">—</option>
-              {(templatesQuery.data || []).map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
+              onChange={setFormTemplateId}
+              className="mt-1"
+              placeholder="—"
+              options={[
+                { value: '', label: '—' },
+                ...(templatesQuery.data || []).map((t) => ({ value: t.id, label: t.name })),
+              ]}
+            />
           </div>
           <ToolCallMcpNode
             enabled={formUseMcp}
@@ -481,21 +478,12 @@ export default function AutomationsPage() {
             onActionChange={setFormMcpAction}
           />
           <div className="flex items-center justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={() => setCreateOpen(false)}
-              disabled={creating}
-              className="rounded-md border border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground disabled:opacity-60"
-            >
+            <Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={creating}>
               Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={creating}
-              className="rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary-glow disabled:opacity-60"
-            >
+            </Button>
+            <Button type="submit" disabled={creating}>
               {creating ? 'Salvando...' : 'Criar'}
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>
@@ -514,7 +502,7 @@ export default function AutomationsPage() {
         ) : (
           <div className="space-y-2">
             {(runsQuery.data || []).slice(0, 20).map((r) => (
-              <div key={r.id} className="rounded-lg border border-border bg-background/40 p-3">
+              <div key={r.id} className="rounded-lg border border-border bg-muted/30 p-3">
                 <div className="flex items-center justify-between text-xs">
                   <div className="font-medium text-foreground">{r.status}</div>
                   <div className="font-mono text-xs text-subtle-foreground">

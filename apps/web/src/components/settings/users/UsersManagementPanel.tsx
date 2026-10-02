@@ -3,7 +3,9 @@
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft,
+  Briefcase,
   Crown,
+  Handshake,
   Headphones,
   Mail,
   Phone,
@@ -11,11 +13,21 @@ import {
   Search,
   Shield,
   UserCog,
+  Users,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
+import { FormControl } from '@/components/form/FormControl';
+import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { cn } from '@/lib/utils';
+import { interactiveHover, interactiveActive } from '@/lib/interactiveRow';
+import {
+  reviveKpiCardClassName,
+  reviveTableHeadRowClassName,
+  reviveTableRowClassName,
+  reviveTableShellClassName,
+} from '@/lib/reviveSurfaces';
 import { roleDisplayNamePt } from '@/lib/roleLabels';
 import {
   getCountsByRole,
@@ -28,21 +40,39 @@ import {
 import { ProvisionUserModal } from './ProvisionUserModal';
 import { UserActionsMenu } from './UserActionsMenu';
 import { formatBrazilPhone } from '@/lib/brFormat';
+import { apiErrorMessage } from '@/lib/apiErrorMessage';
 
-type RoleFilter = 'all' | 'admin' | 'supervisor' | 'attendant' | 'leader';
+type RoleFilter =
+  | 'all'
+  | 'admin'
+  | 'supervisor'
+  | 'financial'
+  | 'operational'
+  | 'attendant'
+  | 'leader'
+  | 'commercial'
+  | 'sales';
 
 const KPI_META: Record<Exclude<RoleFilter, 'all'>, { label: string; color: string; icon: typeof Shield }> = {
   admin: { label: 'Administrador', color: 'bg-destructive/15 text-destructive', icon: Shield },
   supervisor: { label: 'Gestor', color: 'bg-primary/15 text-primary', icon: UserCog },
+  financial: { label: 'Gestor (legado)', color: 'bg-amber-500/15 text-amber-800 dark:text-amber-200', icon: Shield },
+  operational: { label: 'Analista Operacional', color: 'bg-cyan-500/15 text-cyan-800 dark:text-cyan-200', icon: Headphones },
   attendant: { label: 'Atendente', color: 'bg-success/15 text-success', icon: Headphones },
   leader: { label: 'Líder', color: 'bg-warning/15 text-warning', icon: Crown },
+  commercial: { label: 'Comercial', color: 'bg-violet-500/15 text-violet-700 dark:text-violet-300', icon: Briefcase },
+  sales: { label: 'Vendas', color: 'bg-sky-500/15 text-sky-700 dark:text-sky-300', icon: Handshake },
 };
 
 const ROLE_BADGE: Record<string, { label: string; color: string; icon: typeof Shield }> = {
   admin: { label: 'Administrador', color: 'bg-destructive/15 text-destructive', icon: Shield },
   supervisor: { label: 'Gestor', color: 'bg-primary/15 text-primary', icon: UserCog },
+  financial: { label: 'Gestor (legado)', color: 'bg-amber-500/15 text-amber-800 dark:text-amber-200', icon: Shield },
+  operational: { label: 'Analista Operacional', color: 'bg-cyan-500/15 text-cyan-800 dark:text-cyan-200', icon: Headphones },
   attendant: { label: 'Atendente', color: 'bg-success/15 text-success', icon: Headphones },
   leader: { label: 'Líder', color: 'bg-warning/15 text-warning', icon: Crown },
+  commercial: { label: 'Comercial', color: 'bg-violet-500/15 text-violet-700 dark:text-violet-300', icon: Briefcase },
+  sales: { label: 'Vendas', color: 'bg-sky-500/15 text-sky-700 dark:text-sky-300', icon: Handshake },
 };
 
 export function UsersManagementPanel() {
@@ -52,15 +82,24 @@ export function UsersManagementPanel() {
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [tempPassword, setTempPassword] = useState<string | null>(null);
 
-  const { data: users = [], refetch } = useQuery({ queryKey: ['users-full'], queryFn: listUsers });
+  const {
+    data: users = [],
+    refetch,
+    isError,
+    error,
+  } = useQuery({ queryKey: ['users-full'], queryFn: listUsers });
   const { data: countsFromApi } = useQuery({ queryKey: ['users-counts-by-role'], queryFn: getCountsByRole });
 
   const counts = useMemo(() => {
     const c: Record<Exclude<RoleFilter, 'all'>, number> = {
       admin: countsFromApi?.admin ?? 0,
       supervisor: countsFromApi?.supervisor ?? 0,
+      financial: countsFromApi?.financial ?? 0,
+      operational: countsFromApi?.operational ?? 0,
       attendant: countsFromApi?.attendant ?? 0,
       leader: countsFromApi?.leader ?? 0,
+      commercial: countsFromApi?.commercial ?? 0,
+      sales: countsFromApi?.sales ?? 0,
     };
     if (countsFromApi) return c;
     for (const u of users) {
@@ -83,7 +122,7 @@ export function UsersManagementPanel() {
   const runResend = async (u: UserRecord) => {
     try {
       const res = await resendUserInvite(u.id);
-      setTempPassword(res.temporary_password);
+      setTempPassword(res.temporary_password ?? null);
       setActionMsg(`Acesso reenviado para ${u.email}. Usuário: ${res.username}`);
     } catch (e) {
       setActionMsg(e instanceof Error ? e.message : 'Falha ao reenviar');
@@ -108,22 +147,25 @@ export function UsersManagementPanel() {
         </Link>
 
         <PageHeader
+          icon={Users}
           eyebrow="Configurações"
           title="Usuários e Perfis"
           description="Gestão de acesso, perfis e permissões da plataforma."
           actions={
-            <button
-              type="button"
-              onClick={() => setShowProvision(true)}
-              className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-glow"
-            >
+            <Button type="button" size="xs" onClick={() => setShowProvision(true)}>
               <Plus className="h-3.5 w-3.5" /> Novo usuário
-            </button>
+            </Button>
           }
         />
 
+        {isError ? (
+          <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            Não foi possível carregar os usuários: {apiErrorMessage(error)}
+          </div>
+        ) : null}
+
         {actionMsg || tempPassword ? (
-          <div className="mb-4 space-y-2 rounded-md border border-border bg-surface-elevated px-3 py-2 text-xs text-muted-foreground">
+          <div className="mb-4 space-y-2 rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
             {actionMsg ? <p>{actionMsg}</p> : null}
             {tempPassword ? (
               <p className="font-mono">
@@ -133,7 +175,7 @@ export function UsersManagementPanel() {
           </div>
         ) : null}
 
-        <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {(Object.keys(KPI_META) as Array<Exclude<RoleFilter, 'all'>>).map((key) => {
             const meta = KPI_META[key];
             const Icon = meta.icon;
@@ -144,7 +186,8 @@ export function UsersManagementPanel() {
                 type="button"
                 onClick={() => setFilter(key)}
                 className={cn(
-                  'rounded-xl border border-border bg-surface p-4 text-left transition-colors',
+                  reviveKpiCardClassName,
+                  'text-left transition-colors',
                   filter === key && 'ring-2 ring-primary/40'
                 )}
               >
@@ -164,25 +207,26 @@ export function UsersManagementPanel() {
         <div className="mb-3 flex items-center gap-3">
           <div className="relative max-w-md flex-1">
             <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input
+            <FormControl
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar por nome, email ou telefone..."
-              className="w-full rounded-md border border-border bg-background/40 py-2 pl-9 pr-3 text-xs outline-none focus:border-primary/60"
+              inputSize="sm"
+              className="pl-9 pr-3 text-xs"
             />
           </div>
           <button
             type="button"
             onClick={() => setFilter('all')}
-            className={cn('rounded-md border border-border px-3 py-1.5 text-xs', filter === 'all' && 'bg-surface-elevated')}
+            className={cn('rounded-md border border-border px-3 py-1.5 text-xs transition-colors', filter === 'all' ? interactiveActive : interactiveHover)}
           >
             Todos
           </button>
         </div>
 
-        <div className="overflow-hidden rounded-xl border border-border bg-surface">
+        <div className={reviveTableShellClassName}>
           <table className="w-full text-sm">
-            <thead className="bg-surface-elevated text-[10px] uppercase tracking-wider text-subtle-foreground">
+            <thead className={reviveTableHeadRowClassName}>
               <tr>
                 <th className="px-4 py-2.5 text-left">Usuário</th>
                 <th className="px-4 py-2.5 text-left">Perfil</th>
@@ -204,7 +248,7 @@ export function UsersManagementPanel() {
                       ? u.operational_sector_labels.join(', ')
                       : '—';
                 return (
-                  <tr key={u.id} className="border-t border-border transition-colors hover:bg-surface-elevated">
+                  <tr key={u.id} className={cn('border-t border-border', reviveTableRowClassName)}>
                     <td className="px-4 py-3">
                       <Link href={`/settings/users/${u.id}`} className="block">
                         <div className="text-xs font-medium hover:text-primary">{u.name}</div>

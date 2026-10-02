@@ -20,7 +20,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       return;
     }
     const role = user?.role || user?.workspace_role || '';
-    const redirect = redirectForRoleOnPath(role, pathname || '/inbox');
+    const redirect = redirectForRoleOnPath(role, pathname || '/inbox', user?.permissions);
     if (redirect && redirect !== pathname) router.replace(redirect);
   }, [hasHydrated, isAuthenticated, pathname, router, user]);
 

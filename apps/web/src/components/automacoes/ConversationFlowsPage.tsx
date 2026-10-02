@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -15,10 +15,21 @@ import {
   Search,
   Tag,
   Trash2,
+  Workflow,
 } from 'lucide-react';
 import api from '@/lib/api';
+import { iconButtonHover } from '@/lib/interactiveRow';
 import { cn } from '@/lib/utils';
+import {
+  reviveKpiCardClassName,
+  reviveOutlineButtonClassName,
+  reviveTableHeadRowClassName,
+  reviveTableRowClassName,
+  reviveTableShellClassName,
+} from '@/lib/reviveSurfaces';
+import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { Switch } from '@/components/ui/Switch';
 import { BlocoCard } from '@/components/conversation-flow/BlocoCard';
 import { PaletaBlocos } from '@/components/conversation-flow/PaletaBlocos';
 import {
@@ -282,15 +293,16 @@ export default function ConversationFlowsPage() {
         </Link>
 
         <PageHeader
+          icon={Workflow}
           eyebrow="Inteligência"
           title="Fluxos de atendimento"
-          description="Fluxos versionados do motor conversacional — mesma edição em blocos que project-revive-main AutomacaoNova (passo 3), com JSON avançado opcional."
+          description="Fluxos versionados do motor conversacional — editor em blocos (passo 3), com JSON avançado opcional."
           actions={
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => void defsQuery.refetch()}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-hover"
+                className={reviveOutlineButtonClassName}
               >
                 <RefreshCcw className="h-3.5 w-3.5" />
                 Atualizar
@@ -299,7 +311,7 @@ export default function ConversationFlowsPage() {
           }
         />
 
-        {/* Stats — project-revive-main Automacoes.tsx */}
+        {/* Stats */}
         <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
           {[
             {
@@ -321,7 +333,7 @@ export default function ConversationFlowsPage() {
               accent: 'text-success',
             },
           ].map((s) => (
-            <div key={s.label} className="rounded-xl border border-border bg-surface p-4">
+            <div key={s.label} className={reviveKpiCardClassName}>
               <div className={cn('text-xl font-semibold tracking-tight', s.accent)}>{s.value}</div>
               <div className="mt-0.5 text-xs text-muted-foreground">{s.label}</div>
             </div>
@@ -344,7 +356,7 @@ export default function ConversationFlowsPage() {
                   'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50',
                   runtimeModeQuery.data?.mode === m
                     ? 'bg-primary/15 text-primary ring-1 ring-primary/25'
-                    : 'text-muted-foreground hover:bg-surface-hover'
+                    : 'text-muted-foreground hover:bg-sidebar-accent/60'
                 )}
               >
                 {m === 'flow' ? 'Fluxo publicado (v2)' : m.charAt(0).toUpperCase() + m.slice(1)}
@@ -361,20 +373,20 @@ export default function ConversationFlowsPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Buscar por nome ou slug..."
-              className="w-full rounded-md border border-border bg-surface py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-subtle-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="w-full rounded-md border border-border bg-background/40 py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-subtle-foreground outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
             />
           </div>
         </div>
 
-        {/* Lista — project-revive-main Automacoes.tsx (tabela). Flows.tsx é rota separada no Revive. */}
+        {/* Lista de fluxos */}
         {!selectedId ? (
           <div
-            className="overflow-visible rounded-xl border border-border bg-surface"
+            className={cn(reviveTableShellClassName, 'overflow-visible')}
             onClick={() => setOpenMenuId(null)}
           >
             <table className="w-full">
               <thead>
-                <tr className="border-b border-border text-left text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">
+                <tr className={reviveTableHeadRowClassName}>
                   <th className="px-4 py-3">Fluxo</th>
                   <th className="px-4 py-3">Gatilho</th>
                   <th className="px-4 py-3 text-center">Slug</th>
@@ -387,7 +399,7 @@ export default function ConversationFlowsPage() {
                   <tr
                     key={def.id}
                     onClick={() => setSelectedId(def.id)}
-                    className="cursor-pointer border-b border-border/50 last:border-0 transition-colors hover:bg-surface-hover"
+                    className={reviveTableRowClassName}
                   >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">
@@ -410,19 +422,12 @@ export default function ConversationFlowsPage() {
                     </td>
                     <td className="px-4 py-3 text-center font-mono text-[11px] text-muted-foreground">{def.slug}</td>
                     <td className="px-4 py-3 text-center">
-                      <span
-                        className={cn(
-                          'relative inline-flex h-5 w-9 items-center rounded-full transition-colors',
-                          def.is_active ? 'bg-primary' : 'bg-muted'
-                        )}
-                        onClick={(e) => e.stopPropagation()}
-                        title="Somente leitura — alteração via API em breve."
-                      >
-                        <span
-                          className={cn(
-                            'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
-                            def.is_active ? 'translate-x-5' : 'translate-x-1'
-                          )}
+                      <span onClick={(e) => e.stopPropagation()}>
+                        <Switch
+                          checked={def.is_active}
+                          disabled
+                          title="Somente leitura — alteração via API em breve."
+                          aria-label={def.is_active ? 'Ativo' : 'Inativo'}
                         />
                       </span>
                     </td>
@@ -433,7 +438,7 @@ export default function ConversationFlowsPage() {
                           e.stopPropagation();
                           setOpenMenuId(openMenuId === def.id ? null : def.id);
                         }}
-                        className="flex h-7 w-7 items-center justify-center rounded hover:bg-surface-elevated"
+                        className={cn('flex h-7 w-7 items-center justify-center', iconButtonHover)}
                       >
                         <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
                       </button>
@@ -448,7 +453,7 @@ export default function ConversationFlowsPage() {
                               setSelectedId(def.id);
                               setOpenMenuId(null);
                             }}
-                            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-surface-hover"
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-sidebar-accent/60"
                           >
                             <Pencil className="h-3.5 w-3.5" /> Editar fluxo
                           </button>
@@ -458,7 +463,7 @@ export default function ConversationFlowsPage() {
                               void navigator.clipboard?.writeText(def.slug);
                               setOpenMenuId(null);
                             }}
-                            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-surface-hover"
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-sidebar-accent/60"
                           >
                             <Copy className="h-3.5 w-3.5" /> Copiar slug
                           </button>
@@ -493,7 +498,7 @@ export default function ConversationFlowsPage() {
                     setSelectedId(null);
                     setMessage(null);
                   }}
-                  className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-surface hover:bg-surface-hover"
+                  className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-surface hover:bg-sidebar-accent/60"
                 >
                   <ArrowLeft className="h-4 w-4 text-muted-foreground" />
                 </button>
@@ -519,23 +524,19 @@ export default function ConversationFlowsPage() {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="xs"
                   disabled={!canEditFlows}
                   onClick={() => void simulate()}
-                  className="flex items-center gap-1.5 rounded-md border border-border bg-background/40 px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-surface-hover disabled:opacity-50"
                 >
                   <Play className="h-3.5 w-3.5" />
                   Simular
-                </button>
-                <button
-                  type="button"
-                  disabled={!canEditFlows}
-                  onClick={() => void saveDraft()}
-                  className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary-glow disabled:opacity-50"
-                >
+                </Button>
+                <Button type="button" size="xs" disabled={!canEditFlows} onClick={() => void saveDraft()}>
                   Salvar rascunho
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -545,7 +546,7 @@ export default function ConversationFlowsPage() {
                   <div>
                     <h2 className="text-sm font-semibold">Fluxo de atendimento</h2>
                     <p className="text-xs text-muted-foreground">
-                      Editor em blocos (project-revive-main). Persiste em{' '}
+                      Editor em blocos. Persiste em{' '}
                       <span className="font-mono">revive_blocos</span> no graph. Para o motor em produção, mantenha também
                       DSL v2 (<span className="font-mono">entry_node_id</span>) na aba JSON.
                     </p>
@@ -568,7 +569,7 @@ export default function ConversationFlowsPage() {
                       }}
                       className={cn(
                         'rounded px-2.5 py-1 text-[11px] font-medium transition-colors',
-                        editorTab === 'blocos' ? 'bg-surface-elevated text-foreground' : 'text-muted-foreground'
+                        editorTab === 'blocos' ? 'bg-muted text-foreground' : 'text-muted-foreground'
                       )}
                     >
                       Blocos
@@ -583,7 +584,7 @@ export default function ConversationFlowsPage() {
                       }}
                       className={cn(
                         'rounded px-2.5 py-1 text-[11px] font-medium transition-colors',
-                        editorTab === 'json' ? 'bg-surface-elevated text-foreground' : 'text-muted-foreground'
+                        editorTab === 'json' ? 'bg-muted text-foreground' : 'text-muted-foreground'
                       )}
                     >
                       JSON
@@ -595,7 +596,7 @@ export default function ConversationFlowsPage() {
                   {(versionsQuery.data || []).map((version) => (
                     <div
                       key={version.id}
-                      className="rounded-lg border border-border bg-background/40 px-3 py-2 text-xs font-mono"
+                      className="rounded-lg border border-border bg-surface px-3 py-2 text-xs font-mono"
                     >
                       v{version.version_number} · {version.status}
                       {version.status === 'draft' && canEditFlows ? (
@@ -616,7 +617,7 @@ export default function ConversationFlowsPage() {
                     <button
                       type="button"
                       onClick={() => void createDraftVersion()}
-                      className="rounded-md border border-border bg-background/40 px-2 py-1 text-xs transition-colors hover:bg-surface-hover"
+                      className="rounded-md border border-border bg-background/40 px-2 py-1 text-xs transition-colors hover:bg-sidebar-accent/60"
                     >
                       Novo rascunho vazio
                     </button>
@@ -628,7 +629,7 @@ export default function ConversationFlowsPage() {
                         )[0];
                         if (latest) void createDraftVersion(latest.id);
                       }}
-                      className="rounded-md border border-border bg-background/40 px-2 py-1 text-xs transition-colors hover:bg-surface-hover"
+                      className="rounded-md border border-border bg-background/40 px-2 py-1 text-xs transition-colors hover:bg-sidebar-accent/60"
                     >
                       Novo rascunho da última versão
                     </button>
@@ -660,14 +661,14 @@ export default function ConversationFlowsPage() {
 
                 {editorTab === 'blocos' ? (
                   <div className="space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed border-border bg-background/40 px-3 py-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2">
                       <p className="text-[11px] text-muted-foreground">
                         Mesma UX do Revive: paleta categorizada + cartões expansíveis e ramos.
                       </p>
                       <PaletaBlocos onAdd={(tipo) => setReviveBlocos([...reviveBlocos, novoBloco(tipo)])} />
                     </div>
                     {reviveBlocos.length === 0 ? (
-                      <p className="rounded-lg border border-border/60 bg-background/30 px-3 py-6 text-center text-xs text-muted-foreground">
+                      <p className="rounded-lg border border-border/60 bg-muted/20 px-3 py-6 text-center text-xs text-muted-foreground">
                         Nenhum bloco na raiz — use <strong className="text-foreground">Adicionar bloco</strong>.
                       </p>
                     ) : (

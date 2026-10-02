@@ -32,7 +32,7 @@ export function BlocoCard({
   return (
     <div
       className={cn(
-        'rounded-lg border bg-surface',
+        'rounded-lg border bg-card',
         depth === 0 ? 'border-border' : 'border-border/70 bg-background/40'
       )}
     >

@@ -1,4 +1,14 @@
 import { CheckCheck, Clock3, ShieldAlert, AlertCircle } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import {
+  interactiveRowActiveBar,
+  interactiveRowMuted,
+  interactiveRowPrimary,
+  interactiveRowSecondary,
+  interactiveRowSurface,
+  semanticPillClass,
+} from '@/lib/interactiveRow';
+import { cn } from '@/lib/utils';
 import { ChannelBadge, type Channel } from './ChannelBadge';
 
 type Tone = 'neutral' | 'primary' | 'success' | 'warning' | 'destructive';
@@ -23,12 +33,12 @@ export type ConversationItemModel = {
   } | null;
 };
 
-function toneClasses(tone: Tone) {
-  if (tone === 'primary') return 'border-primary/25 bg-primary/10 text-primary';
-  if (tone === 'success') return 'border-success/25 bg-success/10 text-success';
-  if (tone === 'warning') return 'border-warning/25 bg-warning/10 text-warning';
-  if (tone === 'destructive') return 'border-destructive/25 bg-destructive/10 text-destructive';
-  return 'border-border bg-surface text-muted-foreground';
+function slaToneToPill(tone: Tone) {
+  if (tone === 'primary') return semanticPillClass('primary', 'h-auto gap-1.5 px-2 py-1 text-[11px]');
+  if (tone === 'success') return semanticPillClass('success', 'h-auto gap-1.5 px-2 py-1 text-[11px]');
+  if (tone === 'warning') return semanticPillClass('warning', 'h-auto gap-1.5 px-2 py-1 text-[11px]');
+  if (tone === 'destructive') return semanticPillClass('destructive', 'h-auto gap-1.5 px-2 py-1 text-[11px]');
+  return semanticPillClass('neutral', 'h-auto gap-1.5 px-2 py-1 text-[11px]');
 }
 
 function SlaIcon({ kind }: { kind: SlaKind }) {
@@ -49,23 +59,20 @@ export function ConversationItem({
 }) {
   const channel = item.channel || 'whatsapp';
   const sla = item.sla;
-  const base =
-    'group relative flex w-full items-stretch gap-3 rounded-xl border px-3 py-2 text-left transition-colors duration-150 ease-snappy';
-  const bg = active
-    ? 'border-primary/30 bg-surface-elevated'
-    : 'border-border bg-surface hover:bg-surface-hover';
 
   return (
-    <button type="button" onClick={onSelect} className={`${base} ${bg}`}>
-      <span
-        className={`absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r ${
-          active ? 'bg-primary' : 'bg-transparent'
-        }`}
-        aria-hidden="true"
-      />
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        'relative flex w-full items-stretch gap-3 rounded-xl border border-border px-3 py-2 text-left duration-150 ease-snappy',
+        interactiveRowSurface(active)
+      )}
+    >
+      <span className={interactiveRowActiveBar(active)} aria-hidden="true" />
 
       {item.avatar ? (
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground">
+        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-elevated text-muted-foreground">
           {item.avatar}
         </div>
       ) : null}
@@ -74,57 +81,49 @@ export function ConversationItem({
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <p
-                className={`truncate text-[13px] font-semibold tracking-tight-2 ${
-                  item.unread ? 'text-foreground' : 'text-foreground'
-                }`}
-              >
+              <p className={cn('truncate text-[13px] font-semibold tracking-tight-2', interactiveRowPrimary(active))}>
                 {item.title}
               </p>
               {item.unread ? (
-                <span
-                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
-                  aria-label="Nao lida"
-                  title="Nao lida"
-                />
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-label="Nao lida" title="Nao lida" />
               ) : null}
             </div>
             {item.subtitle ? (
-              <p className="mono mt-0.5 truncate text-[11px] text-subtle-foreground">{item.subtitle}</p>
+              <p className={cn('mono mt-0.5 truncate text-[11px]', interactiveRowSecondary(active))}>{item.subtitle}</p>
             ) : null}
           </div>
 
           <div className="flex flex-col items-end gap-1">
             <ChannelBadge channel={channel} size="sm" className="hidden md:inline-flex" />
             {item.updatedLabel ? (
-              <span className="mono text-[10px] text-subtle-foreground">{item.updatedLabel}</span>
+              <span className={cn('mono text-[10px]', interactiveRowMuted(active))}>{item.updatedLabel}</span>
             ) : null}
           </div>
         </div>
 
         {item.preview ? (
-          <p className={`line-clamp-1 text-[12px] ${item.unread ? 'text-foreground' : 'text-muted-foreground'}`}>
+          <p className={cn('line-clamp-1 text-[12px]', active ? interactiveRowSecondary(true) : item.unread ? 'text-foreground' : interactiveRowSecondary(false))}>
             {item.preview}
           </p>
         ) : null}
 
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           {sla ? (
-            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-semibold tracking-tight ${toneClasses(sla.tone)}`}>
+            <Badge variant="outline" className={slaToneToPill(sla.tone)}>
               <SlaIcon kind={sla.kind} />
               <span className="hidden sm:inline">{sla.label}</span>
               <span className="sm:hidden">SLA</span>
-            </span>
+            </Badge>
           ) : null}
 
           {item.priorityLabel ? (
-            <span className="inline-flex items-center rounded-full border border-border bg-surface px-2 py-1 text-[11px] font-semibold tracking-tight text-muted-foreground">
+            <Badge variant="outline" className={semanticPillClass('neutral', 'h-auto px-2 py-1 text-[11px]')}>
               {item.priorityLabel}
-            </span>
+            </Badge>
           ) : null}
         </div>
 
-        <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-subtle-foreground">
+        <div className={cn('mt-1 flex items-center justify-between gap-2 text-[11px]', interactiveRowSecondary(active))}>
           <span className="truncate">{item.contextLabel || 'Sem contexto'}</span>
           <span className="truncate">{item.ownerLabel || 'Sem dono'}</span>
         </div>

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
@@ -42,7 +42,7 @@ export function PaletaBlocos({ onAdd, label = 'Adicionar bloco', size = 'md' }: 
             className="fixed inset-0 z-40 cursor-default border-0 bg-transparent p-0"
             onClick={() => setOpen(false)}
           />
-          <div className="absolute left-0 z-50 mt-1 w-72 rounded-lg border border-border bg-surface shadow-elevated">
+          <div className="absolute left-0 z-50 mt-1 w-72 rounded-lg border border-border bg-card shadow-elevated">
             <div className="flex flex-wrap gap-1 border-b border-border p-2">
               {categoriasMeta.map((c) => (
                 <button
@@ -53,7 +53,7 @@ export function PaletaBlocos({ onAdd, label = 'Adicionar bloco', size = 'md' }: 
                     'rounded px-2 py-0.5 text-[10px] font-medium transition-colors',
                     cat === c.id
                       ? 'bg-primary/15 text-primary'
-                      : 'text-muted-foreground hover:bg-surface-hover'
+                      : 'text-muted-foreground hover:bg-sidebar-accent/60'
                   )}
                 >
                   {c.label}
@@ -71,7 +71,7 @@ export function PaletaBlocos({ onAdd, label = 'Adicionar bloco', size = 'md' }: 
                       onAdd(b.tipo);
                       setOpen(false);
                     }}
-                    className="block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-surface-hover"
+                    className="block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-sidebar-accent/60"
                   >
                     {b.label}
                   </button>

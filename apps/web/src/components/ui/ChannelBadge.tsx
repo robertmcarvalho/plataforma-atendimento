@@ -1,4 +1,5 @@
-﻿import { cn } from '@/lib/utils';
+﻿import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 import { MessageCircle, Mail, Globe, Send } from 'lucide-react';
 
 function InstagramIcon({ className, strokeWidth = 2.2 }: { className?: string; strokeWidth?: number }) {
@@ -70,9 +71,12 @@ export function ChannelBadge({ channel, size = 'sm', showLabel = false, classNam
 
   return (
     <div className={cn('inline-flex items-center gap-1.5', className)}>
-      <span className={cn('inline-flex items-center justify-center rounded-md', dim, cfg.bg)}>
+      <Badge
+        variant="outline"
+        className={cn('h-auto rounded-md border-transparent p-0', dim, cfg.bg)}
+      >
         <Icon className={cn(iconSize, cfg.color)} strokeWidth={2.2} />
-      </span>
+      </Badge>
       {showLabel ? <span className="text-xs font-medium text-muted-foreground">{cfg.label}</span> : null}
     </div>
   );

@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
+import { FormControl } from '@/components/form/FormControl';
 import api from '@/lib/api';
 import { formatDateTimeBr } from '@/lib/datetimeBr';
 
@@ -67,11 +68,11 @@ export function SettingsApiTokensPanel() {
       <div className="mt-4 flex flex-wrap items-end gap-2">
         <div className="min-w-[200px] flex-1">
           <label className="text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Nome</label>
-          <input
+          <FormControl
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Ex.: ERP produção"
-            className="mt-1 w-full rounded-md border border-border bg-background/40 px-3 py-2 text-sm outline-none focus:border-primary/60"
+            className="mt-1"
           />
         </div>
         <button

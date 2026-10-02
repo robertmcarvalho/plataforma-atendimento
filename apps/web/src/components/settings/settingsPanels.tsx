@@ -11,3 +11,6 @@ export { SettingsApiTokensPanel } from './SettingsApiTokensPanel';
 export { SettingsAuditPanel } from './SettingsAuditPanel';
 export { SettingsRolesPanel } from './SettingsRolesPanel';
 export { SettingsChannelsPanel } from './SettingsChannelsPanel';
+export { SettingsServicePanel } from './SettingsServicePanel';
+export { SettingsTemplatesPanel } from './SettingsTemplatesPanel';
+export { SettingsOperacaoPanel } from './SettingsOperacaoPanel';

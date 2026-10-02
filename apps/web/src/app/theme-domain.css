@@ -1,0 +1,71 @@
+/* Tokens de domínio — alinhados a project-revive-main/src/index.css
+ * Páginas: bg-background · PageHeader: bg-card · Seções cadastro/ficha: bg-surface */
+
+:root {
+  --surface: var(--card);
+  --surface-elevated: var(--muted);
+  --surface-hover: color-mix(in oklch, var(--card) 88%, var(--foreground) 12%);
+  --subtle-foreground: oklch(0.52 0.012 248);
+  --primary-glow: oklch(0.62 0.16 245);
+  --accent-token: var(--accent);
+  --success: oklch(0.55 0.14 145);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.72 0.14 75);
+  --warning-foreground: oklch(0.2 0.02 248);
+  --channel-whatsapp: oklch(0.55 0.14 145);
+  --channel-instagram: oklch(0.58 0.18 320);
+  --channel-email: oklch(0.58 0.14 245);
+  --channel-webchat: oklch(0.58 0.16 280);
+  --channel-telegram: oklch(0.58 0.14 220);
+  --gradient-primary: linear-gradient(135deg, var(--primary), oklch(0.62 0.14 260));
+  --gradient-glow: radial-gradient(600px circle at 50% 0%, color-mix(in oklch, var(--primary) 15%, transparent), transparent 60%);
+  --shadow-elevated: 0 8px 24px -8px color-mix(in oklch, var(--foreground) 8%, transparent), 0 2px 6px color-mix(in oklch, var(--foreground) 6%, transparent);
+  --shadow-glow: 0 0 0 1px color-mix(in oklch, var(--primary) 25%, transparent), 0 8px 28px -8px color-mix(in oklch, var(--primary) 30%, transparent);
+  --ease-snappy: cubic-bezier(0.16, 1, 0.3, 1);
+  --sidebar-background: var(--sidebar);
+  --sidebar-hover: var(--accent);
+  --app-bg: var(--background);
+  --surface-2: var(--surface-elevated);
+  --surface-3: var(--surface-hover);
+  --border-strong: color-mix(in oklch, var(--border) 95%, var(--foreground));
+  --text: var(--foreground);
+  --text-muted: var(--muted-foreground);
+  --text-soft: var(--subtle-foreground);
+  --accent: var(--primary);
+  --accent-soft: color-mix(in oklch, var(--primary) 14%, transparent);
+  --success-soft: color-mix(in oklch, var(--success) 14%, transparent);
+  --warning-soft: color-mix(in oklch, var(--warning) 14%, transparent);
+  --danger: var(--destructive);
+  --danger-soft: color-mix(in oklch, var(--destructive) 12%, transparent);
+  --info: oklch(0.55 0.12 220);
+  --info-soft: color-mix(in oklch, var(--info) 14%, transparent);
+}
+
+.dark {
+  /* Revive: surface ~10% L, card ~13% L */
+  --surface: oklch(0.17 0.008 274);
+  --surface-elevated: oklch(0.24 0.008 274);
+  --surface-hover: color-mix(in oklch, var(--card) 88%, var(--foreground) 12%);
+  --subtle-foreground: oklch(0.58 0.008 248);
+  --primary-glow: oklch(0.72 0.16 245);
+  --success: oklch(0.65 0.14 145);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.78 0.14 75);
+  --warning-foreground: oklch(0.15 0.02 248);
+  --channel-whatsapp: oklch(0.62 0.14 145);
+  --channel-instagram: oklch(0.65 0.18 320);
+  --channel-email: oklch(0.65 0.14 245);
+  --channel-webchat: oklch(0.65 0.16 280);
+  --channel-telegram: oklch(0.65 0.14 220);
+  --gradient-primary: linear-gradient(135deg, var(--primary), oklch(0.55 0.14 260));
+  --gradient-glow: radial-gradient(600px circle at 50% 0%, color-mix(in oklch, var(--primary) 18%, transparent), transparent 60%);
+  --shadow-elevated: 0 8px 24px -8px color-mix(in oklch, black 60%, transparent), 0 2px 4px color-mix(in oklch, black 40%, transparent);
+  --shadow-glow: 0 0 0 1px color-mix(in oklch, var(--primary) 35%, transparent), 0 8px 32px -8px color-mix(in oklch, var(--primary) 45%, transparent);
+  --sidebar-background: var(--sidebar);
+  --sidebar-hover: var(--accent);
+  --accent-soft: color-mix(in oklch, var(--primary) 18%, transparent);
+  --success-soft: color-mix(in oklch, var(--success) 18%, transparent);
+  --warning-soft: color-mix(in oklch, var(--warning) 18%, transparent);
+  --danger-soft: color-mix(in oklch, var(--destructive) 18%, transparent);
+  --info-soft: color-mix(in oklch, var(--info) 18%, transparent);
+}

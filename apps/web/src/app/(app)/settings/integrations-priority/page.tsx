@@ -2,9 +2,9 @@
 
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Layers } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
-import api from '@/lib/api';
+import { settingsPageApi } from '@/lib/settings/settingsPageApi';
 
 type Row = {
   id: string;
@@ -22,11 +22,11 @@ export default function IntegrationsPriorityPage() {
   const query = useQuery({
     queryKey: ['settings', 'integrations', 'priority'],
     queryFn: async () =>
-      (await api.get('/api/integrations/connectors/priority')).data as {
+      settingsPageApi.fetchIntegrationsPriority() as Promise<{
         version: string;
         method: string;
         items: Row[];
-      },
+      }>,
   });
 
   return (
@@ -37,6 +37,7 @@ export default function IntegrationsPriorityPage() {
         </Link>
 
         <PageHeader
+          icon={Layers}
           eyebrow="Configurações"
           title="Priorização de Conectores"
           description="Ranking prático para Sprint 6: ERP/CRM/Financeiro."
@@ -64,18 +65,18 @@ export default function IntegrationsPriorityPage() {
             </thead>
             <tbody>
               {(query.data?.items || []).map((item) => (
-                <tr key={item.id} className="workspace-row">
-                  <td className="workspace-cell">
+                <tr key={item.id} className="border-b border-border hover:bg-sidebar-accent/60">
+                  <td className="px-3 py-2 align-middle">
                     <div className="text-xs font-medium">{item.name}</div>
                     <div className="text-[10px] text-subtle-foreground">{item.notes}</div>
                   </td>
-                  <td className="workspace-cell text-xs text-muted-foreground">{item.domain.toUpperCase()}</td>
-                  <td className="workspace-cell text-xs text-muted-foreground">{item.delivery_model}</td>
-                  <td className="workspace-cell text-xs text-muted-foreground">{item.demand_score}</td>
-                  <td className="workspace-cell text-xs text-muted-foreground">{item.implementation_effort}</td>
-                  <td className="workspace-cell text-xs text-muted-foreground">{item.strategic_value}</td>
-                  <td className="workspace-cell">
-                    <span className="status-chip border-primary/25 bg-primary/10 text-primary">{item.priority_score}</span>
+                  <td className="px-3 py-2 align-middle text-xs text-muted-foreground">{item.domain.toUpperCase()}</td>
+                  <td className="px-3 py-2 align-middle text-xs text-muted-foreground">{item.delivery_model}</td>
+                  <td className="px-3 py-2 align-middle text-xs text-muted-foreground">{item.demand_score}</td>
+                  <td className="px-3 py-2 align-middle text-xs text-muted-foreground">{item.implementation_effort}</td>
+                  <td className="px-3 py-2 align-middle text-xs text-muted-foreground">{item.strategic_value}</td>
+                  <td className="px-3 py-2 align-middle">
+                    <span className="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">{item.priority_score}</span>
                   </td>
                 </tr>
               ))}

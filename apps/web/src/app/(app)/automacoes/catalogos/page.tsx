@@ -2,7 +2,7 @@
 
 import { Suspense } from 'react';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ListTree } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { CatalogsEditor } from '@/components/automacoes/CatalogsEditor';
 
@@ -15,6 +15,7 @@ export default function AutomacoesCatalogosPage() {
           Automações
         </Link>
         <PageHeader
+          icon={ListTree}
           eyebrow="Motor de atendimento"
           title="Catálogos de atendimento"
           description="Perfis, setores, mensagens do bot, SLA e fora do horário — demandas ficam nos webhooks dos canais."

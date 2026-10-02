@@ -1,11 +1,14 @@
 'use client';
 
+import { settingsPageApi } from '@/lib/settings/settingsPageApi';
+
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Wrench } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
-import api from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 type CatalogAction = { action: string; description: string };
 type CatalogTool = {
@@ -53,12 +56,12 @@ export default function McpToolsSettingsPage() {
 
   const toolsQuery = useQuery({
     queryKey: ['settings', 'mcp-tools', 'catalog'],
-    queryFn: async () => (await api.get('/api/mcp/tools')).data as CatalogTool[],
+    queryFn: async () => await settingsPageApi.fetchMcpTools() as CatalogTool[],
   });
 
   const settingsQuery = useQuery({
     queryKey: ['settings', 'mcp-tools', 'governance'],
-    queryFn: async () => (await api.get('/api/settings')).data as Record<string, unknown>,
+    queryFn: async () => await settingsPageApi.fetchSettings() as Record<string, unknown>,
   });
 
   const data = useMemo(() => {
@@ -90,14 +93,8 @@ export default function McpToolsSettingsPage() {
     setSaving(true);
     setSaveNote(null);
     try {
-      await api.put('/api/settings', {
-        key: 'mcp_tools_governance',
-        value: model,
-      });
-      await api.put('/api/settings', {
-        key: 'mcp_rollout_config',
-        value: rollout,
-      });
+      await settingsPageApi.putSetting('mcp_tools_governance', model);
+      await settingsPageApi.putSetting('mcp_rollout_config', rollout);
       setSaveNote({ tone: 'ok', message: 'Governança e rollout MCP salvos com sucesso.' });
       await settingsQuery.refetch();
       setDraft(null);
@@ -117,17 +114,18 @@ export default function McpToolsSettingsPage() {
         </Link>
 
         <PageHeader
+          icon={Wrench}
           eyebrow="Configurações"
           title="MCP Tools"
           description="Governança por ferramenta: timeout, retry e permissões por papel."
           actions={
-            <button
+            <Button
               onClick={() => void save()}
               disabled={saving || toolsQuery.isLoading || settingsQuery.isLoading}
-              className="button-primary rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-60"
+              className="rounded-md px-3 py-1.5 text-xs font-medium"
             >
               {saving ? 'Salvando...' : 'Salvar governança'}
-            </button>
+            </Button>
           }
         />
 
@@ -161,7 +159,7 @@ export default function McpToolsSettingsPage() {
             </div>
             <div>
               <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Pilot tenants (UUID, separados por vírgula)</label>
-              <input
+              <Input
                 value={rollout.pilot_tenants.join(', ')}
                 onChange={(e) =>
                   setRolloutDraft({
@@ -172,7 +170,7 @@ export default function McpToolsSettingsPage() {
                       .filter(Boolean),
                   })
                 }
-                className="control-input mt-1 !rounded-lg !py-2 !text-sm"
+                className="mt-1 !rounded-lg !py-2 !text-sm"
                 placeholder="11111111-1111-1111-1111-111111111111, 22222222-2222-2222-2222-222222222222"
               />
             </div>
@@ -204,29 +202,29 @@ export default function McpToolsSettingsPage() {
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Timeout (ms)</label>
-                    <input
+                    <Input
                       type="number"
                       min={500}
                       step={500}
                       value={cfg?.timeout_ms ?? 8000}
                       onChange={(e) => setToolPatch(tool.tool, { timeout_ms: Number(e.target.value) || 8000 })}
-                      className="control-input mt-1 !rounded-lg !py-2 !text-sm"
+                      className="mt-1 !rounded-lg !py-2 !text-sm"
                     />
                   </div>
                   <div>
                     <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Retry</label>
-                    <input
+                    <Input
                       type="number"
                       min={0}
                       max={5}
                       value={cfg?.retry ?? 1}
                       onChange={(e) => setToolPatch(tool.tool, { retry: Number(e.target.value) || 0 })}
-                      className="control-input mt-1 !rounded-lg !py-2 !text-sm"
+                      className="mt-1 !rounded-lg !py-2 !text-sm"
                     />
                   </div>
                   <div>
                     <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Papéis permitidos</label>
-                    <input
+                    <Input
                       value={(cfg?.roles || DEFAULT_ROLES).join(', ')}
                       onChange={(e) =>
                         setToolPatch(tool.tool, {
@@ -236,7 +234,7 @@ export default function McpToolsSettingsPage() {
                             .filter(Boolean),
                         })
                       }
-                      className="control-input mt-1 !rounded-lg !py-2 !text-sm"
+                      className="mt-1 !rounded-lg !py-2 !text-sm"
                       placeholder="admin, supervisor"
                     />
                   </div>

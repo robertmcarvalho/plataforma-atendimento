@@ -4,10 +4,12 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Clock, FileText, GitBranch, History, Loader2, Pause, Pencil, Play, Tag, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, Bot, Loader2, Pause, Pencil, Play, Tag } from 'lucide-react';
 import api from '@/lib/api';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { cn } from '@/lib/utils';
-import { countBlocos, labelOf, type Bloco } from '@/lib/conversation-flow/fluxo';
+import { reviveKpiCardClassName } from '@/lib/reviveSurfaces';
+import { countBlocos, type Bloco } from '@/lib/conversation-flow/fluxo';
 import { revivePreviewNumberedLines } from '@/lib/conversation-flow/wizardConversationFlow';
 import { useAuth } from '@/store/auth';
 
@@ -59,11 +61,11 @@ type AutomationRun = {
   completed_at?: string | null;
 };
 
-const detailTabs: Array<{ value: 'overview' | 'runs' | 'logs' | 'versions'; label: string; icon: LucideIcon }> = [
-  { value: 'overview', label: 'Visão geral', icon: GitBranch },
-  { value: 'runs', label: 'Execuções', icon: Play },
-  { value: 'logs', label: 'Logs', icon: FileText },
-  { value: 'versions', label: 'Versões', icon: History },
+const detailTabs: Array<{ value: 'overview' | 'runs' | 'logs' | 'versions'; label: string }> = [
+  { value: 'overview', label: 'Visão geral' },
+  { value: 'runs', label: 'Execuções' },
+  { value: 'logs', label: 'Logs' },
+  { value: 'versions', label: 'Versões' },
 ];
 
 function extractPreset(graph?: Record<string, unknown>) {
@@ -177,37 +179,39 @@ export default function AutomationDetailPage() {
           Automações
         </Link>
 
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-border bg-surface p-6">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-subtle-foreground">Detalhe da automação</div>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">
-              {definition?.name || automationRule?.name || (kind === 'conversation_flow' ? 'Carregando fluxo...' : `Automação ${id.slice(0, 8)}`)}
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-              {definition?.description || 'Visão operacional com estrutura do fluxo, execuções, logs e versões.'}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {kind === 'conversation_flow' || kind === 'automation_rule' ? (
-              <button
-                type="button"
-                onClick={() => void toggleAutomation()}
-                disabled={!canEdit || (kind === 'conversation_flow' ? !definition : !automationRule)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background/40 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-surface-hover disabled:opacity-50"
+        <PageHeader
+          icon={Bot}
+          eyebrow={`AUT-${id.slice(0, 4).toUpperCase()} · Inteligência`}
+          title={definition?.name || automationRule?.name || (kind === 'conversation_flow' ? 'Carregando fluxo…' : `Automação ${id.slice(0, 8)}`)}
+          description={definition?.description || 'Visão operacional com estrutura do fluxo, execuções, logs e versões.'}
+          actions={
+            <div className="flex items-center gap-2">
+              {kind === 'conversation_flow' || kind === 'automation_rule' ? (
+                <button
+                  type="button"
+                  onClick={() => void toggleAutomation()}
+                  disabled={!canEdit || (kind === 'conversation_flow' ? !definition : !automationRule)}
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50',
+                    active
+                      ? 'border-warning/40 bg-warning/10 text-warning hover:bg-warning/15'
+                      : 'border-success/40 bg-success/10 text-success hover:bg-success/15',
+                  )}
+                >
+                  {active ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                  {active ? 'Pausar' : 'Ativar'}
+                </button>
+              ) : null}
+              <Link
+                href={`/automacoes/nova?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`}
+                className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary-glow"
               >
-                {active ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                {active ? 'Pausar' : 'Ativar'}
-              </button>
-            ) : null}
-            <Link
-              href={`/automacoes/nova?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`}
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-glow"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Editar fluxo
-            </Link>
-          </div>
-        </div>
+                <Pencil className="h-3.5 w-3.5" />
+                Editar fluxo
+              </Link>
+            </div>
+          }
+        />
 
         <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
           {[
@@ -216,25 +220,24 @@ export default function AutomationDetailPage() {
             { label: 'Versões', value: String(versionsQuery.data?.length ?? '—') },
             { label: 'Preset', value: preset.replaceAll('_', ' ') },
           ].map((kpi) => (
-            <div key={kpi.label} className="rounded-xl border border-border bg-surface p-4">
+            <div key={kpi.label} className={reviveKpiCardClassName}>
               <div className={cn('text-xl font-semibold tracking-tight capitalize', kpi.accent)}>{kpi.value}</div>
               <div className="mt-0.5 text-xs text-muted-foreground">{kpi.label}</div>
             </div>
           ))}
         </div>
 
-        <div className="mb-4 flex flex-wrap gap-2 rounded-xl border border-border bg-surface p-2">
-          {detailTabs.map(({ value, label, icon: Icon }) => (
+        <div className="mb-4 flex items-center gap-1 border-b border-border">
+          {detailTabs.map(({ value, label }) => (
             <button
               key={value}
               type="button"
               onClick={() => setTab(value)}
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
-                tab === value ? 'bg-primary/15 text-primary ring-1 ring-primary/25' : 'text-muted-foreground hover:bg-surface-hover'
+                '-mb-px border-b-2 px-3 py-2 text-xs font-medium transition-colors',
+                tab === value ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
               )}
             >
-              <Icon className="h-3.5 w-3.5" />
               {label}
             </button>
           ))}
@@ -247,13 +250,9 @@ export default function AutomationDetailPage() {
           </div>
         ) : tab === 'overview' ? (
           <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-            <div className="rounded-xl border border-border bg-surface p-5">
-              <div className="mb-3 flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-foreground">Estrutura do fluxo</div>
-                  <div className="text-xs text-muted-foreground">{summary.format}</div>
-                </div>
-                <Clock className="h-4 w-4 text-muted-foreground" />
+            <div className="rounded-xl border border-border bg-surface p-6">
+              <div className="mb-4 text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">
+                Estrutura do fluxo · {summary.format}
               </div>
               <div className="space-y-1 rounded-lg border border-border bg-background/40 p-3 font-mono text-xs text-muted-foreground">
                 {summary.lines.map((line, index) => (
@@ -262,8 +261,8 @@ export default function AutomationDetailPage() {
               </div>
             </div>
             <div className="space-y-4">
-              <div className="rounded-xl border border-border bg-surface p-5">
-                <div className="text-sm font-semibold text-foreground">Detalhes</div>
+              <div className="rounded-xl border border-border bg-surface p-4">
+                <div className="mb-3 text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Detalhes</div>
                 <dl className="mt-3 space-y-2 text-xs">
                   <div className="flex justify-between gap-3">
                     <dt className="text-muted-foreground">ID</dt>
@@ -281,8 +280,8 @@ export default function AutomationDetailPage() {
                   </div>
                 </dl>
               </div>
-              <div className="rounded-xl border border-border bg-surface p-5">
-                <div className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-foreground">
+              <div className="rounded-xl border border-border bg-surface p-4">
+                <div className="mb-3 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">
                   <Tag className="h-3.5 w-3.5" />
                   Tags
                 </div>

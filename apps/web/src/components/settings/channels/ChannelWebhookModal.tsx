@@ -23,7 +23,19 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import api from '@/lib/api';
+import {
+  FormControl,
+  formControlCompactClassName,
+  formControlFlexClassName,
+  formTextareaClassName,
+} from '@/components/form/FormControl';
+import { BrDateInput, BrTimeInput } from '@/components/form/BrInputs';
+import { formatIsoDateBr } from '@/lib/datetimeBr';
+import { FormSelect } from '@/components/form/FormSelect';
+import { Button } from '@/components/ui/button';
+import { interactiveNavItem } from '@/lib/interactiveRow';
 import { cn } from '@/lib/utils';
+import { Switch } from '@/components/ui/Switch';
 import {
   CHANNEL_INTAKE_MESSAGE_KEYS,
   INTAKE_MESSAGE_LABELS,
@@ -132,6 +144,16 @@ const weekMap: Record<keyof HorarioComercial, keyof ChannelBusinessHours['weekly
   sab: 'saturday',
 };
 
+const HORARIO_DIAS: { key: keyof HorarioComercial; label: string }[] = [
+  { key: 'seg', label: 'Segunda' },
+  { key: 'ter', label: 'Terça' },
+  { key: 'qua', label: 'Quarta' },
+  { key: 'qui', label: 'Quinta' },
+  { key: 'sex', label: 'Sexta' },
+  { key: 'sab', label: 'Sábado' },
+  { key: 'dom', label: 'Domingo' },
+];
+
 export function ChannelWebhookModal({
   kind,
   channel,
@@ -177,6 +199,9 @@ export function ChannelWebhookModal({
   const [number, setNumber] = useState(String(channel?.config?.display_number || ''));
   const [phoneId, setPhoneId] = useState(channel?.external_id || '');
   const [wabaId, setWabaId] = useState(String(channel?.config?.waba_id || ''));
+  const [channelPurpose, setChannelPurpose] = useState<'operational' | 'commercial'>(
+    String(channel?.config?.purpose || '').toLowerCase() === 'commercial' ? 'commercial' : 'operational'
+  );
   const [token, setToken] = useState('');
   const [verifyToken, setVerifyToken] = useState(channel?.verify_token || '');
 
@@ -366,6 +391,7 @@ export function ChannelWebhookModal({
         config: serializeChannelOperationalConfig(
           {
             ...(channel?.config || {}),
+            purpose: channelPurpose === 'commercial' ? 'commercial' : 'operational',
             waba_id: wabaId.trim() || undefined,
             display_number: number.trim() || undefined,
           },
@@ -475,8 +501,9 @@ export function ChannelWebhookModal({
                 type="button"
                 onClick={() => setTab(t.id)}
                 className={cn(
-                  'flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs transition-colors',
-                  tab === t.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-surface-hover'
+                  interactiveNavItem(tab === t.id),
+                  'justify-start gap-2 px-2.5 py-2 text-left',
+                  tab === t.id && 'bg-primary/10 text-primary'
                 )}
               >
                 <t.icon className="h-3.5 w-3.5" /> {t.label}
@@ -490,6 +517,21 @@ export function ChannelWebhookModal({
                 <SectionTitle title="Credenciais Meta Cloud" desc="A plataforma usa estas credenciais automaticamente." />
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <Field label="Nome de exibição" value={name} onChange={setName} />
+                  <div>
+                    <Lbl>Finalidade do canal</Lbl>
+                    <FormSelect
+                      value={channelPurpose}
+                      onChange={(value) => setChannelPurpose(value as 'operational' | 'commercial')}
+                      className="mt-1"
+                      options={[
+                        { value: 'operational', label: 'Operacional (suporte / inbox)' },
+                        { value: 'commercial', label: 'Comercial (CRM / vendas)' },
+                      ]}
+                    />
+                    <p className="mt-1 text-[10px] text-muted-foreground">
+                      O módulo comercial usa o canal com <code className="text-[10px]">purpose=commercial</code>.
+                    </p>
+                  </div>
                   <Field label={labels.number} value={number} onChange={setNumber} mono />
                   <Field label={labels.id} value={phoneId} onChange={setPhoneId} mono />
                   <Field label={labels.waba} value={wabaId} onChange={setWabaId} mono />
@@ -497,14 +539,14 @@ export function ChannelWebhookModal({
                 <div>
                   <Lbl>{labels.token}</Lbl>
                   <div className="mt-1 flex gap-2">
-                    <input
+                    <FormControl
                       type={showToken ? 'text' : 'password'}
                       value={token}
                       onChange={(e) => setToken(e.target.value)}
                       placeholder={channel ? 'Deixe vazio para manter o token atual' : 'Cole o access token'}
-                      className="flex-1 rounded-md border border-border bg-background/40 px-3 py-2 font-mono text-xs"
+                      className={cn(formControlFlexClassName, 'font-mono')}
                     />
-                    <button type="button" onClick={() => setShowToken((s) => !s)} className="rounded-md border border-border px-3 hover:bg-surface-hover">
+                    <button type="button" onClick={() => setShowToken((s) => !s)} className="rounded-md border border-border px-3 hover:bg-sidebar-accent/60">
                       {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                     </button>
                   </div>
@@ -515,14 +557,14 @@ export function ChannelWebhookModal({
                   <div className="mt-1 flex gap-2">
                     <input readOnly value={callbackUrl} className="flex-1 rounded-md border border-border bg-muted/30 px-3 py-2 font-mono text-xs" />
                     {channel?.webhook_callback_url ? (
-                      <button type="button" onClick={() => void navigator.clipboard.writeText(channel.webhook_callback_url!)} className="rounded-md border border-border px-3 hover:bg-surface-hover">
+                      <button type="button" onClick={() => void navigator.clipboard.writeText(channel.webhook_callback_url!)} className="rounded-md border border-border px-3 hover:bg-sidebar-accent/60">
                         <Copy className="h-3.5 w-3.5" />
                       </button>
                     ) : null}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 pt-2">
-                  <button type="button" onClick={() => void handleTest()} className="flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-[11px] hover:bg-surface-hover">
+                  <button type="button" onClick={() => void handleTest()} className="flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-[11px] hover:bg-sidebar-accent/60">
                     <Send className="h-3 w-3" /> Testar conexão
                   </button>
                   {testing === 'loading' && <span className="text-[11px] text-muted-foreground">Testando...</span>}
@@ -547,23 +589,19 @@ export function ChannelWebhookModal({
                   desc="Use os UUIDs dos setores cadastrados no workspace. Preset: 4 setores macro + filas Geral (25/120/480 min) e Especializada (15/75/300 min)."
                 />
                 <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2">
-                  <button
-                    type="button"
-                    onClick={applySectorsQueuesPreset}
-                    className="rounded-md bg-primary px-3 py-1.5 text-[11px] font-medium text-primary-foreground hover:bg-primary-glow"
-                  >
+                  <Button type="button" size="xs" className="text-[11px]" onClick={applySectorsQueuesPreset}>
                     Aplicar preset Geral + Especializada
-                  </button>
+                  </Button>
                   <span className="text-[10px] text-muted-foreground">
                     Requer {MACRO_SECTOR_NAMES.join(', ')} em /api/sectors — ou rode{' '}
                     <code className="rounded bg-background px-1">npm run apply:sectors-queues-preset</code>
                   </span>
                 </div>
                 <div className="flex gap-2">
-                  <input value={novoSetor} onChange={(e) => setNovoSetor(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addSetor())} placeholder="Novo setor (ex.: Comercial)" className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-xs" />
-                  <button type="button" onClick={addSetor} className="flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-glow">
+                  <input value={novoSetor} onChange={(e) => setNovoSetor(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addSetor())} placeholder="Novo setor (ex.: Comercial)" className={cn(formControlFlexClassName)} />
+                  <Button type="button" size="xs" onClick={addSetor}>
                     <Plus className="h-3 w-3" /> Setor
-                  </button>
+                  </Button>
                 </div>
                 <div className="space-y-2">
                   {setoresCfg.map((s) => (
@@ -576,14 +614,14 @@ export function ChannelWebhookModal({
                       </div>
                       <div className="mt-2">
                         <Lbl>Gestor de escalação</Lbl>
-                        <select value={s.gestorEscalacao ?? ''} onChange={(e) => updateSetor(s.name, { gestorEscalacao: e.target.value })} className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-xs">
-                          <option value="">— Sem gestor —</option>
-                          {gestoresComValoresAtuais.map((g) => (
-                            <option key={g.id} value={g.id}>
-                              {g.label}
-                            </option>
-                          ))}
-                        </select>
+                        <FormSelect
+                          size="sm"
+                          value={s.gestorEscalacao ?? ''}
+                          onChange={(v) => updateSetor(s.name, { gestorEscalacao: v })}
+                          className="mt-1"
+                          placeholder="— Sem gestor —"
+                          options={gestoresComValoresAtuais.map((g) => ({ value: g.id, label: g.label }))}
+                        />
                       </div>
                     </div>
                   ))}
@@ -592,10 +630,10 @@ export function ChannelWebhookModal({
 
                 <SectionTitle title="Filas" desc="Cada fila pode conter setores, atendentes, capacidade, prioridade e regra de transbordo." />
                 <div className="flex gap-2">
-                  <input value={novaFila} onChange={(e) => setNovaFila(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addFila())} placeholder="Nome da fila (ex.: Geral, Vendas)" className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-xs" />
-                  <button type="button" onClick={addFila} className="flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-glow">
+                  <input value={novaFila} onChange={(e) => setNovaFila(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addFila())} placeholder="Nome da fila (ex.: Geral, Vendas)" className={cn(formControlFlexClassName)} />
+                  <Button type="button" size="xs" onClick={addFila}>
                     <Plus className="h-3 w-3" /> Fila
-                  </button>
+                  </Button>
                 </div>
                 <div className="space-y-2">
                   {filas.map((f) => (
@@ -612,7 +650,7 @@ export function ChannelWebhookModal({
                           {setoresCfg.map((s) => {
                             const on = f.setores.includes(s.name);
                             return (
-                              <button key={s.id} type="button" onClick={() => updateFila(f.name, { setores: on ? f.setores.filter((x) => x !== s.name) : [...f.setores, s.name] })} className={cn('rounded-md border px-2 py-1 text-[10px]', on ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-surface-hover')}>
+                              <button key={s.id} type="button" onClick={() => updateFila(f.name, { setores: on ? f.setores.filter((x) => x !== s.name) : [...f.setores, s.name] })} className={cn('rounded-md border px-2 py-1 text-[10px]', on ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-sidebar-accent/60')}>
                                 {on && '✓ '}
                                 {s.name}
                               </button>
@@ -627,7 +665,7 @@ export function ChannelWebhookModal({
                           {atendentesComValoresAtuais.map((a) => {
                             const on = (f.atendentes ?? []).includes(a.id);
                             return (
-                              <button key={a.id} type="button" onClick={() => updateFila(f.name, { atendentes: on ? (f.atendentes ?? []).filter((x) => x !== a.id) : [...(f.atendentes ?? []), a.id] })} className={cn('rounded-md border px-2 py-1 text-[10px]', on ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-surface-hover')}>
+                              <button key={a.id} type="button" onClick={() => updateFila(f.name, { atendentes: on ? (f.atendentes ?? []).filter((x) => x !== a.id) : [...(f.atendentes ?? []), a.id] })} className={cn('rounded-md border px-2 py-1 text-[10px]', on ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-sidebar-accent/60')}>
                                 {on && '✓ '}
                                 {a.label}
                               </button>
@@ -639,35 +677,41 @@ export function ChannelWebhookModal({
                         <NumberField label="Capacidade" value={f.capacidade ?? 50} onChange={(v) => updateFila(f.name, { capacidade: v })} />
                         <div>
                           <Lbl>Prioridade</Lbl>
-                          <select value={f.prioridade ?? 'media'} onChange={(e) => updateFila(f.name, { prioridade: e.target.value as Fila['prioridade'] })} className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-xs">
-                            <option value="baixa">Baixa</option>
-                            <option value="media">Média</option>
-                            <option value="alta">Alta</option>
-                            <option value="urgente">Urgente</option>
-                          </select>
+                          <FormSelect
+                            size="sm"
+                            value={f.prioridade ?? 'media'}
+                            onChange={(v) => updateFila(f.name, { prioridade: v as Fila['prioridade'] })}
+                            className="mt-1"
+                            options={[
+                              { value: 'baixa', label: 'Baixa' },
+                              { value: 'media', label: 'Média' },
+                              { value: 'alta', label: 'Alta' },
+                              { value: 'urgente', label: 'Urgente' },
+                            ]}
+                          />
                         </div>
                         <div>
                           <Lbl>Transbordo para</Lbl>
-                          <select value={f.transbordoPara ?? ''} onChange={(e) => updateFila(f.name, { transbordoPara: e.target.value })} className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-xs">
-                            <option value="">— Nenhum —</option>
-                            {filas.filter((x) => x.name !== f.name).map((x) => (
-                              <option key={x.name} value={x.name}>
-                                {x.name}
-                              </option>
-                            ))}
-                          </select>
+                          <FormSelect
+                            size="sm"
+                            value={f.transbordoPara ?? ''}
+                            onChange={(v) => updateFila(f.name, { transbordoPara: v })}
+                            className="mt-1"
+                            placeholder="— Nenhum —"
+                            options={filas.filter((x) => x.name !== f.name).map((x) => ({ value: x.name, label: x.name }))}
+                          />
                         </div>
                       </div>
                       <div>
                         <Lbl>E-mail de notificação</Lbl>
-                        <select value={f.notifyEmail ?? ''} onChange={(e) => updateFila(f.name, { notifyEmail: e.target.value })} className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-xs">
-                          <option value="">— Nenhum —</option>
-                          {emailsNotificacao.map((em) => (
-                            <option key={em} value={em}>
-                              {em}
-                            </option>
-                          ))}
-                        </select>
+                        <FormSelect
+                          size="sm"
+                          value={f.notifyEmail ?? ''}
+                          onChange={(v) => updateFila(f.name, { notifyEmail: v })}
+                          className="mt-1"
+                          placeholder="— Nenhum —"
+                          options={emailsNotificacao.map((em) => ({ value: em, label: em }))}
+                        />
                       </div>
                     </div>
                   ))}
@@ -705,32 +749,56 @@ export function ChannelWebhookModal({
 
                 <SectionTitle title="Horário de atendimento" desc="Fora deste horário o canal usa a mensagem de fora de horário." />
                 <div className="space-y-1 rounded-md border border-border bg-background/40 p-3">
-                  {(Object.keys(horario) as (keyof HorarioComercial)[]).map((dia) => {
+                  {HORARIO_DIAS.map(({ key: dia, label }) => {
                     const d = horario[dia];
                     return (
-                      <div key={dia} className="flex items-center gap-2 text-xs">
-                        <button type="button" onClick={() => setHorario({ ...horario, [dia]: { ...d, ativo: !d.ativo } })} className={cn('w-12 rounded px-2 py-1 text-[10px] font-medium uppercase', d.ativo ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground')}>
-                          {dia}
+                      <div key={dia} className="flex flex-wrap items-center gap-2 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setHorario({ ...horario, [dia]: { ...d, ativo: !d.ativo } })}
+                          className={cn(
+                            'min-w-[5.5rem] rounded px-2 py-1 text-[10px] font-medium',
+                            d.ativo ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground',
+                          )}
+                        >
+                          {label}
                         </button>
-                        <input type="time" value={d.inicio} onChange={(e) => setHorario({ ...horario, [dia]: { ...d, inicio: e.target.value } })} disabled={!d.ativo} className="rounded-md border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" />
+                        <BrTimeInput
+                          value={d.inicio}
+                          onChange={(inicio) => setHorario({ ...horario, [dia]: { ...d, inicio } })}
+                          disabled={!d.ativo}
+                        />
                         <span className="text-muted-foreground">até</span>
-                        <input type="time" value={d.fim} onChange={(e) => setHorario({ ...horario, [dia]: { ...d, fim: e.target.value } })} disabled={!d.ativo} className="rounded-md border border-border bg-background px-2 py-1 text-xs disabled:opacity-50" />
+                        <BrTimeInput
+                          value={d.fim}
+                          onChange={(fim) => setHorario({ ...horario, [dia]: { ...d, fim } })}
+                          disabled={!d.ativo}
+                        />
                       </div>
                     );
                   })}
                 </div>
 
                 <SectionTitle title="Feriados" desc="Datas em que o canal segue regra de fora de horário, mesmo em dia útil." />
-                <div className="flex gap-2">
-                  <input type="date" value={novoFeriado} onChange={(e) => setNovoFeriado(e.target.value)} className="rounded-md border border-border bg-background px-3 py-2 text-xs" />
-                  <button type="button" onClick={() => { if (novoFeriado && !feriados.includes(novoFeriado)) { setFeriados([...feriados, novoFeriado].sort()); setNovoFeriado(''); } }} className="flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-glow">
+                <div className="flex flex-wrap gap-2">
+                  <BrDateInput value={novoFeriado} onChange={setNovoFeriado} />
+                  <Button
+                    type="button"
+                    size="xs"
+                    onClick={() => {
+                      if (novoFeriado && !feriados.includes(novoFeriado)) {
+                        setFeriados([...feriados, novoFeriado].sort());
+                        setNovoFeriado('');
+                      }
+                    }}
+                  >
                     <Plus className="h-3 w-3" /> Adicionar
-                  </button>
+                  </Button>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {feriados.map((f) => (
-                    <span key={f} className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px]">
-                      {f}
+                    <span key={f} className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 font-mono text-[11px]">
+                      {formatIsoDateBr(f)}
                       <button type="button" onClick={() => setFeriados(feriados.filter((x) => x !== f))} className="text-muted-foreground hover:text-destructive">
                         <X className="h-2.5 w-2.5" />
                       </button>
@@ -744,14 +812,13 @@ export function ChannelWebhookModal({
             {tab === 'rota' && (
               <div className="space-y-4">
                 <SectionTitle title="Roteamento padrão" desc="Fila para onde o contato vai quando o bot não consegue classificar." />
-                <select value={filaDefault} onChange={(e) => setFilaDefault(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs">
-                  <option value="">— Selecione uma fila —</option>
-                  {filas.map((f) => (
-                    <option key={f.name} value={f.name}>
-                      {f.name}
-                    </option>
-                  ))}
-                </select>
+                <FormSelect
+                  size="sm"
+                  value={filaDefault}
+                  onChange={setFilaDefault}
+                  placeholder="— Selecione uma fila —"
+                  options={filas.map((f) => ({ value: f.name, label: f.name }))}
+                />
                 <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-[11px] text-muted-foreground">
                   Política de transbordo entre filas é definida individualmente na aba <strong>Setores & Filas</strong> (campo &quot;Transbordo para&quot;).
                 </div>
@@ -777,7 +844,7 @@ export function ChannelWebhookModal({
                 {(Object.keys(mensagens) as (keyof MensagensPadrao)[]).map((k) => (
                   <div key={k}>
                     <Lbl>{k === 'foraHorario' ? 'Fora de horário' : k === 'filaCheia' ? 'Fila cheia' : k === 'csat' ? 'Pesquisa CSAT' : k.charAt(0).toUpperCase() + k.slice(1)}</Lbl>
-                    <textarea value={mensagens[k]} onChange={(e) => setMensagens({ ...mensagens, [k]: e.target.value })} rows={2} className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-xs" />
+                    <textarea value={mensagens[k]} onChange={(e) => setMensagens({ ...mensagens, [k]: e.target.value })} rows={2} className={cn(formTextareaClassName, 'mt-1 text-xs')} />
                   </div>
                 ))}
 
@@ -809,7 +876,7 @@ export function ChannelWebhookModal({
                             value={intakeMensagens[key] || ''}
                             onChange={(e) => setIntakeMensagens({ ...intakeMensagens, [key]: e.target.value })}
                             rows={2}
-                            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-xs"
+                            className={cn(formTextareaClassName, 'mt-1 text-xs')}
                           />
                         </div>
                       )
@@ -826,7 +893,7 @@ export function ChannelWebhookModal({
                   {PERFIS.map((p) => {
                     const on = perfisAceitos.includes(p.id);
                     return (
-                      <button key={p.id} type="button" onClick={() => setPerfisAceitos(on ? perfisAceitos.filter((x) => x !== p.id) : [...perfisAceitos, p.id])} className={cn('rounded-md border px-3 py-1.5 text-xs', on ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-surface-hover')}>
+                      <button key={p.id} type="button" onClick={() => setPerfisAceitos(on ? perfisAceitos.filter((x) => x !== p.id) : [...perfisAceitos, p.id])} className={cn('rounded-md border px-3 py-1.5 text-xs', on ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-sidebar-accent/60')}>
                         {on && '✓ '}
                         {p.label}
                       </button>
@@ -844,7 +911,7 @@ export function ChannelWebhookModal({
                         {CAMPOS_DISPONIVEIS.map((c) => {
                           const on = (camposPre[pid] ?? []).includes(c);
                           return (
-                            <button key={c} type="button" onClick={() => setCamposPre({ ...camposPre, [pid]: on ? camposPre[pid].filter((x) => x !== c) : [...(camposPre[pid] ?? []), c] })} className={cn('rounded-md border px-2 py-1 text-[10px]', on ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-surface-hover')}>
+                            <button key={c} type="button" onClick={() => setCamposPre({ ...camposPre, [pid]: on ? camposPre[pid].filter((x) => x !== c) : [...(camposPre[pid] ?? []), c] })} className={cn('rounded-md border px-2 py-1 text-[10px]', on ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-sidebar-accent/60')}>
                               {on && '✓ '}
                               {c}
                             </button>
@@ -857,10 +924,10 @@ export function ChannelWebhookModal({
 
                 <SectionTitle title="Tags da operação" desc="Catálogo controlado. Atendentes só podem aplicar tags desta lista." />
                 <div className="flex gap-2">
-                  <input value={novaTag} onChange={(e) => setNovaTag(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag(novaTag, tags, setTags, setNovaTag))} placeholder="Nova tag" className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-xs" />
-                  <button type="button" onClick={() => addTag(novaTag, tags, setTags, setNovaTag)} className="flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-glow">
+                  <input value={novaTag} onChange={(e) => setNovaTag(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag(novaTag, tags, setTags, setNovaTag))} placeholder="Nova tag" className={cn(formControlFlexClassName)} />
+                  <Button type="button" size="xs" onClick={() => addTag(novaTag, tags, setTags, setNovaTag)}>
                     <Plus className="h-3 w-3" /> Tag
-                  </button>
+                  </Button>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {tags.map((t) => (
@@ -880,9 +947,7 @@ export function ChannelWebhookModal({
                 <SectionTitle title="Pesquisa de satisfação (CSAT)" desc="Disparada automaticamente ao finalizar o atendimento. Metodologia CSAT (1–5)." />
                 <div className="flex items-center justify-between rounded-md border border-border bg-background/40 px-3 py-2">
                   <div className="text-xs">CSAT ativo ao encerrar atendimento</div>
-                  <button type="button" onClick={() => setCsatAtivo(!csatAtivo)} className={cn('relative inline-flex h-5 w-9 items-center rounded-full transition-colors', csatAtivo ? 'bg-primary' : 'bg-muted')}>
-                    <span className={cn('inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform', csatAtivo ? 'translate-x-5' : 'translate-x-1')} />
-                  </button>
+                  <Switch size="sm" checked={csatAtivo} onCheckedChange={setCsatAtivo} aria-label="CSAT ativo ao encerrar atendimento" />
                 </div>
 
                 <SectionTitle title="Fora do horário" desc="Resposta automática antes do orchestrator (webhook-service)." />
@@ -891,9 +956,7 @@ export function ChannelWebhookModal({
                     Responder fora do horário no webhook
                     <p className="mt-0.5 text-[10px] text-muted-foreground">Evita duplicar a mensagem e não inicia o bot na mesma entrada.</p>
                   </div>
-                  <button type="button" onClick={() => setOohReplyAtEdge(!oohReplyAtEdge)} className={cn('relative inline-flex h-5 w-9 items-center rounded-full transition-colors', oohReplyAtEdge ? 'bg-primary' : 'bg-muted')}>
-                    <span className={cn('inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform', oohReplyAtEdge ? 'translate-x-5' : 'translate-x-1')} />
-                  </button>
+                  <Switch size="sm" checked={oohReplyAtEdge} onCheckedChange={setOohReplyAtEdge} aria-label="Responder fora do horário no webhook" />
                 </div>
 
                 <SectionTitle title="Limites operacionais" desc="Controle de capacidade por atendente e inatividade." />
@@ -921,7 +984,7 @@ export function ChannelWebhookModal({
                 type="button"
                 disabled={migratingMessages}
                 onClick={() => void handleMigrateLegacyMessages()}
-                className="rounded-md border border-border px-3 py-1.5 text-[11px] hover:bg-surface-hover disabled:opacity-50"
+                className="rounded-md border border-border px-3 py-1.5 text-[11px] hover:bg-sidebar-accent/60 disabled:opacity-50"
               >
                 {migratingMessages ? 'Migrando...' : 'Migrar mensagens do catálogo legado'}
               </button>
@@ -934,19 +997,19 @@ export function ChannelWebhookModal({
                     .then(() => flash('Pedido enviado à Meta'))
                     .catch(() => flash('Falha ao registar na Meta'))
                 }
-                className="rounded-md border border-border px-3 py-1.5 text-[11px] hover:bg-surface-hover"
+                className="rounded-md border border-border px-3 py-1.5 text-[11px] hover:bg-sidebar-accent/60"
               >
                 Registar na Meta
               </button>
             ) : null}
           </div>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={onClose} className="rounded-md border border-border px-3 py-1.5 text-xs">
+            <Button type="button" variant="outline" size="xs" onClick={onClose}>
               Cancelar
-            </button>
-            <button type="button" disabled={saving} onClick={() => void handleSave()} className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-glow disabled:opacity-50">
+            </Button>
+            <Button type="button" size="xs" disabled={saving} onClick={() => void handleSave()}>
               {saving ? 'Salvando...' : 'Salvar webhook'}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -977,13 +1040,10 @@ const Empty = ({ children }: { children: ReactNode }) => (
 const Field = ({ label, value, onChange, mono }: { label: string; value: string; onChange?: (v: string) => void; mono?: boolean }) => (
   <div>
     <Lbl>{label}</Lbl>
-    <input
+    <FormControl
       value={value}
       onChange={(e) => onChange?.(e.target.value)}
-      className={cn(
-        'mt-1 w-full rounded-md border border-border bg-background/40 px-3 py-2 text-sm outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/20',
-        mono && 'font-mono text-xs'
-      )}
+      className={cn('mt-1', mono && 'font-mono text-xs')}
     />
   </div>
 );
@@ -991,11 +1051,12 @@ const Field = ({ label, value, onChange, mono }: { label: string; value: string;
 const NumberField = ({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) => (
   <div>
     <Lbl>{label}</Lbl>
-    <input
+    <FormControl
       type="number"
+      inputSize="sm"
       value={value}
       onChange={(e) => onChange(Number(e.target.value) || 0)}
-      className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-xs"
+      className="mt-1"
     />
   </div>
 );
@@ -1004,8 +1065,9 @@ const DemandasSetor = ({ setor, onChange }: { setor: SetorCfg; onChange: (d: str
   const [nova, setNova] = useState('');
   const add = () => {
     const n = nova.trim();
-    if (!n || setor.demandas.includes(n)) return;
-    onChange([...setor.demandas, n]);
+    const demandas = setor.demandas ?? [];
+    if (!n || demandas.includes(n)) return;
+    onChange([...demandas, n]);
     setNova('');
   };
   return (
@@ -1013,20 +1075,20 @@ const DemandasSetor = ({ setor, onChange }: { setor: SetorCfg; onChange: (d: str
       <div className="flex items-center justify-between">
         <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">{setor.name}</span>
         <span className="text-[10px] text-muted-foreground">
-          {setor.demandas.length} demanda{setor.demandas.length !== 1 ? 's' : ''}
+          {(setor.demandas ?? []).length} demanda{(setor.demandas ?? []).length !== 1 ? 's' : ''}
         </span>
       </div>
       <div className="mt-2 flex gap-2">
-        <input value={nova} onChange={(e) => setNova(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), add())} placeholder="Nova demanda (ex.: Cancelamento, Faturamento)" className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-xs" />
-        <button type="button" onClick={add} className="flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-glow">
+        <input value={nova} onChange={(e) => setNova(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), add())} placeholder="Nova demanda (ex.: Cancelamento, Faturamento)" className={cn(formControlFlexClassName)} />
+        <Button type="button" size="xs" onClick={add}>
           <Plus className="h-3 w-3" />
-        </button>
+        </Button>
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {setor.demandas.map((d) => (
+        {(setor.demandas ?? []).map((d) => (
           <span key={d} className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[10px]">
             {d}
-            <button type="button" onClick={() => onChange(setor.demandas.filter((x) => x !== d))} className="text-muted-foreground hover:text-destructive">
+            <button type="button" onClick={() => onChange((setor.demandas ?? []).filter((x) => x !== d))} className="text-muted-foreground hover:text-destructive">
               <X className="h-2.5 w-2.5" />
             </button>
           </span>
@@ -1059,28 +1121,30 @@ const OverridesEditor = ({
   return (
     <div className="space-y-3 rounded-md border border-border bg-background/40 p-3">
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-        <select value={setor} onChange={(e) => { setSetor(e.target.value); setDemanda(''); }} className="rounded-md border border-border bg-background px-2 py-2 text-xs">
-          <option value="">Setor...</option>
-          {setoresCfg.map((s) => (
-            <option key={s.id} value={s.name}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        <select value={demanda} onChange={(e) => setDemanda(e.target.value)} disabled={!setor} className="rounded-md border border-border bg-background px-2 py-2 text-xs disabled:opacity-50">
-          <option value="">Demanda...</option>
-          {demandasDoSetor.map((d) => (
-            <option key={d} value={d}>
-              {d}
-            </option>
-          ))}
-        </select>
-        <input type="number" value={primeira} onChange={(e) => setPrimeira(Number(e.target.value) || 0)} placeholder="1ª resp (min)" className="rounded-md border border-border bg-background px-2 py-2 text-xs" />
-        <input type="number" value={resolucao} onChange={(e) => setResolucao(Number(e.target.value) || 0)} placeholder="Resolução (min)" className="rounded-md border border-border bg-background px-2 py-2 text-xs" />
+        <FormSelect
+          size="sm"
+          value={setor}
+          onChange={(v) => {
+            setSetor(v);
+            setDemanda('');
+          }}
+          placeholder="Setor..."
+          options={setoresCfg.map((s) => ({ value: s.name, label: s.name }))}
+        />
+        <FormSelect
+          size="sm"
+          value={demanda}
+          onChange={setDemanda}
+          disabled={!setor}
+          placeholder="Demanda..."
+          options={demandasDoSetor.map((d) => ({ value: d, label: d }))}
+        />
+        <input type="number" value={primeira} onChange={(e) => setPrimeira(Number(e.target.value) || 0)} placeholder="1ª resp (min)" className={formControlCompactClassName} />
+        <input type="number" value={resolucao} onChange={(e) => setResolucao(Number(e.target.value) || 0)} placeholder="Resolução (min)" className={formControlCompactClassName} />
       </div>
-      <button type="button" onClick={add} disabled={!setor || !demanda} className="flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-glow disabled:opacity-50">
+      <Button type="button" size="xs" onClick={add} disabled={!setor || !demanda}>
         <Plus className="h-3 w-3" /> Adicionar override
-      </button>
+      </Button>
       <div className="space-y-1">
         {overrides.map((o, i) => (
           <div key={`${o.setor}:${o.demanda}:${i}`} className="flex items-center justify-between rounded-md border border-border bg-surface px-3 py-2 text-xs">

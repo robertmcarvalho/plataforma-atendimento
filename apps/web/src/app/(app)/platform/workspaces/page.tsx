@@ -3,9 +3,11 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Building2, Plus } from 'lucide-react';
-import api from '@/lib/api';
+import { platformPageApi } from '@/lib/platform/platformPageApi';
+import { FormControl } from '@/components/form/FormControl';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { useAuth } from '@/store/auth';
+import { reviveKpiCardClassName, reviveOutlineButtonClassName, reviveTableShellClassName } from '@/lib/reviveSurfaces';
 
 type WorkspaceRow = {
   id: string;
@@ -28,13 +30,13 @@ export default function PlatformWorkspacesPage() {
   const query = useQuery({
     queryKey: ['platform-workspaces'],
     enabled: isPlatform,
-    queryFn: async () => (await api.get('/api/platform/workspaces')).data as WorkspaceRow[],
+    queryFn: async () => platformPageApi.listWorkspaces() as Promise<WorkspaceRow[]>,
   });
 
   if (!isPlatform) {
     return (
       <div className="p-6">
-        <PageHeader title="Console da plataforma" description="Acesso restrito ao administrador global." compact />
+        <PageHeader icon={Building2} title="Console da plataforma" description="Acesso restrito ao administrador global." compact />
       </div>
     );
   }
@@ -42,7 +44,7 @@ export default function PlatformWorkspacesPage() {
   const createWorkspace = async () => {
     setMessage(null);
     try {
-      await api.post('/api/platform/workspaces', {
+      await platformPageApi.createWorkspace({
         slug: slug.trim(),
         display_name: displayName.trim(),
       });
@@ -58,22 +60,19 @@ export default function PlatformWorkspacesPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden p-6">
       <PageHeader
+        icon={Building2}
         eyebrow="Plataforma SaaS"
         title="Clientes (workspaces)"
         description="Administração global de tenants, onboarding e troca de contexto."
       />
 
       <div className="mt-6 grid gap-4 lg:grid-cols-[360px_1fr]">
-        <div className="rounded-xl border border-border bg-card p-4">
+        <div className={reviveKpiCardClassName}>
           <h3 className="text-sm font-semibold">Novo workspace</h3>
           <label className="mt-3 block text-xs text-muted-foreground">Slug</label>
-          <input value={slug} onChange={(e) => setSlug(e.target.value)} className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+          <FormControl inputSize="lg" value={slug} onChange={(e) => setSlug(e.target.value)} className="mt-1" />
           <label className="mt-3 block text-xs text-muted-foreground">Nome exibido</label>
-          <input
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-          />
+          <FormControl inputSize="lg" value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="mt-1" />
           <button
             type="button"
             onClick={() => void createWorkspace()}
@@ -85,7 +84,7 @@ export default function PlatformWorkspacesPage() {
           {message ? <p className="mt-2 text-xs text-muted-foreground">{message}</p> : null}
         </div>
 
-        <div className="rounded-xl border border-border bg-card">
+        <div className={reviveTableShellClassName}>
           <div className="border-b border-border px-4 py-3 text-sm font-semibold">Workspaces</div>
           <ul className="divide-y divide-border">
             {(query.data || []).map((ws) => (
@@ -97,7 +96,7 @@ export default function PlatformWorkspacesPage() {
                 <button
                   type="button"
                   onClick={() => void switchWorkspace(ws.id).then(() => window.location.assign('/dashboard'))}
-                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs hover:bg-muted"
+                  className={reviveOutlineButtonClassName}
                 >
                   <Building2 className="h-3.5 w-3.5" />
                   Entrar

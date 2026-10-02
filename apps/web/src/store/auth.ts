@@ -19,6 +19,7 @@ interface User {
   email: string;
   role: string;
   workspace_role?: string | null;
+  workspace_roles?: string[];
   platform_role?: string | null;
   workspace_name?: string | null;
   workspace_id?: string | null;
@@ -187,6 +188,9 @@ export const useAuth = create<AuthState>()(
             email: String(data.email || ''),
             role: String(data.workspace_role || roles?.name || 'attendant'),
             workspace_role: data.workspace_role ? String(data.workspace_role) : null,
+            workspace_roles: Array.isArray(data.workspace_roles)
+              ? (data.workspace_roles as unknown[]).map((r) => String(r)).filter(Boolean)
+              : undefined,
             platform_role: data.platform_role ? String(data.platform_role) : null,
             workspace_name: activeWorkspaceName,
             workspace_id: activeWorkspaceId,

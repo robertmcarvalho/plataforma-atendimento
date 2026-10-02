@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -11,6 +11,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   createChannel,
@@ -102,7 +103,7 @@ export function SocialChannelManager({
 
   return (
     <>
-      <div className="rounded-xl border border-border bg-surface p-5">
+      <div className="rounded-xl border border-border bg-background p-5">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className={cn('flex h-10 w-10 items-center justify-center rounded-lg', meta.bg)}>{meta.icon}</div>
@@ -112,13 +113,9 @@ export function SocialChannelManager({
             </div>
           </div>
           {isAdmin ? (
-            <button
-              type="button"
-              onClick={() => setCreating(true)}
-              className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-glow"
-            >
+            <Button type="button" size="xs" onClick={() => setCreating(true)}>
               <Plus className="h-3.5 w-3.5" /> Novo webhook
-            </button>
+            </Button>
           ) : null}
         </div>
 
@@ -131,7 +128,7 @@ export function SocialChannelManager({
 
       <div className="space-y-2">
         {!isLoading && channels.length === 0 && (
-          <div className="rounded-xl border border-dashed border-border bg-surface p-6 text-center text-xs text-muted-foreground">
+          <div className="rounded-xl border border-dashed border-border bg-background p-6 text-center text-xs text-muted-foreground">
             Nenhum webhook conectado. {isAdmin ? 'Clique em "Novo webhook" para começar.' : 'Peça a um administrador para configurar.'}
           </div>
         )}
@@ -145,7 +142,7 @@ export function SocialChannelManager({
           const callback = callbackFor(w);
 
           return (
-            <div key={w.id} className="rounded-xl border border-border bg-surface p-4">
+            <div key={w.id} className="rounded-xl border border-border bg-background p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -203,7 +200,7 @@ export function SocialChannelManager({
                     <button
                       type="button"
                       onClick={() => setEditing(w)}
-                      className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] hover:bg-surface-hover"
+                      className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] hover:bg-sidebar-accent/60"
                     >
                       <Edit3 className="h-3 w-3" /> Editar
                     </button>
@@ -211,7 +208,7 @@ export function SocialChannelManager({
                       <button
                         type="button"
                         onClick={() => void navigator.clipboard.writeText(callback)}
-                        className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] hover:bg-surface-hover"
+                        className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] hover:bg-sidebar-accent/60"
                       >
                         <Copy className="h-3 w-3" /> URL
                       </button>

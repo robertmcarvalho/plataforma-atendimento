@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { RefreshCcw } from 'lucide-react';
 import { useChannelOperationalCatalog } from '@/lib/integrations/useSectorsFromMessagingWebhooks';
+import { reviveKpiCardClassName, reviveOutlineButtonClassName } from '@/lib/reviveSurfaces';
 
 export function CatalogsEditor() {
   const catalogQuery = useChannelOperationalCatalog(true);
@@ -20,8 +21,8 @@ export function CatalogsEditor() {
           <Link href="/settings?section=channels" className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground">
             Abrir canais
           </Link>
-          <button type="button" onClick={() => void catalogQuery.refetch()} className="rounded-md border border-border px-3 py-1.5 text-xs">
-            <RefreshCcw className="mr-1 inline h-3.5 w-3.5" /> Atualizar
+          <button type="button" onClick={() => void catalogQuery.refetch()} className={reviveOutlineButtonClassName}>
+            <RefreshCcw className="h-3.5 w-3.5" /> Atualizar
           </button>
         </div>
       </div>
@@ -35,7 +36,7 @@ export function CatalogsEditor() {
             const activeDemands = channel.config.demands.filter((d) => d.is_active !== false);
             const activeSectors = channel.config.sectors.filter((s) => s.is_active !== false);
             return (
-              <div key={channel.channel_id} className="rounded-xl border border-border bg-surface p-4">
+              <div key={channel.channel_id} className={reviveKpiCardClassName}>
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold">{channel.channel_label}</p>
@@ -66,7 +67,7 @@ export function CatalogsEditor() {
 
 function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-md bg-background/50 p-2">
+    <div className="rounded-md border border-border bg-background/40 p-2">
       <div className="font-mono text-base font-semibold">{value}</div>
       <div className="text-[10px] text-muted-foreground">{label}</div>
     </div>

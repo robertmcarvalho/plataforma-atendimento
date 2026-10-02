@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
@@ -6,18 +6,10 @@ import api from '@/lib/api';
 import { useAuth } from '@/store/auth';
 import { SettingsField } from '@/components/settings/settingsFormPanels';
 import { BrPhoneInput } from '@/components/form/BrInputs';
+import { FormControl } from '@/components/form/FormControl';
 import { normalizeBrazilPhone } from '@/lib/brFormat';
+import { apiErrorMessage } from '@/lib/apiErrorMessage';
 import { changeMyPassword } from '@/lib/users/usersApi';
-
-function apiErrorMessage(e: unknown): string | null {
-  if (!e || typeof e !== 'object') return null;
-  const ax = e as { response?: { data?: { error?: string; message?: string; details?: unknown } } };
-  const d = ax.response?.data;
-  if (!d) return null;
-  if (typeof d.error === 'string') return d.error;
-  if (typeof d.message === 'string') return d.message;
-  return null;
-}
 
 export function SettingsProfilePanel() {
   const qc = useQueryClient();
@@ -62,7 +54,7 @@ export function SettingsProfilePanel() {
       await qc.invalidateQueries({ queryKey: ['auth-me-profile'] });
       setNote({ tone: 'ok', message: 'Perfil atualizado.' });
     } catch (e: unknown) {
-      setNote({ tone: 'err', message: apiErrorMessage(e) || 'Falha ao salvar.' });
+      setNote({ tone: 'err', message: apiErrorMessage(e, 'Falha ao salvar.') });
     } finally {
       setSaving(false);
     }
@@ -87,8 +79,7 @@ export function SettingsProfilePanel() {
       await qc.invalidateQueries({ queryKey: ['auth-me-profile'] });
       setPasswordNote({ tone: 'ok', message: 'Senha alterada com sucesso.' });
     } catch (e: unknown) {
-      const msg = apiErrorMessage(e) || 'Falha ao alterar senha.';
-      setPasswordNote({ tone: 'err', message: msg });
+      setPasswordNote({ tone: 'err', message: apiErrorMessage(e, 'Falha ao alterar senha.') });
       requestAnimationFrame(() => {
         document.getElementById('profile-password-section')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       });
@@ -148,32 +139,32 @@ export function SettingsProfilePanel() {
         <div className="grid max-w-md grid-cols-1 gap-4">
           <div>
             <label className="text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Senha atual</label>
-            <input
+            <FormControl
               type="password"
               autoComplete="current-password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-border bg-background/40 px-3 py-2 text-sm outline-none focus:border-primary/50"
+              className="mt-1"
             />
           </div>
           <div>
             <label className="text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Nova senha</label>
-            <input
+            <FormControl
               type="password"
               autoComplete="new-password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-border bg-background/40 px-3 py-2 text-sm outline-none focus:border-primary/50"
+              className="mt-1"
             />
           </div>
           <div>
             <label className="text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Confirmar nova senha</label>
-            <input
+            <FormControl
               type="password"
               autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-border bg-background/40 px-3 py-2 text-sm outline-none focus:border-primary/50"
+              className="mt-1"
             />
           </div>
         </div>
@@ -182,7 +173,7 @@ export function SettingsProfilePanel() {
             type="button"
             disabled={savingPassword || !currentPassword || !newPassword}
             onClick={() => void savePassword()}
-            className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium hover:bg-surface-hover disabled:opacity-50"
+            className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent/60 disabled:opacity-50"
           >
             {savingPassword ? 'Salvando…' : 'Atualizar senha'}
           </button>

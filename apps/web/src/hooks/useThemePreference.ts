@@ -32,7 +32,9 @@ export function isLightTheme(pref: ThemePreference): boolean {
 export function applyThemeClass(pref: ThemePreference): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  root.classList.toggle('theme-light', isLightTheme(pref));
+  const light = isLightTheme(pref);
+  root.classList.toggle('dark', !light);
+  root.classList.remove('theme-light');
 }
 
 function subscribe(onStoreChange: () => void) {

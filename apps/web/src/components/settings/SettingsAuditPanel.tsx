@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useQuery } from '@tanstack/react-query';
 import api from '@/lib/api';
@@ -45,22 +45,22 @@ export function SettingsAuditPanel() {
           <tbody>
             {items.length === 0 ? (
               <tr>
-                <td colSpan={4} className="workspace-cell text-sm text-muted-foreground">
+                <td colSpan={4} className="px-3 py-2 align-middle text-sm text-muted-foreground">
                   Sem registos. Eventos passam a aparecer após ações administrativas.
                 </td>
               </tr>
             ) : (
               items.map((row) => (
-                <tr key={row.id} className="workspace-row">
-                  <td className="workspace-cell whitespace-nowrap text-xs text-muted-foreground">
+                <tr key={row.id} className="border-b border-border hover:bg-sidebar-accent/60">
+                  <td className="px-3 py-2 align-middle whitespace-nowrap text-xs text-muted-foreground">
                     {formatDateTimeBr(row.created_at)}
                   </td>
-                  <td className="workspace-cell text-sm font-medium text-foreground">{row.action}</td>
-                  <td className="workspace-cell text-xs text-muted-foreground">
+                  <td className="px-3 py-2 align-middle text-sm font-medium text-foreground">{row.action}</td>
+                  <td className="px-3 py-2 align-middle text-xs text-muted-foreground">
                     {row.entity_type || '—'}
                     {row.entity_id ? ` · ${row.entity_id.slice(0, 8)}…` : ''}
                   </td>
-                  <td className="workspace-cell max-w-[280px] truncate font-mono text-[10px] text-subtle-foreground">
+                  <td className="px-3 py-2 align-middle max-w-[280px] truncate font-mono text-[10px] text-subtle-foreground">
                     {JSON.stringify(row.metadata || {})}
                   </td>
                 </tr>

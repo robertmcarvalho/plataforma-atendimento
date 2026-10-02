@@ -1,17 +1,32 @@
 import axios from 'axios';
 
 const PRODUCTION_API_BASE = 'https://flux-farma-api-713561463013.us-central1.run.app';
+const LOCAL_API_BASE = 'http://localhost:3001';
 
-function resolveApiBaseUrl(): string {
+export function resolveApiBaseUrl(): string {
+  const isDev = process.env.NODE_ENV === 'development';
   const fromEnv = process.env.NEXT_PUBLIC_API_URL?.trim();
+
+  // Validação local: nunca usar Cloud Run em `next dev`, salvo URL explícita localhost.
+  if (isDev) {
+    if (fromEnv && /localhost|127\.0\.0\.1/i.test(fromEnv)) return fromEnv;
+    return LOCAL_API_BASE;
+  }
+
   if (fromEnv) return fromEnv;
+
   if (typeof window !== 'undefined') {
     const host = window.location.hostname.toLowerCase();
-    if (host === 'www.aetheraai.online' || host === 'aetheraai.online' || host.endsWith('.aetheraai.online')) {
+    if (
+      host === 'www.aetheraai.com.br' ||
+      host === 'aetheraai.com.br' ||
+      host.endsWith('.aetheraai.com.br')
+    ) {
       return PRODUCTION_API_BASE;
     }
   }
-  return 'http://localhost:3001';
+
+  return LOCAL_API_BASE;
 }
 
 const api = axios.create({
@@ -19,6 +34,13 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
+  config.baseURL = resolveApiBaseUrl();
+
+  if (config.data instanceof FormData && config.headers) {
+    delete config.headers['Content-Type'];
+    delete config.headers['content-type'];
+  }
+
   if (typeof window !== 'undefined') {
     const url = String(config.url || '');
     if (url.includes('/api/auth/login')) {

@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 
 export const DEFAULT_LIST_PAGE_SIZE = 20;
 
@@ -31,25 +32,27 @@ export function PaginationControls({
         <span className="font-medium text-foreground">{totalItems}</span> {itemLabel}
       </div>
       <div className="flex items-center gap-2">
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage <= 1}
-          className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
         >
           Anterior
-        </button>
+        </Button>
         <span className="text-xs">
           Página <span className="font-medium text-foreground">{currentPage}</span> de <span className="font-medium text-foreground">{totalPages}</span>
         </span>
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage >= totalPages}
-          className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
         >
           Próxima
-        </button>
+        </Button>
       </div>
     </div>
   );

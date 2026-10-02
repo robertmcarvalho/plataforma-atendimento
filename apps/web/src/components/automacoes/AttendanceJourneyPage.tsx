@@ -1,9 +1,11 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { ArrowLeft, ChevronRight, ExternalLink, Play } from 'lucide-react';
+import { ArrowLeft, ChevronRight, ExternalLink, Play, Route } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { reviveKpiCardClassName } from '@/lib/reviveSurfaces';
 import { INTAKE_JOURNEY_STEPS } from '@/lib/automacoes/intakeJourney';
 import { SimulateIntakeModal } from '@/components/automacoes/SimulateIntakeModal';
 import { useChannelOperationalCatalog } from '@/lib/integrations/useSectorsFromMessagingWebhooks';
@@ -48,6 +50,7 @@ export function AttendanceJourneyPage() {
           Automações
         </Link>
         <PageHeader
+          icon={Route}
           eyebrow="Motor de atendimento"
           title="Jornada do intake"
           description="Etapas do fluxo guiado — mensagens, demandas, SLA e operação vêm dos webhooks configurados em Canais."
@@ -73,7 +76,7 @@ export function AttendanceJourneyPage() {
               <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/40 bg-primary/10 text-xs font-semibold text-primary">
                 {step.order + 1}
               </div>
-              <div className="min-w-0 flex-1 rounded-xl border border-border bg-surface p-4">
+              <div className={cn('min-w-0 flex-1', reviveKpiCardClassName)}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <h3 className="text-sm font-semibold text-foreground">{step.title}</h3>
@@ -95,7 +98,7 @@ export function AttendanceJourneyPage() {
                     {step.messageKeys.map((mk) => {
                       const content = messageByKey.get(mk.key);
                       return (
-                        <li key={mk.key} className="rounded-lg border border-border/60 bg-background/50 p-3">
+                        <li key={mk.key} className="rounded-lg border border-border bg-background/40 p-3">
                           <div className="mb-1 flex flex-wrap items-center gap-2">
                             <code className="rounded bg-muted px-1.5 py-0.5 text-[10px]">{mk.key}</code>
                             <span className="text-[10px] text-muted-foreground">{mk.label}</span>
@@ -128,7 +131,7 @@ export function AttendanceJourneyPage() {
           ))}
         </div>
 
-        <div className="mt-4 rounded-xl border border-dashed border-border bg-card/50 p-4 text-center">
+        <div className="mt-4 rounded-xl border border-dashed border-border bg-surface/50 p-4 text-center">
           <p className="text-xs text-muted-foreground">
             Editor JSON de grafo (avançado){' '}
             <Link href="/automacoes/fluxos" className="text-primary underline">

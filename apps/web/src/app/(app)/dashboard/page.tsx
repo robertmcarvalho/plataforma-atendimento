@@ -1,13 +1,19 @@
-'use client';
+﻿'use client';
 
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { ArrowDown, ArrowUp, CheckCircle2, Clock, MessageSquare, TrendingUp, Users } from 'lucide-react';
+import { ArrowDown, ArrowUp, CheckCircle2, Clock, LayoutDashboard, MessageSquare, TrendingUp, Users } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { ChannelBadge, type Channel } from '@/components/ui/ChannelBadge';
 import { StatusDot } from '@/components/ui/StatusDot';
-import api from '@/lib/api';
+import { IconTile, type IconTileTone } from '@/components/ui/IconTile';
+import { dashboardApi } from '@/lib/dashboard/dashboardApi';
 import { features } from '@/lib/features';
+import { Sparkline } from '@/components/ui/Sparkline';
+import { chartColor } from '@/lib/chartTheme';
+import { interactiveNavItem, interactiveRowMuted, interactiveRowPrimary, interactiveRowSurface } from '@/lib/interactiveRow';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -47,12 +53,17 @@ const enabledChannels: Channel[] = [
   ...(features.channels.email ? (['email'] as Channel[]) : []),
 ];
 
-const kpiMeta = [
-  { key: 'conversations_today', label: 'Conversas hoje', icon: MessageSquare, accent: 'text-primary' },
-  { key: 'avg_first_response_seconds', label: 'Tempo médio resposta', icon: Clock, accent: 'text-success' },
-  { key: 'resolution_rate_percent', label: 'Taxa resolução', icon: CheckCircle2, accent: 'text-channel-instagram' },
-  { key: 'agents_online', label: 'Agentes online', icon: Users, accent: 'text-warning' },
-] as const;
+const kpiMeta: {
+  key: 'conversations_today' | 'avg_first_response_seconds' | 'resolution_rate_percent' | 'agents_online';
+  label: string;
+  icon: typeof MessageSquare;
+  tone: IconTileTone;
+}[] = [
+  { key: 'conversations_today', label: 'Conversas hoje', icon: MessageSquare, tone: 'primary' },
+  { key: 'avg_first_response_seconds', label: 'Tempo médio resposta', icon: Clock, tone: 'success' },
+  { key: 'resolution_rate_percent', label: 'Taxa resolução', icon: CheckCircle2, tone: 'info' },
+  { key: 'agents_online', label: 'Agentes online', icon: Users, tone: 'warning' },
+];
 
 function formatSecondsToShort(seconds: number | null) {
   if (!seconds || seconds <= 0) return '—';
@@ -75,31 +86,6 @@ const sparkPoints = (seed: number) => {
     pts.push(40 + Math.sin(i * 0.5 + seed) * 15 + Math.cos(i * 0.3 + seed * 2) * 10 + i * 0.8);
   }
   return pts;
-};
-
-const Sparkline = ({ seed, color = 'hsl(var(--primary))' }: { seed: number; color?: string }) => {
-  const points = sparkPoints(seed);
-  const max = Math.max(...points);
-  const min = Math.min(...points);
-  const path = points
-    .map((p, i) => {
-      const x = (i / (points.length - 1)) * 100;
-      const y = 100 - ((p - min) / (max - min)) * 100;
-      return `${i === 0 ? 'M' : 'L'}${x},${y}`;
-    })
-    .join(' ');
-  return (
-    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-10 w-full">
-      <defs>
-        <linearGradient id={`grad-${seed}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={`${path} L100,100 L0,100 Z`} fill={`url(#grad-${seed})`} />
-      <path d={path} fill="none" stroke={color} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
 };
 
 const pseudo = (n: number) => {
@@ -136,7 +122,7 @@ export default function DashboardPage() {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['dashboard', 'overview', periodDays],
     queryFn: () =>
-      api.get('/api/dashboard/overview', { params: { period: String(periodDays) } }).then((r) => r.data as ApiDashboardOverview),
+      dashboardApi.fetchOverview(periodDays) as Promise<ApiDashboardOverview>,
   });
 
   const headerDate = useMemo(() => {
@@ -192,10 +178,7 @@ export default function DashboardPage() {
     setExporting(true);
     setExportError(null);
     try {
-      const res = await api.get('/api/dashboard/export', {
-        params: { period: String(periodDays) },
-        responseType: 'blob',
-      });
+      const res = await dashboardApi.exportOverview({ period: String(periodDays) });
       const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -214,64 +197,52 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-gradient-glow">
+    <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-7xl px-8 py-8">
-        {/* Header */}
-        <div className="mb-8 flex items-end justify-between">
-          <div>
-            <div className="font-mono text-[10px] uppercase tracking-wider text-subtle-foreground">Dashboard</div>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight">Visão geral</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Acompanhe o desempenho do atendimento em tempo real.</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs">
-              <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
-              <span className="text-muted-foreground">Ao vivo</span>
-            </div>
-
-            <div className="relative">
-              <button
-                onClick={() => setPeriodOpen((v) => !v)}
-                className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium hover:bg-surface-hover transition-colors"
-                aria-expanded={periodOpen}
-              >
-                {headerDate}
-              </button>
-              {periodOpen ? (
-                <div className="absolute right-0 top-10 z-30 w-44 rounded-xl border border-border bg-surface-elevated p-1 shadow-glow">
-                  {[
-                    { days: 1, label: 'Hoje' },
-                    { days: 7, label: 'Últimos 7 dias' },
-                    { days: 30, label: 'Últimos 30 dias' },
-                  ].map((p) => (
-                    <button
-                      key={p.days}
-                      onClick={() => {
-                        setPeriodDays(p.days);
-                        setPeriodOpen(false);
-                      }}
-                      className={cn(
-                        'flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs hover:bg-surface-hover',
-                        periodDays === p.days ? 'text-foreground' : 'text-muted-foreground'
-                      )}
-                    >
-                      <span>{p.label}</span>
-                      {periodDays === p.days ? <span className="font-mono text-[10px] text-primary">✓</span> : null}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-
-            <button
-              onClick={() => void onExport()}
-              disabled={exporting}
-              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-glow transition-colors disabled:opacity-60"
-            >
-              {exporting ? 'Exportando…' : 'Exportar'}
-            </button>
-          </div>
-        </div>
+        <PageHeader
+          icon={LayoutDashboard}
+          live
+          eyebrow="Dashboard"
+          title="Visão geral"
+          description="Acompanhe o desempenho do atendimento em tempo real."
+          actions={
+            <>
+              <div className="relative">
+                <button
+                  onClick={() => setPeriodOpen((v) => !v)}
+                  className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent/60 transition-colors"
+                  aria-expanded={periodOpen}
+                >
+                  {headerDate}
+                </button>
+                {periodOpen ? (
+                  <div className="absolute right-0 top-10 z-30 w-44 rounded-xl border border-border bg-surface p-1 shadow-md">
+                    {[
+                      { days: 1, label: 'Hoje' },
+                      { days: 7, label: 'Últimos 7 dias' },
+                      { days: 30, label: 'Últimos 30 dias' },
+                    ].map((p) => (
+                      <button
+                        key={p.days}
+                        onClick={() => {
+                          setPeriodDays(p.days);
+                          setPeriodOpen(false);
+                        }}
+                        className={cn(interactiveNavItem(periodDays === p.days), 'rounded-lg px-3 py-2')}
+                      >
+                        <span>{p.label}</span>
+                        {periodDays === p.days ? <span className="font-mono text-[10px] text-primary">✓</span> : null}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <Button size="xs" onClick={() => void onExport()} disabled={exporting}>
+                {exporting ? 'Exportando…' : 'Exportar'}
+              </Button>
+            </>
+          }
+        />
 
         {exportError ? <div className="mb-4 text-xs text-destructive">{exportError}</div> : null}
         {isError ? (
@@ -286,7 +257,6 @@ export default function DashboardPage() {
         {/* KPI Row */}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           {kpiMeta.map((k, idx) => {
-            const Icon = k.icon;
             const val = kpis[idx] || '—';
             const delta =
               k.key === 'conversations_today'
@@ -300,27 +270,29 @@ export default function DashboardPage() {
             return (
               <div
                 key={k.label}
-                className="rounded-xl border border-border bg-surface p-6 hover:bg-surface-hover transition-colors"
+                className="group rounded-xl border border-border bg-surface p-5 transition-colors hover:bg-sidebar-accent/40"
                 role="group"
               >
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-medium text-muted-foreground">{k.label}</div>
-                  <Icon className={cn('h-4 w-4', k.accent)} />
+                <div className="flex items-start justify-between">
+                  <IconTile icon={k.icon} tone={k.tone} size="md" />
+                  {!neutral ? (
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-mono text-[10px] font-medium',
+                        delta.up ? 'bg-success/15 text-success' : 'bg-destructive/15 text-destructive'
+                      )}
+                    >
+                      {delta.up ? <ArrowUp className="h-2.5 w-2.5" /> : <ArrowDown className="h-2.5 w-2.5" />}
+                      {delta.value.toFixed(1)}%
+                    </span>
+                  ) : null}
                 </div>
-                <div className="mt-3 flex items-baseline gap-2">
+                <div className="mt-4">
                   <div className={cn('text-2xl font-semibold tracking-tight', isLoading ? 'text-muted-foreground' : '')}>{val}</div>
-                  <div
-                    className={cn(
-                      'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-mono',
-                      neutral ? 'bg-muted text-muted-foreground' : delta.up ? 'bg-success/15 text-success' : 'bg-warning/15 text-warning'
-                    )}
-                  >
-                    {neutral ? null : delta.up ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
-                    {delta.value.toFixed(1)}%
-                  </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{k.label}</div>
                 </div>
-                <div className="mt-2">
-                  <Sparkline seed={idx + 1} color={idx === 1 ? 'hsl(var(--success))' : 'hsl(var(--primary))'} />
+                <div className="mt-3">
+                  <Sparkline values={sparkPoints(idx + 1)} chartColor={((idx % 5) + 1) as 1 | 2 | 3 | 4 | 5} className="h-10 w-full" />
                 </div>
               </div>
             );
@@ -330,14 +302,26 @@ export default function DashboardPage() {
         {/* Main Charts */}
         <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2 rounded-xl border border-border bg-surface p-6">
-            <div className="flex items-center justify-between">
+            <div className="flex items-start justify-between">
               <div>
                 <h3 className="text-sm font-semibold tracking-tight">Volume de conversas</h3>
-                <p className="mt-0.5 text-xs text-muted-foreground">Últimas 24h</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">Últimas 24 horas</p>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="rounded-full bg-muted px-2.5 py-1 text-[10px] font-mono text-muted-foreground">0.0%</div>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              <div className="flex gap-1 rounded-md border border-border bg-background/40 p-0.5">
+                {['24h', '7d', '30d'].map((p, i) => (
+                  <button
+                    key={p}
+                    type="button"
+                    className={cn(
+                      'rounded px-2 py-0.5 text-[10px] font-medium transition-colors',
+                      i === 0
+                        ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                        : cn('text-muted-foreground', 'hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground')
+                    )}
+                  >
+                    {p}
+                  </button>
+                ))}
               </div>
             </div>
             <div className="mt-6">
@@ -346,18 +330,13 @@ export default function DashboardPage() {
           </div>
 
           <div className="rounded-xl border border-border bg-surface p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-semibold tracking-tight">Canais</h3>
-                <p className="mt-0.5 text-xs text-muted-foreground">Distribuição</p>
-              </div>
-              <div className="text-[10px] font-mono text-subtle-foreground">{data?.period_days ?? periodDays}d</div>
-            </div>
+            <h3 className="text-sm font-semibold tracking-tight">Por canal</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">Distribuição hoje</p>
 
-            <div className="mt-5 space-y-4">
+            <div className="mt-5 space-y-3.5">
               {channelStats.map(({ ch, pct, count }) => (
-                <div key={ch} className="space-y-2">
-                  <div className="flex items-center justify-between">
+                <div key={ch}>
+                  <div className="mb-1.5 flex items-center justify-between">
                     <ChannelBadge channel={ch} showLabel />
                     <div className="flex items-baseline gap-1.5">
                       <span className="font-mono text-xs">{count}</span>
@@ -399,7 +378,7 @@ export default function DashboardPage() {
                     <span className="text-muted-foreground">{s.label}</span>
                     <span className="font-mono">{s.val}</span>
                   </div>
-                  <div className="mt-1 h-1 rounded-full bg-background/60 overflow-hidden">
+                  <div className="mt-1 h-1 overflow-hidden rounded-full bg-background/60">
                     <div className={cn('h-full', s.color)} style={{ width: s.val }} />
                   </div>
                 </div>
@@ -437,13 +416,13 @@ export default function DashboardPage() {
                 <div className="col-span-2 text-right">Status</div>
               </div>
               {agents.map((a, i) => (
-                <div key={a.id} className="grid grid-cols-12 items-center gap-3 rounded-md px-3 py-2 hover:bg-surface-hover transition-colors">
+                <div key={a.id} className={cn('grid grid-cols-12 items-center gap-3 rounded-md px-3 py-2', interactiveRowSurface())}>
                   <div className="col-span-5 flex items-center gap-2.5">
-                    <span className="font-mono text-[10px] text-subtle-foreground w-4">{i + 1}</span>
+                    <span className={cn('w-4 font-mono text-[10px]', interactiveRowMuted())}>{i + 1}</span>
                     <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-primary/40 to-channel-instagram/40 text-[10px] font-semibold">
                       {a.initials}
                     </div>
-                    <span className="text-sm font-medium">{a.name}</span>
+                    <span className={cn('text-sm font-medium', interactiveRowPrimary())}>{a.name}</span>
                   </div>
                   <div className="col-span-3 text-right">
                     <div className="inline-flex items-baseline gap-1">
@@ -466,7 +445,7 @@ export default function DashboardPage() {
             {isLoading ? <div className="mt-3 text-xs text-muted-foreground">Carregando métricas…</div> : null}
             {isError ? <div className="mt-3 text-xs text-muted-foreground">Sem dados (API indisponível).</div> : null}
             {!isLoading && !isError && agents.length === 0 ? (
-              <div className="mt-3 rounded-lg border border-border bg-background/30 px-3 py-2 text-xs text-muted-foreground">
+              <div className="mt-3 rounded-lg border border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground">
                 Sem dados no período.
               </div>
             ) : null}

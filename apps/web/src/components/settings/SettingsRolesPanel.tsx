@@ -2,7 +2,9 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { formTextareaClassName } from '@/components/form/FormControl';
 import api from '@/lib/api';
+import { Switch } from '@/components/ui/Switch';
 import { cn } from '@/lib/utils';
 import {
   permissionActionLabelPt,
@@ -55,25 +57,12 @@ function PermissionToggleRow({
       )}
     >
       <span className="text-xs text-foreground">{label}</span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
+      <Switch
+        checked={checked}
         disabled={disabled}
-        onClick={() => !disabled && onChange(!checked)}
-        className={cn(
-          'relative h-5 w-9 shrink-0 rounded-full border border-transparent transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
-          checked ? 'bg-primary' : 'bg-muted',
-          disabled && 'pointer-events-none'
-        )}
-      >
-        <span
-          className={cn(
-            'absolute top-0.5 h-4 w-4 rounded-full bg-primary-foreground shadow transition-transform',
-            checked ? 'translate-x-4' : 'translate-x-0.5'
-          )}
-        />
-      </button>
+        onCheckedChange={onChange}
+        aria-label={label}
+      />
     </label>
   );
 }
@@ -161,7 +150,7 @@ export function SettingsRolesPanel() {
           const isEditing = editingId === r.id && !adminLocked;
 
           return (
-            <div key={r.id} className="rounded-xl border border-border bg-surface p-4">
+            <div key={r.id} className="rounded-xl border border-border bg-background p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-sm font-semibold text-foreground">{roleDisplayNamePt(r.name)}</span>
                 {adminLocked ? (
@@ -255,7 +244,7 @@ export function SettingsRolesPanel() {
                           value={jsonDraft}
                           onChange={(e) => setJsonDraft(e.target.value)}
                           rows={10}
-                          className="mt-2 w-full rounded-md border border-border bg-background/50 p-2 font-mono text-[11px] text-foreground"
+                          className={cn(formTextareaClassName, 'mt-2 p-2 font-mono text-[11px]')}
                         />
                       ) : null}
                       {showAdvancedJson ? (

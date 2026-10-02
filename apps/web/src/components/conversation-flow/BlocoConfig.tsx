@@ -3,6 +3,9 @@
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/lib/api';
+import { formControlCompactClassName } from '@/components/form/FormControl';
+import { FormSelect } from '@/components/form/FormSelect';
+import { cn } from '@/lib/utils';
 import type { Bloco } from '@/lib/conversation-flow/fluxo';
 import {
   useDemandsFromMessagingWebhooks,
@@ -31,8 +34,7 @@ const Field = ({ label, children }: { label: string; children: ReactNode }) => (
   </div>
 );
 
-const inputCls = 'w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs';
-const selectCls = inputCls;
+const inputCls = cn(formControlCompactClassName, 'w-full');
 
 function SelecionarSetorConfig({
   config,
@@ -47,10 +49,15 @@ function SelecionarSetorConfig({
   return (
     <div className="space-y-3">
       <Field label="Modo de seleção">
-        <select className={selectCls} value={modo} onChange={(e) => onChange('modo', e.target.value)}>
-          <option value="menu">Apresentar menu ao cliente</option>
-          <option value="fixo">Setor fixo</option>
-        </select>
+        <FormSelect
+          size="sm"
+          value={modo}
+          onChange={(v) => onChange('modo', v)}
+          options={[
+            { value: 'menu', label: 'Apresentar menu ao cliente' },
+            { value: 'fixo', label: 'Setor fixo' },
+          ]}
+        />
       </Field>
       <Field label="Setores disponíveis">
         {isLoading ? (
@@ -119,13 +126,12 @@ function SelecionarDemandaConfig({
   return (
     <div className="space-y-3">
       <Field label="Perfil de origem">
-        <select className={selectCls} value={perfil} onChange={(e) => onChange('perfil', e.target.value)}>
-          {perfis.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.nome}
-            </option>
-          ))}
-        </select>
+        <FormSelect
+          size="sm"
+          value={perfil}
+          onChange={(v) => onChange('perfil', v)}
+          options={perfis.map((p) => ({ value: p.id, label: p.nome }))}
+        />
       </Field>
       <Field label={`Demandas do webhook (${filtered.length} ativas)`}>
         {isLoading ? (
@@ -188,14 +194,15 @@ function MenuFarmaciasConfig({
 
   return (
     <Field label="Variável que contém a cidade">
-      <select
-        className={selectCls}
+      <FormSelect
+        size="sm"
         value={String(config.variavelCidade ?? 'cidade')}
-        onChange={(e) => onChange('variavelCidade', e.target.value)}
-      >
-        <option value="cidade">cidade</option>
-        <option value="endereco_cidade">endereco_cidade</option>
-      </select>
+        onChange={(v) => onChange('variavelCidade', v)}
+        options={[
+          { value: 'cidade', label: 'cidade' },
+          { value: 'endereco_cidade', label: 'endereco_cidade' },
+        ]}
+      />
       <p className="mt-1 text-[10px] text-muted-foreground">
         {pharmaciesQuery.isLoading
           ? 'Carregando cidades das farmácias cadastradas…'
@@ -224,14 +231,16 @@ function AtribuirFilaConfig({
       </label>
       {!dinamica ? (
         <Field label="Fila operacional">
-          <select className={selectCls} value={String(config.filaId ?? '')} onChange={(e) => onChange('filaId', e.target.value)}>
-            <option value="">Selecione…</option>
-            {setoresOpts.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.nome}
-              </option>
-            ))}
-          </select>
+          <FormSelect
+            size="sm"
+            value={String(config.filaId ?? '')}
+            onChange={(v) => onChange('filaId', v)}
+            placeholder="Selecione…"
+            options={[
+              { value: '', label: 'Selecione…' },
+              ...setoresOpts.map((s) => ({ value: s.id, label: s.nome })),
+            ]}
+          />
           <p className="mt-1 text-[10px] text-muted-foreground">
             {isLoading
               ? 'Carregando filas dos webhooks…'
@@ -261,24 +270,31 @@ function EscalarGestorConfig({
   return (
     <div className="grid grid-cols-2 gap-3">
       <Field label="Responsável">
-        <select className={selectCls} value={String(config.gestorId ?? '')} onChange={(e) => onChange('gestorId', e.target.value)}>
-          <option value="">Selecione…</option>
-          {(attendantsQuery.data || []).map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.name}
-            </option>
-          ))}
-        </select>
+        <FormSelect
+          size="sm"
+          value={String(config.gestorId ?? '')}
+          onChange={(v) => onChange('gestorId', v)}
+          placeholder="Selecione…"
+          options={[
+            { value: '', label: 'Selecione…' },
+            ...(attendantsQuery.data || []).map((user) => ({ value: user.id, label: user.name })),
+          ]}
+        />
         {attendantsQuery.isError ? (
           <p className="mt-1 text-[10px] text-destructive">Não foi possível carregar responsáveis da API.</p>
         ) : null}
       </Field>
       <Field label="Canal de aviso">
-        <select className={selectCls} value={String(config.canal ?? '')} onChange={(e) => onChange('canal', e.target.value)}>
-          <option value="email">E-mail</option>
-          <option value="painel">Painel</option>
-          <option value="whatsapp">WhatsApp</option>
-        </select>
+        <FormSelect
+          size="sm"
+          value={String(config.canal ?? '')}
+          onChange={(v) => onChange('canal', v)}
+          options={[
+            { value: 'email', label: 'E-mail' },
+            { value: 'painel', label: 'Painel' },
+            { value: 'whatsapp', label: 'WhatsApp' },
+          ]}
+        />
       </Field>
     </div>
   );
@@ -291,15 +307,16 @@ export function BlocoConfig({ bloco, onChange }: Props) {
     case 'identificar':
       return (
         <Field label="Origem da identificação">
-          <select
-            className={selectCls}
+          <FormSelect
+            size="sm"
             value={String(c.origem ?? '')}
-            onChange={(e) => onChange('origem', e.target.value)}
-          >
-            <option value="telefone">Telefone do contato</option>
-            <option value="email">E-mail</option>
-            <option value="documento">Documento (CPF/CNPJ)</option>
-          </select>
+            onChange={(v) => onChange('origem', v)}
+            options={[
+              { value: 'telefone', label: 'Telefone do contato' },
+              { value: 'email', label: 'E-mail' },
+              { value: 'documento', label: 'Documento (CPF/CNPJ)' },
+            ]}
+          />
         </Field>
       );
 
@@ -392,11 +409,16 @@ export function BlocoConfig({ bloco, onChange }: Props) {
       return (
         <div className="space-y-3">
           <Field label="Modelo">
-            <select className={selectCls} value={String(c.modelo ?? '')} onChange={(e) => onChange('modelo', e.target.value)}>
-              <option value="gpt-4o-mini">gpt-4o-mini</option>
-              <option value="gpt-4o">gpt-4o</option>
-              <option value="claude-3-5-sonnet">claude-3-5-sonnet</option>
-            </select>
+            <FormSelect
+              size="sm"
+              value={String(c.modelo ?? '')}
+              onChange={(v) => onChange('modelo', v)}
+              options={[
+                { value: 'gpt-4o-mini', label: 'gpt-4o-mini' },
+                { value: 'gpt-4o', label: 'gpt-4o' },
+                { value: 'claude-3-5-sonnet', label: 'claude-3-5-sonnet' },
+              ]}
+            />
           </Field>
           <Field label="Instruções">
             <textarea
@@ -414,10 +436,15 @@ export function BlocoConfig({ bloco, onChange }: Props) {
       return (
         <div className="space-y-3">
           <Field label="Tipo de cadastro">
-            <select className={selectCls} value={tipo} onChange={(e) => onChange('tipo', e.target.value)}>
-              <option value="entregador">Entregador</option>
-              <option value="farmacia">Farmácia</option>
-            </select>
+            <FormSelect
+              size="sm"
+              value={tipo}
+              onChange={(v) => onChange('tipo', v)}
+              options={[
+                { value: 'entregador', label: 'Entregador' },
+                { value: 'farmacia', label: 'Farmácia' },
+              ]}
+            />
           </Field>
           {tipo === 'farmacia' ? (
             <Field label="Perfis aceitos na farmácia">
@@ -447,11 +474,16 @@ export function BlocoConfig({ bloco, onChange }: Props) {
       return (
         <div className="space-y-3">
           <Field label="Canal de notificação">
-            <select className={selectCls} value={String(c.canal ?? '')} onChange={(e) => onChange('canal', e.target.value)}>
-              <option value="painel">Painel do atendente</option>
-              <option value="email">E-mail</option>
-              <option value="slack">Slack</option>
-            </select>
+            <FormSelect
+              size="sm"
+              value={String(c.canal ?? '')}
+              onChange={(v) => onChange('canal', v)}
+              options={[
+                { value: 'painel', label: 'Painel do atendente' },
+                { value: 'email', label: 'E-mail' },
+                { value: 'slack', label: 'Slack' },
+              ]}
+            />
           </Field>
           <Field label="Mensagem">
             <input className={inputCls} value={String(c.mensagem ?? '')} onChange={(e) => onChange('mensagem', e.target.value)} />
@@ -477,16 +509,17 @@ export function BlocoConfig({ bloco, onChange }: Props) {
             />
           </Field>
           <Field label="Ação ao estourar">
-            <select
-              className={selectCls}
+            <FormSelect
+              size="sm"
               value={String(c.acaoEstouro ?? '')}
-              onChange={(e) => onChange('acaoEstouro', e.target.value)}
-            >
-              <option value="notificar">Notificar gestor</option>
-              <option value="escalar">Escalar atendimento</option>
-              <option value="mover">Mover para outra fila</option>
-              <option value="mensagem">Enviar mensagem ao cliente</option>
-            </select>
+              onChange={(v) => onChange('acaoEstouro', v)}
+              options={[
+                { value: 'notificar', label: 'Notificar gestor' },
+                { value: 'escalar', label: 'Escalar atendimento' },
+                { value: 'mover', label: 'Mover para outra fila' },
+                { value: 'mensagem', label: 'Enviar mensagem ao cliente' },
+              ]}
+            />
           </Field>
         </div>
       );
@@ -501,11 +534,16 @@ export function BlocoConfig({ bloco, onChange }: Props) {
             <input className={inputCls} value={String(c.pergunta ?? '')} onChange={(e) => onChange('pergunta', e.target.value)} />
           </Field>
           <Field label="Escala">
-            <select className={selectCls} value={String(c.escala ?? '')} onChange={(e) => onChange('escala', e.target.value)}>
-              <option value="1-5">1 a 5 estrelas</option>
-              <option value="0-10">NPS · 0 a 10</option>
-              <option value="binario">Bom / Ruim</option>
-            </select>
+            <FormSelect
+              size="sm"
+              value={String(c.escala ?? '')}
+              onChange={(v) => onChange('escala', v)}
+              options={[
+                { value: '1-5', label: '1 a 5 estrelas' },
+                { value: '0-10', label: 'NPS · 0 a 10' },
+                { value: 'binario', label: 'Bom / Ruim' },
+              ]}
+            />
           </Field>
         </div>
       );

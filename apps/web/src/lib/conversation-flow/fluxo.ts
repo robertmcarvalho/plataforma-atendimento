@@ -1,5 +1,5 @@
 // Types and helpers for the inline (nested) flow editor used in
-// project-revive-main AutomacaoNova step 3 ("Fluxo de atendimento").
+// Editor em blocos — fluxo de atendimento (passo 3 do wizard de automação).
 
 export type BlocoTipo =
   | 'identificar'

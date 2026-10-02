@@ -19,7 +19,7 @@ type DaySchedule = {
   intervals: BusinessHoursInterval[];
 };
 
-type HolidaySchedule = {
+export type HolidaySchedule = {
   date: string;
   is_open: boolean;
   intervals: BusinessHoursInterval[];
@@ -314,7 +314,7 @@ export function BusinessHoursEditor({
   return (
     <div className="grid gap-4">
       <label className="flex flex-col gap-2">
-        <span className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+        <span className="text-sm font-medium text-muted-foreground">
           Fuso horário (IANA)
         </span>
         <input
@@ -322,8 +322,7 @@ export function BusinessHoursEditor({
           value={cfg.timezone}
           disabled={locked}
           onChange={(e) => setTimezone(e.target.value)}
-          className="rounded-[1rem] border px-4 py-3 font-mono text-sm outline-none"
-          style={{ background: 'var(--surface-2)', borderColor: 'var(--border)', color: 'var(--text)' }}
+          className="rounded-md border border-border bg-muted px-4 py-3 font-mono text-sm text-foreground outline-none"
         />
         <datalist id="bh-common-tz">
           {COMMON_TZ.map((tz) => (
@@ -337,8 +336,7 @@ export function BusinessHoursEditor({
           type="button"
           disabled={locked}
           onClick={() => copyWeekdayToWeekdays('monday')}
-          className="rounded-full border px-3 py-1.5 text-xs font-medium"
-          style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+          className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground"
         >
           Copiar segunda → dias úteis
         </button>
@@ -350,11 +348,10 @@ export function BusinessHoursEditor({
           return (
             <div
               key={key}
-              className="rounded-[1rem] border p-4"
-              style={{ borderColor: 'var(--border)', background: 'var(--surface-2)' }}
+              className="rounded-md border border-border bg-muted p-4"
             >
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <label className="flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--text)' }}>
+                <label className="flex items-center gap-2 text-sm font-semibold text-foreground">
                   <input
                     type="checkbox"
                     disabled={locked}
@@ -370,8 +367,7 @@ export function BusinessHoursEditor({
                     type="button"
                     disabled={locked}
                     onClick={() => addInterval(key)}
-                    className="text-xs font-medium"
-                    style={{ color: 'var(--accent)' }}
+                    className="text-xs font-medium text-primary"
                   >
                     + intervalo
                   </button>
@@ -387,8 +383,7 @@ export function BusinessHoursEditor({
                         disabled={locked}
                         value={iv.start}
                         onChange={(e) => setIntervalAt(key, idx, { start: e.target.value })}
-                        className="rounded-lg border px-2 py-1.5 font-mono text-xs outline-none"
-                        style={{ borderColor: 'var(--border)', background: 'var(--background)', color: 'var(--text)' }}
+                        className="rounded-md border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground outline-none"
                       />
                       <span className="text-xs text-muted-foreground">até</span>
                       <input
@@ -396,15 +391,13 @@ export function BusinessHoursEditor({
                         disabled={locked}
                         value={iv.end}
                         onChange={(e) => setIntervalAt(key, idx, { end: e.target.value })}
-                        className="rounded-lg border px-2 py-1.5 font-mono text-xs outline-none"
-                        style={{ borderColor: 'var(--border)', background: 'var(--background)', color: 'var(--text)' }}
+                        className="rounded-md border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground outline-none"
                       />
                       <button
                         type="button"
                         disabled={locked || day.intervals.length <= 1}
                         onClick={() => removeInterval(key, idx)}
-                        className="ml-auto text-xs"
-                        style={{ color: 'var(--text-muted)' }}
+                        className="ml-auto text-xs text-muted-foreground"
                       >
                         remover
                       </button>
@@ -412,7 +405,7 @@ export function BusinessHoursEditor({
                   ))}
                 </div>
               ) : (
-                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                <p className="text-xs text-muted-foreground">
                   Fechado neste dia.
                 </p>
               )}
@@ -422,7 +415,7 @@ export function BusinessHoursEditor({
       </div>
 
       <div>
-        <p className="mb-2 text-sm font-semibold" style={{ color: 'var(--text)' }}>
+        <p className="mb-2 text-sm font-semibold text-foreground">
           Feriados e exceções
         </p>
         <div className="mb-3 flex flex-wrap gap-2">
@@ -432,23 +425,20 @@ export function BusinessHoursEditor({
             disabled={locked}
             value={holidayDraft.date}
             onChange={(e) => setHolidayDraft((p) => ({ ...p, date: e.target.value }))}
-            className="rounded-[1rem] border px-3 py-2 text-sm outline-none"
-            style={{ borderColor: 'var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }}
+            className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground outline-none"
           />
           <input
             placeholder="Nome (opcional)"
             disabled={locked}
             value={holidayDraft.name}
             onChange={(e) => setHolidayDraft((p) => ({ ...p, name: e.target.value }))}
-            className="min-w-[160px] flex-1 rounded-[1rem] border px-3 py-2 text-sm outline-none"
-            style={{ borderColor: 'var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }}
+            className="min-w-[160px] flex-1 rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground outline-none"
           />
           <button
             type="button"
             disabled={locked}
             onClick={() => addHoliday()}
-            className="rounded-[1rem] px-4 py-2 text-sm font-semibold"
-            style={{ background: 'var(--surface-hover)', color: 'var(--text)' }}
+            className="rounded-md bg-muted/50 px-4 py-2 text-sm font-semibold text-foreground"
           >
             Adicionar data
           </button>
@@ -458,8 +448,7 @@ export function BusinessHoursEditor({
           {cfg.holidays.map((h, idx) => (
             <div
               key={`${h.date}-${idx}`}
-              className="flex flex-col gap-2 rounded-[1rem] border p-3 sm:flex-row sm:items-center"
-              style={{ borderColor: 'var(--border)', background: 'var(--surface-2)' }}
+              className="flex flex-col gap-2 rounded-md border border-border bg-muted p-3 sm:flex-row sm:items-center"
             >
               <div className="min-w-[120px] font-mono text-sm">{formatDateBr(h.date)}</div>
               <div className="flex-1 text-sm">{h.name || '—'}</div>
@@ -474,7 +463,7 @@ export function BusinessHoursEditor({
                 />
                 Abre com horário especial
               </label>
-              <button type="button" disabled={locked} onClick={() => removeHoliday(idx)} className="text-xs" style={{ color: 'rgb(185, 28, 28)' }}>
+              <button type="button" disabled={locked} onClick={() => removeHoliday(idx)} className="text-xs text-destructive">
                 excluir
               </button>
               {h.is_open ? (
@@ -490,8 +479,7 @@ export function BusinessHoursEditor({
                           intervals[j] = { ...intervals[j], start: e.target.value };
                           patchHoliday(idx, { intervals });
                         }}
-                        className="rounded border px-1 py-1 font-mono text-xs"
-                        style={{ borderColor: 'var(--border)' }}
+                        className="rounded border border-border px-1 py-1 font-mono text-xs"
                       />
                       <span className="text-[10px] text-muted-foreground">—</span>
                       <input
@@ -503,8 +491,7 @@ export function BusinessHoursEditor({
                           intervals[j] = { ...intervals[j], end: e.target.value };
                           patchHoliday(idx, { intervals });
                         }}
-                        className="rounded border px-1 py-1 font-mono text-xs"
-                        style={{ borderColor: 'var(--border)' }}
+                        className="rounded border border-border px-1 py-1 font-mono text-xs"
                       />
                     </div>
                   ))}
@@ -513,7 +500,7 @@ export function BusinessHoursEditor({
             </div>
           ))}
           {!cfg.holidays.length ? (
-            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            <p className="text-xs text-muted-foreground">
               Nenhuma data cadastrada.
             </p>
           ) : null}

@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { formControlClassName, formControlSizes } from '@/components/form/FormControl';
 import { formatBRL, onlyDigits } from '@/lib/brFormat';
 
 type Props = {
@@ -10,6 +11,7 @@ type Props = {
   className?: string;
   disabled?: boolean;
   placeholder?: string;
+  inputSize?: keyof typeof formControlSizes;
 };
 
 function formatCentsDisplay(cents: number): string {
@@ -23,17 +25,16 @@ function parseDigitsToCents(raw: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Campo monetário com estado em centavos (dígitos = centavos, estável ao digitar). */
-export function BrCentsInput({ value, onChange, className, disabled, placeholder = 'R$ 0,00' }: Props) {
-  const focusedRef = useRef(false);
-  const [text, setText] = useState(() =>
-    value != null && Number.isFinite(value) ? formatCentsDisplay(value) : '',
-  );
+function formatFromProp(value: number | null) {
+  return value != null && Number.isFinite(value) ? formatCentsDisplay(value) : '';
+}
 
-  useEffect(() => {
-    if (focusedRef.current) return;
-    setText(value != null && Number.isFinite(value) ? formatCentsDisplay(value) : '');
-  }, [value]);
+/** Campo monetário com estado em centavos (dígitos = centavos, estável ao digitar). */
+export function BrCentsInput({ value, onChange, className, disabled, placeholder = 'R$ 0,00', inputSize = 'md' }: Props) {
+  const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  const displayValue = focused ? draft : formatFromProp(value);
 
   return (
     <input
@@ -41,30 +42,25 @@ export function BrCentsInput({ value, onChange, className, disabled, placeholder
       inputMode="numeric"
       disabled={disabled}
       placeholder={placeholder}
-      value={text}
+      value={displayValue}
       onFocus={() => {
-        focusedRef.current = true;
-        if (value != null && Number.isFinite(value) && value > 0) {
-          setText(String(value));
+        setFocused(true);
+        if (value != null && Number.isFinite(value) && value !== 0) {
+          setDraft(String(value));
+        } else {
+          setDraft('');
         }
       }}
       onBlur={() => {
-        focusedRef.current = false;
-        if (value == null || !Number.isFinite(value)) {
-          setText('');
-        } else {
-          setText(formatCentsDisplay(value));
-        }
+        setFocused(false);
+        setDraft('');
       }}
       onChange={(e) => {
         const raw = e.target.value;
-        setText(raw);
+        setDraft(raw);
         onChange(parseDigitsToCents(raw));
       }}
-      className={cn(
-        'w-full rounded-md border border-border bg-background/40 px-3 py-2 text-sm outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/20 disabled:opacity-50',
-        className,
-      )}
+      className={cn(formControlClassName, formControlSizes[inputSize], className)}
     />
   );
 }

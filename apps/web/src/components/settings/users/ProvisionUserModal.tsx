@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Crown, Headphones, Mail, Shield, UserCog, X } from 'lucide-react';
+import { Briefcase, Crown, Handshake, Headphones, Mail, Shield, UserCog, Wallet, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { listChannels, parseChannelOperationalConfig } from '@/lib/integrations/channelsApi';
@@ -14,16 +14,31 @@ import {
 } from '@/lib/users/usersApi';
 import { FilasSetoresPicker } from '@/components/settings/users/FilasSetoresPicker';
 import api from '@/lib/api';
+import { apiErrorMessage } from '@/lib/apiErrorMessage';
+import { CadastroSearchCombobox } from '@/components/cadastro/CadastroSearchCombobox';
+import { FormSelect } from '@/components/form/FormSelect';
 import { BrPhoneInput } from '@/components/form/BrInputs';
 import { formatBrazilPhone, normalizeBrazilPhone } from '@/lib/brFormat';
 
-type RoleKey = 'admin' | 'supervisor' | 'attendant' | 'leader';
+type RoleKey =
+  | 'admin'
+  | 'supervisor'
+  | 'financial'
+  | 'operational'
+  | 'attendant'
+  | 'leader'
+  | 'commercial'
+  | 'sales';
 
 const ROLE_UI: Record<RoleKey, { label: string; color: string; icon: typeof Shield }> = {
   admin: { label: 'Administrador', color: 'bg-destructive/15 text-destructive', icon: Shield },
   supervisor: { label: 'Gestor', color: 'bg-primary/15 text-primary', icon: UserCog },
+  financial: { label: 'Gestor Financeiro', color: 'bg-amber-500/15 text-amber-800 dark:text-amber-200', icon: Wallet },
+  operational: { label: 'Analista Operacional', color: 'bg-cyan-500/15 text-cyan-800 dark:text-cyan-200', icon: Headphones },
   attendant: { label: 'Atendente', color: 'bg-success/15 text-success', icon: Headphones },
   leader: { label: 'Líder', color: 'bg-warning/15 text-warning', icon: Crown },
+  commercial: { label: 'Comercial', color: 'bg-violet-500/15 text-violet-700 dark:text-violet-300', icon: Briefcase },
+  sales: { label: 'Vendas', color: 'bg-sky-500/15 text-sky-700 dark:text-sky-300', icon: Handshake },
 };
 
 type Sector = { id: string; name: string };
@@ -118,7 +133,10 @@ export function ProvisionUserModal({
 
   const submit = async () => {
     const finalName = roleKey === 'leader' && selectedLeader ? selectedLeader.name : name.trim();
-    const finalEmail = roleKey === 'leader' && selectedLeader?.email ? selectedLeader.email : email.trim();
+    const finalEmail =
+      roleKey === 'leader' && selectedLeader?.email
+        ? String(selectedLeader.email).trim().toLowerCase()
+        : email.trim().toLowerCase();
     const finalPhone =
       roleKey === 'leader' && selectedLeader?.phone ? normalizeBrazilPhone(String(selectedLeader.phone)) : normalizeBrazilPhone(phone) || undefined;
 
@@ -131,6 +149,11 @@ export function ProvisionUserModal({
       return;
     }
 
+    if (roleKey === 'supervisor' && !sectorIds.length) {
+      setError('Selecione o setor principal do gestor (Financeiro ou Operacional).');
+      return;
+    }
+
     setSaving(true);
     setError(null);
     try {
@@ -140,7 +163,7 @@ export function ProvisionUserModal({
         phone: finalPhone,
         role_id: roleId,
         sector_ids: sectorIds.length ? sectorIds : undefined,
-        primary_sector_id: sectorIds[0],
+        ...(sectorIds[0] ? { primary_sector_id: sectorIds[0] } : {}),
         leader_id: roleKey === 'leader' && leaderId ? leaderId : undefined,
         send_email: true,
       });
@@ -163,7 +186,7 @@ export function ProvisionUserModal({
       });
       onSaved();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Falha ao provisionar usuário');
+      setError(apiErrorMessage(e, 'Falha ao provisionar usuário'));
     } finally {
       setSaving(false);
     }
@@ -217,8 +240,10 @@ export function ProvisionUserModal({
             <>
               <div>
                 <label className="text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Perfil</label>
-                <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
-                  {(Object.keys(ROLE_UI) as RoleKey[]).map((key) => {
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {(Object.keys(ROLE_UI) as RoleKey[])
+                    .filter((key) => key !== 'financial')
+                    .map((key) => {
                     const m = ROLE_UI[key];
                     const Icon = m.icon;
                     const disabled = !roles.some((r: RoleRecord) => r.name === key);
@@ -230,7 +255,9 @@ export function ProvisionUserModal({
                         onClick={() => setRoleKey(key)}
                         className={cn(
                           'flex flex-col items-center gap-1.5 rounded-md border p-3 text-xs transition-colors disabled:opacity-40',
-                          roleKey === key ? 'border-primary bg-primary/5' : 'border-border hover:bg-surface-elevated'
+                          roleKey === key
+                            ? 'border-primary bg-primary/5'
+                            : 'border-border hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground'
                         )}
                       >
                         <Icon className="h-4 w-4" /> {m.label}
@@ -245,18 +272,12 @@ export function ProvisionUserModal({
                   <label className="text-[10px] font-medium uppercase tracking-wider text-warning">
                     Selecionar líder cadastrado
                   </label>
-                  <select
+                  <CadastroSearchCombobox
+                    entity="leader"
                     value={leaderId}
-                    onChange={(e) => setLeaderId(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-border bg-background/40 px-3 py-2 text-sm"
-                  >
-                    <option value="">— escolher líder —</option>
-                    {leaders.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name} {l.phone ? `· ${formatBrazilPhone(l.phone) || l.phone}` : ''}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setLeaderId}
+                    className="mt-1"
+                  />
                   {selectedLeader ? (
                     <div className="mt-3 grid grid-cols-1 gap-3 rounded-md bg-background/40 p-3 md:grid-cols-2">
                       <Field label="Nome" value={selectedLeader.name} readOnly />
@@ -303,10 +324,46 @@ export function ProvisionUserModal({
                 </div>
               )}
 
+              {roleKey === 'supervisor' && (
+                <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-[11px] text-muted-foreground">
+                  <div className="flex items-center gap-1.5 text-primary">
+                    <UserCog className="h-3.5 w-3.5" /> <span className="font-medium">Painel definido pelo setor</span>
+                  </div>
+                  <p className="mt-1">
+                    O perfil <strong>Gestor</strong> usa o setor principal para abrir o painel correto em Operação:
+                    macro setor <strong>Financeiro</strong> → Gestor Financeiro; macro setor{' '}
+                    <strong>Operacional</strong> → Gestor Operacional.
+                  </p>
+                </div>
+              )}
+
+              {roleKey === 'financial' && (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-[11px] text-muted-foreground">
+                  <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-200">
+                    <Wallet className="h-3.5 w-3.5" /> <span className="font-medium">Gestão financeira</span>
+                  </div>
+                  <p className="mt-1">
+                    Abre o painel de Operação do gestor financeiro (autorizações, acertos e desempenho do setor). Vincule o
+                    macro setor <strong>Financeiro</strong> nas filas, se aplicável.
+                  </p>
+                </div>
+              )}
+
+              {(roleKey === 'commercial' || roleKey === 'sales') && (
+                <div className="rounded-md border border-violet-500/30 bg-violet-500/5 p-3 text-[11px] text-muted-foreground">
+                  <div className="flex items-center gap-1.5 text-violet-700 dark:text-violet-300">
+                    <Briefcase className="h-3.5 w-3.5" /> <span className="font-medium">CRM Comercial</span>
+                  </div>
+                  <p className="mt-1">
+                    Acesso ao módulo Comercial (leads, pipeline, propostas e viabilidade). Não exige filas de atendimento operacional.
+                    Certifique-se de que <strong>commercial_crm_enabled</strong> está ativo no workspace.
+                  </p>
+                </div>
+              )}
+
               {(roleKey === 'attendant' || roleKey === 'supervisor') && (
                 <>
                   <FilasSetoresPicker
-                    channels={waChannels}
                     sectors={webhookSectors}
                     value={channelAssignments}
                     onChange={setChannelAssignments}
@@ -315,7 +372,9 @@ export function ProvisionUserModal({
                   {userSectors.length > 0 && (
                     <div>
                       <label className="text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">
-                        Setores do usuário (opcional)
+                        {roleKey === 'supervisor'
+                          ? 'Setor principal (define o painel em Operação)'
+                          : 'Setores do usuário (opcional)'}
                       </label>
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {userSectors.map((s) => {
@@ -354,7 +413,7 @@ export function ProvisionUserModal({
         </div>
 
         <div className="flex justify-end gap-2 border-t border-border px-6 py-3">
-          <button type="button" onClick={onClose} className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-surface-hover">
+          <button type="button" onClick={onClose} className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-sidebar-accent/60">
             {result ? 'Fechar' : 'Cancelar'}
           </button>
           {!result ? (

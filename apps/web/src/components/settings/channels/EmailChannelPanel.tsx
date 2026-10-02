@@ -1,10 +1,15 @@
-'use client';
+﻿'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Eye, EyeOff, Mail, Plus, Send, Trash2 } from 'lucide-react';
+import { CheckCircle2, Eye, EyeOff, Mail, Send } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
+import {
+  FormControl,
+  formControlFlexClassName,
+  formTextareaClassName,
+} from '@/components/form/FormControl';
 import { SettingsField } from '@/components/settings/settingsFormPanels';
 import {
   createChannel,
@@ -183,7 +188,7 @@ export function EmailChannelPanel({ isAdmin = false }: { isAdmin?: boolean }) {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-border bg-surface p-5">
+      <div className="rounded-xl border border-border bg-background p-5">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-channel-email/15">
             <Mail className="h-5 w-5 text-channel-email" />
@@ -212,7 +217,7 @@ export function EmailChannelPanel({ isAdmin = false }: { isAdmin?: boolean }) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-surface p-6 space-y-4">
+      <div className="rounded-xl border border-border bg-background p-6 space-y-4">
         <div>
           <label className="text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Provedor</label>
           <div className="mt-2 grid grid-cols-3 gap-2">
@@ -246,13 +251,13 @@ export function EmailChannelPanel({ isAdmin = false }: { isAdmin?: boolean }) {
             <div>
               <label className="text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Senha</label>
               <div className="mt-1 flex gap-2">
-                <input
+                <FormControl
                   type={showSecret ? 'text' : 'password'}
                   value={smtpPass}
                   onChange={(e) => setSmtpPass(e.target.value)}
                   disabled={!isAdmin}
                   placeholder={passwordStored ? 'Senha salva — deixe em branco para manter' : 'Senha da caixa UOL'}
-                  className="flex-1 rounded-md border border-border bg-background/40 px-3 py-2 font-mono text-xs"
+                  className={cn(formControlFlexClassName, 'font-mono')}
                 />
                 <button type="button" onClick={() => setShowSecret((s) => !s)} className="rounded-md border border-border px-3">
                   {showSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -263,12 +268,12 @@ export function EmailChannelPanel({ isAdmin = false }: { isAdmin?: boolean }) {
         ) : (
           <div>
             <label className="text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">API Key</label>
-            <input
+            <FormControl
               type={showSecret ? 'text' : 'password'}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               disabled={!isAdmin}
-              className="mt-1 w-full rounded-md border border-border bg-background/40 px-3 py-2 font-mono text-xs"
+              className="mt-1 font-mono text-xs"
             />
           </div>
         )}
@@ -290,30 +295,31 @@ export function EmailChannelPanel({ isAdmin = false }: { isAdmin?: boolean }) {
         ) : null}
       </div>
 
-      <div className="rounded-xl border border-border bg-surface p-6">
+      <div className="rounded-xl border border-border bg-background p-6">
         <h4 className="text-sm font-semibold">Alertas de fila</h4>
         <p className="mt-1 text-[11px] text-muted-foreground">E-mails para notificações de fila (vírgula ou quebra de linha).</p>
         <textarea
           value={alertEmails}
           onChange={(e) => setAlertEmails(e.target.value)}
           disabled={!isAdmin}
-          className="mt-2 min-h-[72px] w-full rounded-md border border-border bg-background px-3 py-2 text-xs"
+          className={cn(formTextareaClassName, 'mt-2 min-h-[72px] text-xs')}
         />
         {isAdmin ? (
-          <button type="button" onClick={() => void saveAlerts()} className="mt-2 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-surface-hover">
+          <button type="button" onClick={() => void saveAlerts()} className="mt-2 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-sidebar-accent/60">
             Salvar caixas de alerta
           </button>
         ) : null}
       </div>
 
-      <div className="rounded-xl border border-border bg-surface p-6">
+      <div className="rounded-xl border border-border bg-background p-6">
         <h4 className="text-sm font-semibold">Teste de envio</h4>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <input
+          <FormControl
             value={testTo}
             onChange={(e) => setTestTo(e.target.value)}
             placeholder="seu@email.com"
-            className="rounded-md border border-border bg-background px-3 py-2 text-xs"
+            inputSize="sm"
+            className="text-xs"
           />
           <button
             type="button"

@@ -1,5 +1,6 @@
 'use client';
 
+import { cadastroPageApi } from '@/lib/cadastro/cadastroPageApi';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -21,18 +22,35 @@ import {
   Truck,
   User,
   X,
+  Car,
+  Link2,
 } from 'lucide-react';
-import api from '@/lib/api';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Switch } from '@/components/ui/Switch';
 import { BrCnpjInput, BrCpfInput, BrPhoneInput } from '@/components/form/BrInputs';
+import {
+  FormControl,
+  formControlSizes,
+} from '@/components/form/FormControl';
+import { FormSearchCombobox } from '@/components/form/FormSearchCombobox';
+import { FormSelect } from '@/components/form/FormSelect';
 import { serializeWorkScheduleForApi } from '@/components/settings/BusinessHoursEditor';
-import { CadastroField, CadastroPageScroll, CadastroSection } from '@/components/cadastro/CadastroPrimitives';
+import {
+  CadastroField,
+  CadastroPageScroll,
+  CadastroSection,
+  cadastroSwitchRowClassName,
+} from '@/components/cadastro/CadastroPrimitives';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { Button } from '@/components/ui/button';
 import { DriverWorkScheduleEditor } from '@/components/cadastro/DriverWorkScheduleEditor';
+import { DriverAddressFields } from '@/components/cadastro/driver/DriverAddressFields';
 import { onlyDigits, normalizeBrazilPhone } from '@/lib/brFormat';
 import { cn } from '@/lib/utils';
+import { buttonVariants } from '@/components/ui/button';
 import { useAuth } from '@/store/auth';
 import { canManageCadastro } from '@/lib/cadastroPermissions';
+import { apiErrorMessage, apiErrorPayload } from '@/lib/apiErrorMessage';
 
 type DriverStatus = 'active' | 'inactive' | 'blocked';
 type DriverType = 'fixed' | 'daily';
@@ -54,12 +72,29 @@ type ApiDriverDetail = {
   name: string;
   cpf: string | null;
   phone: string;
+  whatsapp: string | null;
   email: string | null;
   city: string | null;
   state: string | null;
   status: DriverStatus;
   driver_type: DriverType;
   pix_key: string | null;
+  pix_key_type: string | null;
+  birth_date: string | null;
+  cnh_number: string | null;
+  cnh_expires_at: string | null;
+  address_cep: string | null;
+  address_street: string | null;
+  address_number: string | null;
+  address_neighborhood: string | null;
+  address_complement: string | null;
+  vehicle_plate: string | null;
+  vehicle_model: string | null;
+  vehicle_color: string | null;
+  vehicle_renavam: string | null;
+  vehicle_model_year: string | null;
+  flux_delivery_driver_id: string | null;
+  flux_delivery_synced_at: string | null;
   is_leader: boolean;
   is_mei: boolean;
   mei_cnpj: string | null;
@@ -87,12 +122,30 @@ export default function DriverNewPage() {
   const hasPermission = useAuth((s) => s.hasPermission);
   const canFetch = hasHydrated && isAuthenticated;
 
-  const canEdit = canManageCadastro(user?.role, hasPermission, 'drivers');
+  const sectorsQuery = useQuery({
+    queryKey: ['sectors', 'cadastro-perms'],
+    enabled: canFetch,
+    queryFn: async () => (await cadastroPageApi.fetchSectors()) as Array<{ id: string; name: string }>,
+  });
+
+  const analystSectorNames = useMemo(() => {
+    const ids = [
+      ...(user?.sector_ids || []),
+      ...(user?.sector_id ? [user.sector_id] : []),
+    ].filter(Boolean) as string[];
+    const byId = new Map((sectorsQuery.data || []).map((s) => [s.id, s.name]));
+    return ids.map((id) => byId.get(id)).filter((n): n is string => Boolean(n));
+  }, [sectorsQuery.data, user?.sector_id, user?.sector_ids]);
+
+  const canEdit = canManageCadastro(user?.role, hasPermission, 'drivers', {
+    sectorNames: analystSectorNames,
+  });
 
   const editId = (searchParams.get('id') || '').trim();
   const isEditing = Boolean(editId);
 
   const [savingError, setSavingError] = useState<string | null>(null);
+  const [duplicateDriverId, setDuplicateDriverId] = useState<string | null>(null);
 
   const [formName, setFormName] = useState('');
   const [formCpf, setFormCpf] = useState('');
@@ -103,6 +156,23 @@ export default function DriverNewPage() {
   const [formStatus, setFormStatus] = useState<DriverStatus>('active');
   const [formDriverType, setFormDriverType] = useState<DriverType>('fixed');
   const [formPixKey, setFormPixKey] = useState('');
+  const [formPixKeyType, setFormPixKeyType] = useState('');
+  const [formWhatsapp, setFormWhatsapp] = useState('');
+  const [formBirthDate, setFormBirthDate] = useState('');
+  const [formCnh, setFormCnh] = useState('');
+  const [formCnhExpires, setFormCnhExpires] = useState('');
+  const [formCep, setFormCep] = useState('');
+  const [formStreet, setFormStreet] = useState('');
+  const [formNumber, setFormNumber] = useState('');
+  const [formNeighborhood, setFormNeighborhood] = useState('');
+  const [formComplement, setFormComplement] = useState('');
+  const [formPlate, setFormPlate] = useState('');
+  const [formVehicleModel, setFormVehicleModel] = useState('');
+  const [formVehicleColor, setFormVehicleColor] = useState('');
+  const [formRenavam, setFormRenavam] = useState('');
+  const [formVehicleYear, setFormVehicleYear] = useState('');
+  const [formFluxId, setFormFluxId] = useState('');
+  const [formFluxSyncedAt, setFormFluxSyncedAt] = useState('');
   const [formIsLeader, setFormIsLeader] = useState(false);
 
   const [formIsMei, setFormIsMei] = useState(false);
@@ -119,25 +189,25 @@ export default function DriverNewPage() {
   const statesQuery = useQuery({
     queryKey: ['geo', 'states'],
     enabled: canFetch && canEdit,
-    queryFn: async () => (await api.get('/api/geo/states')).data as ApiState[],
+    queryFn: async () => await cadastroPageApi.fetchGeoStates() as ApiState[],
   });
 
   const citiesQuery = useQuery({
     queryKey: ['geo', 'cities', formState],
     enabled: canFetch && canEdit && Boolean(formState),
-    queryFn: async () => (await api.get(`/api/geo/states/${encodeURIComponent(formState)}/cities`)).data as ApiCity[],
+    queryFn: async () => await cadastroPageApi.fetchGeoCities(formState) as ApiCity[],
   });
 
   const pharmaciesQuery = useQuery({
     queryKey: ['drivers', 'pharmacies'],
     enabled: canFetch && canEdit,
-    queryFn: async () => (await api.get('/api/pharmacies')).data as ApiPharmacy[],
+    queryFn: async () => await cadastroPageApi.fetchPharmacies({ status: 'active' }) as ApiPharmacy[],
   });
 
   const driverQuery = useQuery<ApiDriverDetail>({
     queryKey: ['drivers', 'edit', editId],
     enabled: canFetch && canEdit && isEditing,
-    queryFn: async () => (await api.get(`/api/drivers/${editId}`)).data as ApiDriverDetail,
+    queryFn: async () => await cadastroPageApi.fetchDriver(editId) as ApiDriverDetail,
   });
 
   const hasPrefilled = useRef(false);
@@ -162,6 +232,23 @@ export default function DriverNewPage() {
     setFormStatus(d.status || 'active');
     setFormDriverType(d.driver_type || 'fixed');
     setFormPixKey(d.pix_key || '');
+    setFormPixKeyType(d.pix_key_type || '');
+    setFormWhatsapp(d.whatsapp || '');
+    setFormBirthDate(d.birth_date || '');
+    setFormCnh(d.cnh_number || '');
+    setFormCnhExpires(d.cnh_expires_at || '');
+    setFormCep(d.address_cep || '');
+    setFormStreet(d.address_street || '');
+    setFormNumber(d.address_number || '');
+    setFormNeighborhood(d.address_neighborhood || '');
+    setFormComplement(d.address_complement || '');
+    setFormPlate(d.vehicle_plate || '');
+    setFormVehicleModel(d.vehicle_model || '');
+    setFormVehicleColor(d.vehicle_color || '');
+    setFormRenavam(d.vehicle_renavam || '');
+    setFormVehicleYear(d.vehicle_model_year || '');
+    setFormFluxId(d.flux_delivery_driver_id || '');
+    setFormFluxSyncedAt(d.flux_delivery_synced_at || '');
     setFormIsLeader(Boolean(d.is_leader));
 
     setFormIsMei(Boolean(d.is_mei));
@@ -189,6 +276,7 @@ export default function DriverNewPage() {
   const saveMutation = useMutation({
     mutationFn: async () => {
       setSavingError(null);
+      setDuplicateDriverId(null);
       const cpfDigits = onlyDigits(formCpf);
       if (!formName.trim()) throw new Error('Informe o nome completo.');
       if (cpfDigits && cpfDigits.length !== 11) throw new Error('CPF inválido (use 11 dígitos).');
@@ -216,6 +304,24 @@ export default function DriverNewPage() {
         driver_type: formDriverType,
         primary_pharmacy_id: primary,
         pix_key: formPixKey.trim() || null,
+        pix_key_type: formPixKeyType.trim() || null,
+        whatsapp: (() => {
+          const w = normalizeBrazilPhone(formWhatsapp);
+          return w && w !== phoneDigits ? w : null;
+        })(),
+        birth_date: formBirthDate.trim() || null,
+        cnh_number: formCnh.trim() || null,
+        cnh_expires_at: formCnhExpires.trim() || null,
+        address_cep: onlyDigits(formCep) || null,
+        address_street: formStreet.trim() || null,
+        address_number: formNumber.trim() || null,
+        address_neighborhood: formNeighborhood.trim() || null,
+        address_complement: formComplement.trim() || null,
+        vehicle_plate: formPlate.trim() || null,
+        vehicle_model: formVehicleModel.trim() || null,
+        vehicle_color: formVehicleColor.trim() || null,
+        vehicle_renavam: formRenavam.trim() || null,
+        vehicle_model_year: formVehicleYear.trim() || null,
         is_leader: formIsLeader,
         is_mei: formIsMei,
         mei_cnpj: formIsMei ? onlyDigits(formMeiCnpj) : null,
@@ -224,7 +330,7 @@ export default function DriverNewPage() {
         work_schedule: serializeWorkScheduleForApi(formWorkSchedule),
       };
 
-      const saved = isEditing ? ((await api.put(`/api/drivers/${editId}`, payload)).data as ApiDriver) : ((await api.post('/api/drivers', payload)).data as ApiDriver);
+      const saved = isEditing ? (await cadastroPageApi.updateDriver(editId, payload) as ApiDriver) : (await cadastroPageApi.createDriver(payload) as ApiDriver);
 
       const currentActive = (driverQuery.data?.driver_pharmacy_links || [])
         .filter((l) => l.is_active && l.pharmacies?.id)
@@ -232,15 +338,15 @@ export default function DriverNewPage() {
 
       const toRemove = isEditing ? currentActive.filter((pid) => !uniqueLinks.includes(pid)) : [];
       for (const pid of toRemove) {
-        await api.delete(`/api/drivers/${saved.id}/pharmacies/${pid}`).catch(() => undefined);
+        await cadastroPageApi.unlinkDriverPharmacy(saved.id, pid).catch(() => undefined);
       }
 
       if (primary) {
-        await api.post(`/api/drivers/${saved.id}/pharmacies`, { pharmacy_id: primary, is_primary: true }).catch(() => undefined);
+        await cadastroPageApi.linkDriverPharmacy(saved.id, { pharmacy_id: primary, is_primary: true }).catch(() => undefined);
       }
       const secondary = uniqueLinks.filter((id) => id !== primary);
       for (const pid of secondary) {
-        await api.post(`/api/drivers/${saved.id}/pharmacies`, { pharmacy_id: pid, is_primary: false }).catch(() => undefined);
+        await cadastroPageApi.linkDriverPharmacy(saved.id, { pharmacy_id: pid, is_primary: false }).catch(() => undefined);
       }
 
       return saved;
@@ -249,8 +355,11 @@ export default function DriverNewPage() {
       router.push(`/drivers/${saved.id}`);
     },
     onError: (err: unknown) => {
-      const msg = (err as Error)?.message || (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      setSavingError(msg || 'Falha ao salvar entregador.');
+      const payload = apiErrorPayload(err);
+      setSavingError(apiErrorMessage(err, 'Falha ao salvar entregador.'));
+      setDuplicateDriverId(
+        typeof payload?.existing_driver_id === 'string' && payload.existing_driver_id ? payload.existing_driver_id : null
+      );
     },
   });
 
@@ -258,7 +367,7 @@ export default function DriverNewPage() {
     return (
       <CadastroPageScroll maxWidthClassName="max-w-5xl">
         <PageHeader eyebrow="Acesso" title="Novo entregador" description="Você não tem permissão para cadastrar entregadores." compact />
-        <Link className="button-secondary" href="/drivers">
+        <Link className={buttonVariants({ variant: 'secondary' })} href="/drivers">
           Voltar
         </Link>
       </CadastroPageScroll>
@@ -274,12 +383,13 @@ export default function DriverNewPage() {
       </Link>
 
       <PageHeader
+        icon={Truck}
         eyebrow="Operação · Cadastro"
         title={isEditing ? 'Editar entregador' : 'Novo entregador'}
         description={isEditing ? 'Atualize as informações e vínculos do entregador.' : 'Preencha as informações para vincular o entregador às farmácias.'}
         actions={
           <div className="flex gap-2">
-            <Link href={backHref} className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-surface-hover">
+            <Link href={backHref} className="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60">
               Cancelar
             </Link>
             <button
@@ -287,7 +397,7 @@ export default function DriverNewPage() {
               onClick={() => void saveMutation.mutateAsync()}
               disabled={saveMutation.isPending}
               className={cn(
-                'flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-glow transition-colors',
+                'flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/80 transition-colors',
                 saveMutation.isPending && 'opacity-50 pointer-events-none'
               )}
             >
@@ -298,18 +408,43 @@ export default function DriverNewPage() {
       />
 
       {savingError ? (
-        <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{savingError}</div>
+        <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <p>{savingError}</p>
+          {duplicateDriverId ? (
+            <Link href={`/drivers/${duplicateDriverId}`} className="mt-2 inline-block text-xs font-medium underline">
+              Abrir cadastro existente
+            </Link>
+          ) : null}
+        </div>
       ) : null}
 
       <div className="mt-6 space-y-5">
+        {formFluxId ? (
+          <CadastroSection title="Integração Flux Delivery" desc="Atualizado pela sincronização com a gestão de entregas.">
+            <div className="grid gap-4 md:grid-cols-3">
+              <CadastroField icon={Link2} label="ID Flux">
+                <FormControl inputSize="lg" value={formFluxId} readOnly className="bg-muted/40" />
+              </CadastroField>
+              <CadastroField icon={Link2} label="Última sincronização">
+                <FormControl
+                  inputSize="lg"
+                  value={formFluxSyncedAt ? new Date(formFluxSyncedAt).toLocaleString('pt-BR') : '—'}
+                  readOnly
+                  className="bg-muted/40"
+                />
+              </CadastroField>
+            </div>
+          </CadastroSection>
+        ) : null}
+
         <CadastroSection title="Dados pessoais" desc="Informações básicas do entregador.">
           <div className="grid gap-4 md:grid-cols-2">
             <CadastroField icon={User} label="Nome completo" required>
-              <input
+              <FormControl
+                inputSize="lg"
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
                 placeholder="João da Silva"
-                className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50"
               />
             </CadastroField>
             <CadastroField icon={FileText} label="CPF">
@@ -319,13 +454,30 @@ export default function DriverNewPage() {
               <BrPhoneInput value={formPhone} onChange={setFormPhone} className="w-full" placeholder="(11) 99000-0000" />
             </CadastroField>
             <CadastroField icon={Mail} label="E-mail">
-              <input
+              <FormControl
+                inputSize="lg"
+                type="email"
                 value={formEmail}
                 onChange={(e) => setFormEmail(e.target.value)}
-                type="email"
                 placeholder="entregador@email.com"
-                className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50"
               />
+            </CadastroField>
+            <CadastroField icon={Phone} label="WhatsApp">
+              <BrPhoneInput value={formWhatsapp} onChange={setFormWhatsapp} className="w-full" placeholder="Opcional se diferente do celular" />
+            </CadastroField>
+            <CadastroField icon={CalendarRange} label="Data de nascimento">
+              <FormControl inputSize="lg" type="date" value={formBirthDate} onChange={(e) => setFormBirthDate(e.target.value)} />
+            </CadastroField>
+          </div>
+        </CadastroSection>
+
+        <CadastroSection title="CNH e habilitação" desc="Documentação de habilitação do entregador.">
+          <div className="grid gap-4 md:grid-cols-2">
+            <CadastroField icon={FileText} label="Número da CNH">
+              <FormControl inputSize="lg" value={formCnh} onChange={(e) => setFormCnh(e.target.value)} />
+            </CadastroField>
+            <CadastroField icon={CalendarRange} label="Validade da CNH">
+              <FormControl inputSize="lg" type="date" value={formCnhExpires} onChange={(e) => setFormCnhExpires(e.target.value)} />
             </CadastroField>
           </div>
         </CadastroSection>
@@ -333,41 +485,64 @@ export default function DriverNewPage() {
         <CadastroSection title="Tipo & vínculo">
           <div className="grid gap-4 md:grid-cols-3">
             <CadastroField icon={Truck} label="Tipo de entregador" required>
-              <div className="flex gap-1.5 rounded-md border border-border bg-background p-1">
-                {(
-                  [
-                    { k: 'fixed', label: 'Fixo' },
-                    { k: 'daily', label: 'Diarista' },
-                  ] as const
-                ).map((t) => (
-                  <button
-                    key={t.k}
-                    type="button"
-                    onClick={() => setFormDriverType(t.k)}
-                    className={cn(
-                      'flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors',
-                      formDriverType === t.k ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
+              <SegmentedControl
+                stretch
+                variant="primary"
+                value={formDriverType}
+                onChange={setFormDriverType}
+                items={[
+                  { id: 'fixed', label: 'Fixo' },
+                  { id: 'daily', label: 'Diarista' },
+                ]}
+              />
             </CadastroField>
 
             <CadastroField icon={Crown} label="É líder?">
-              <label className="flex h-10 items-center justify-between rounded-md border border-border bg-background px-3">
+              <label className={cadastroSwitchRowClassName}>
                 <span className="text-xs text-muted-foreground">{formIsLeader ? 'Sim · acesso ao painel do líder' : 'Não'}</span>
                 <Switch checked={formIsLeader} onCheckedChange={setFormIsLeader} />
               </label>
             </CadastroField>
 
+            <CadastroField icon={User} label="Status">
+              <FormSelect
+                value={formStatus}
+                onChange={(v) => setFormStatus(v as DriverStatus)}
+                disabled={!canEdit}
+                size="lg"
+                options={[
+                  { value: 'active', label: 'Ativo' },
+                  { value: 'inactive', label: 'Inativo' },
+                  { value: 'blocked', label: 'Bloqueado' },
+                ]}
+              />
+            </CadastroField>
+
+          </div>
+        </CadastroSection>
+
+        <CadastroSection title="Pagamento">
+          <div className="grid gap-4 md:grid-cols-2">
+            <CadastroField icon={KeyRound} label="Tipo da chave PIX">
+              <FormSelect
+                value={formPixKeyType}
+                onChange={setFormPixKeyType}
+                size="lg"
+                options={[
+                  { value: '', label: 'Selecione…' },
+                  { value: 'CPF', label: 'CPF' },
+                  { value: 'EMAIL', label: 'E-mail' },
+                  { value: 'PHONE', label: 'Telefone' },
+                  { value: 'RANDOM', label: 'Aleatória' },
+                ]}
+              />
+            </CadastroField>
             <CadastroField icon={KeyRound} label="Chave PIX">
-              <input
+              <FormControl
+                inputSize="lg"
                 value={formPixKey}
                 onChange={(e) => setFormPixKey(e.target.value)}
                 placeholder="CPF, e-mail, telefone ou aleatória"
-                className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50"
               />
             </CadastroField>
           </div>
@@ -376,7 +551,7 @@ export default function DriverNewPage() {
         <CadastroSection title="Documentação fiscal">
           <div className="grid gap-4 md:grid-cols-2">
             <CadastroField icon={Briefcase} label="Possui MEI?">
-              <label className="flex h-10 items-center justify-between rounded-md border border-border bg-background px-3">
+              <label className={cadastroSwitchRowClassName}>
                 <span className="text-xs text-muted-foreground">{formIsMei ? 'Sim' : 'Não'}</span>
                 <Switch checked={formIsMei} onCheckedChange={setFormIsMei} />
               </label>
@@ -390,19 +565,14 @@ export default function DriverNewPage() {
             )}
 
             <CadastroField icon={FileCheck} label="Possui certificado digital?">
-              <label className="flex h-10 items-center justify-between rounded-md border border-border bg-background px-3">
+              <label className={cadastroSwitchRowClassName}>
                 <span className="text-xs text-muted-foreground">{formHasCert ? 'Sim' : 'Não'}</span>
                 <Switch checked={formHasCert} onCheckedChange={setFormHasCert} />
               </label>
             </CadastroField>
             {formHasCert ? (
               <CadastroField icon={CalendarRange} label="Data de expiração" required>
-                <input
-                  type="date"
-                  value={formCertExpiresAt}
-                  onChange={(e) => setFormCertExpiresAt(e.target.value)}
-                  className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50"
-                />
+                <FormControl inputSize="lg" type="date" value={formCertExpiresAt} onChange={(e) => setFormCertExpiresAt(e.target.value)} />
               </CadastroField>
             ) : (
               <div />
@@ -410,119 +580,103 @@ export default function DriverNewPage() {
           </div>
         </CadastroSection>
 
-        <CadastroSection title="Localização" desc="Selecione o estado e a cidade de atuação.">
-          <div className="grid gap-4 md:grid-cols-2">
-            <CadastroField icon={MapPin} label="Estado" required>
-              <select
-                value={formState}
-                onChange={(e) => setFormState(e.target.value)}
-                className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50"
-              >
-                <option value="">Selecione…</option>
-                {(statesQuery.data || []).map((s) => (
-                  <option key={s.code} value={s.code}>
-                    {s.name} ({s.code})
-                  </option>
-                ))}
-              </select>
+        <CadastroSection title="Endereço" desc="Endereço residencial e cidade de atuação.">
+          <DriverAddressFields
+            values={{
+              cep: formCep,
+              street: formStreet,
+              number: formNumber,
+              neighborhood: formNeighborhood,
+              complement: formComplement,
+              city: formCity,
+              state: formState,
+            }}
+            onChange={(patch) => {
+              if (patch.cep !== undefined) setFormCep(patch.cep);
+              if (patch.street !== undefined) setFormStreet(patch.street);
+              if (patch.number !== undefined) setFormNumber(patch.number);
+              if (patch.neighborhood !== undefined) setFormNeighborhood(patch.neighborhood);
+              if (patch.complement !== undefined) setFormComplement(patch.complement);
+              if (patch.city !== undefined) setFormCity(patch.city);
+              if (patch.state !== undefined) setFormState(patch.state);
+            }}
+            statesQuery={statesQuery}
+            citiesQuery={citiesQuery}
+            disabled={!canEdit}
+          />
+        </CadastroSection>
+
+        <CadastroSection title="Veículo" desc="Veículo utilizado nas entregas.">
+          <div className="grid gap-4 md:grid-cols-3">
+            <CadastroField icon={Car} label="Placa">
+              <FormControl inputSize="lg" value={formPlate} onChange={(e) => setFormPlate(e.target.value)} className="uppercase" />
             </CadastroField>
-            <CadastroField icon={MapPin} label="Cidade" required>
-              <select
-                value={formCity}
-                onChange={(e) => setFormCity(e.target.value)}
-                disabled={!formState}
-                className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50 disabled:opacity-50"
-              >
-                <option value="">{formState ? 'Selecione…' : 'Selecione o estado primeiro'}</option>
-                {(citiesQuery.data || []).map((c) => (
-                  <option key={c.name} value={c.name}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+            <CadastroField icon={Car} label="Modelo">
+              <FormControl inputSize="lg" value={formVehicleModel} onChange={(e) => setFormVehicleModel(e.target.value)} />
+            </CadastroField>
+            <CadastroField icon={Car} label="Cor">
+              <FormControl inputSize="lg" value={formVehicleColor} onChange={(e) => setFormVehicleColor(e.target.value)} />
+            </CadastroField>
+            <CadastroField icon={FileText} label="RENAVAM">
+              <FormControl inputSize="lg" value={formRenavam} onChange={(e) => setFormRenavam(e.target.value)} />
+            </CadastroField>
+            <CadastroField icon={CalendarRange} label="Ano modelo">
+              <FormControl inputSize="lg" value={formVehicleYear} onChange={(e) => setFormVehicleYear(e.target.value)} />
             </CadastroField>
           </div>
         </CadastroSection>
 
-        <CadastroSection
-          title="Farmácias vinculadas"
-          desc="É possível vincular múltiplas unidades."
-          action={
-            <div className="flex items-center gap-2">
-              <select
-                value={pharmacyToAdd}
-                onChange={(e) => setPharmacyToAdd(e.target.value)}
-                className="h-9 rounded-md border border-border bg-background px-3 text-xs outline-none"
-              >
-                <option value="">Selecione…</option>
-                {(pharmaciesQuery.data || [])
-                  .filter((p) => !linkedPharmacyIds.includes(p.id))
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.trade_name}
-                    </option>
-                  ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!pharmacyToAdd) return;
-                  setLinkedPharmacyIds((curr) => (curr.includes(pharmacyToAdd) ? curr : [...curr, pharmacyToAdd]));
-                  if (!primaryPharmacyId) setPrimaryPharmacyId(pharmacyToAdd);
-                  setPharmacyToAdd('');
-                }}
-                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary-glow"
-              >
-                <Plus className="h-3.5 w-3.5" /> Vincular
-              </button>
+        <CadastroSection title="Farmácias vinculadas" desc="É possível vincular múltiplas unidades.">
+          <div className="flex gap-2">
+            <FormSearchCombobox
+              className="flex-1"
+              value={pharmacyToAdd}
+              onChange={setPharmacyToAdd}
+              placeholder="Buscar farmácia…"
+              options={(pharmaciesQuery.data || [])
+                .filter((p) => !linkedPharmacyIds.includes(p.id))
+                .map((p) => ({ value: p.id, label: p.trade_name }))}
+            />
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                if (!pharmacyToAdd) return;
+                setLinkedPharmacyIds((curr) => (curr.includes(pharmacyToAdd) ? curr : [...curr, pharmacyToAdd]));
+                if (!primaryPharmacyId) setPrimaryPharmacyId(pharmacyToAdd);
+                setPharmacyToAdd('');
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" /> Vincular
+            </Button>
+          </div>
+          {selectedPharmacies.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-2 rounded-md border border-dashed border-border bg-background/40 p-3">
+              {selectedPharmacies.map((p) => (
+                <span
+                  key={p.id}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1 text-xs"
+                >
+                  <Building2 className="h-3 w-3 text-primary" /> {p.trade_name}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLinkedPharmacyIds((curr) => curr.filter((x) => x !== p.id));
+                      if (primaryPharmacyId === p.id) setPrimaryPharmacyId('');
+                    }}
+                    className="ml-1 text-muted-foreground hover:text-destructive"
+                    aria-label="Remover vínculo"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
             </div>
-          }
-        >
-          {selectedPharmacies.length === 0 ? (
-            <div className="text-sm text-muted-foreground">Nenhuma farmácia selecionada.</div>
-          ) : (
-            <div className="space-y-2">
-              {selectedPharmacies.map((p) => {
-                const isPrimary = primaryPharmacyId === p.id;
-                return (
-                  <div key={p.id} className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2 text-xs">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
-                        <Building2 className="h-4 w-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="truncate font-medium">{p.trade_name}</div>
-                        <button
-                          type="button"
-                          onClick={() => setPrimaryPharmacyId(p.id)}
-                          className={cn('mt-0.5 text-[10px] font-medium hover:underline', isPrimary ? 'text-success' : 'text-primary')}
-                        >
-                          {isPrimary ? 'Primária' : 'Definir como primária'}
-                        </button>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setLinkedPharmacyIds((curr) => curr.filter((x) => x !== p.id));
-                        if (primaryPharmacyId === p.id) setPrimaryPharmacyId('');
-                      }}
-                      className="inline-flex items-center justify-center rounded-md border border-border bg-background px-2 py-1 text-muted-foreground hover:text-destructive hover:bg-surface-hover"
-                      aria-label="Remover vínculo"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          ) : null}
         </CadastroSection>
 
         <CadastroSection title="Escala de trabalho" desc="Defina turnos por dia, feriados e exceções.">
-          <div className="rounded-xl border border-border bg-background p-4">
-            <DriverWorkScheduleEditor value={formWorkSchedule} onChange={setFormWorkSchedule} disabled={!canEdit} />
-          </div>
+          <DriverWorkScheduleEditor value={formWorkSchedule} onChange={setFormWorkSchedule} disabled={!canEdit} />
         </CadastroSection>
       </div>
     </CadastroPageScroll>

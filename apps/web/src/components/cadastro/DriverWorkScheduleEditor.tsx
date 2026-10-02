@@ -1,8 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Plus, X } from 'lucide-react';
+import { BrDateInput, BrTimeInput } from '@/components/form/BrInputs';
+import { formControlFlexClassName } from '@/components/form/FormControl';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/Switch';
 import {
   ensureBusinessHoursPayload,
@@ -76,23 +79,31 @@ export function DriverWorkScheduleEditor({ value, onChange, disabled, readonly }
     });
   };
 
-  const allHolidays = sortByDateAsc(cfg.holidays);
-  const exceptionRows = allHolidays.filter(
-    (h) => h.is_open !== false && (h.intervals?.length || 0) > 0 && String(h.name || '').startsWith(EXCEPTION_PREFIX)
-  );
-  const holidayRows = allHolidays.filter((h) => !exceptionRows.some((x) => x.date === h.date));
+  const exceptionRows = useMemo(() => {
+    const allHolidays = sortByDateAsc(cfg.holidays);
+    return allHolidays.filter(
+      (h) => h.is_open !== false && (h.intervals?.length || 0) > 0 && String(h.name || '').startsWith(EXCEPTION_PREFIX),
+    );
+  }, [cfg.holidays]);
+
+  const holidayRows = useMemo(() => {
+    const allHolidays = sortByDateAsc(cfg.holidays);
+    return allHolidays.filter((h) => !exceptionRows.some((x) => x.date === h.date));
+  }, [cfg.holidays, exceptionRows]);
 
   const [draftHolidays, setDraftHolidays] = useState<DraftHoliday[]>([]);
   const [draftExceptions, setDraftExceptions] = useState<DraftException[]>([]);
 
-  // Remove drafts that became real entries (after user filled date).
-  useEffect(() => {
-    const holidayDates = new Set(holidayRows.map((h) => h.date));
-    const exceptionDates = new Set(exceptionRows.map((h) => h.date));
-    setDraftHolidays((prev) => prev.filter((d) => !d.date || !holidayDates.has(d.date)));
-    setDraftExceptions((prev) => prev.filter((d) => !d.date || !exceptionDates.has(d.date)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [holidayRows.length, exceptionRows.length]);
+  const holidayDates = useMemo(() => new Set(holidayRows.map((h) => h.date)), [holidayRows]);
+  const exceptionDates = useMemo(() => new Set(exceptionRows.map((h) => h.date)), [exceptionRows]);
+  const visibleDraftHolidays = useMemo(
+    () => draftHolidays.filter((d) => !d.date || !holidayDates.has(d.date)),
+    [draftHolidays, holidayDates],
+  );
+  const visibleDraftExceptions = useMemo(
+    () => draftExceptions.filter((d) => !d.date || !exceptionDates.has(d.date)),
+    [draftExceptions, exceptionDates],
+  );
 
   const upsertHoliday = (date: string, next: { is_open: boolean; name?: string; intervals?: { start: string; end: string }[] }) => {
     const cleanDate = String(date || '').trim();
@@ -153,28 +164,30 @@ export function DriverWorkScheduleEditor({ value, onChange, disabled, readonly }
                     />
                   </td>
                   <td className="px-3 py-2">
-                    <input
-                      type="time"
-                      disabled={locked || !active}
-                      value={start}
-                      onChange={(e) => {
-                        const nextStart = clampTime(e.target.value, DEFAULT_START);
-                        setDay(key, { is_open: true, intervals: [{ start: nextStart, end }] });
-                      }}
-                      className="h-8 w-28 rounded-md border border-border bg-background px-2 text-xs outline-none disabled:opacity-50"
-                    />
+                    {active ? (
+                      <BrTimeInput
+                        disabled={locked}
+                        value={start}
+                        onChange={(nextStart) => {
+                          setDay(key, { is_open: true, intervals: [{ start: clampTime(nextStart, DEFAULT_START), end }] });
+                        }}
+                      />
+                    ) : (
+                      <span className="inline-flex h-8 w-28 items-center text-xs text-muted-foreground">—</span>
+                    )}
                   </td>
                   <td className="px-3 py-2">
-                    <input
-                      type="time"
-                      disabled={locked || !active}
-                      value={end}
-                      onChange={(e) => {
-                        const nextEnd = clampTime(e.target.value, DEFAULT_END);
-                        setDay(key, { is_open: true, intervals: [{ start, end: nextEnd }] });
-                      }}
-                      className="h-8 w-28 rounded-md border border-border bg-background px-2 text-xs outline-none disabled:opacity-50"
-                    />
+                    {active ? (
+                      <BrTimeInput
+                        disabled={locked}
+                        value={end}
+                        onChange={(nextEnd) => {
+                          setDay(key, { is_open: true, intervals: [{ start, end: clampTime(nextEnd, DEFAULT_END) }] });
+                        }}
+                      />
+                    ) : (
+                      <span className="inline-flex h-8 w-28 items-center text-xs text-muted-foreground">—</span>
+                    )}
                   </td>
                 </tr>
               );
@@ -187,20 +200,18 @@ export function DriverWorkScheduleEditor({ value, onChange, disabled, readonly }
       <div>
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground">Feriados</h3>
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="xs"
             disabled={locked}
             onClick={() => {
               if (locked) return;
               setDraftHolidays((curr) => [...curr, { id: draftId('holiday'), date: '', name: '', works: false }]);
             }}
-            className={cn(
-              'inline-flex h-7 items-center gap-1 rounded-md border border-border bg-background px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-surface-hover',
-              locked && 'opacity-50 pointer-events-none'
-            )}
           >
             <Plus className="h-3 w-3" /> Adicionar
-          </button>
+          </Button>
         </div>
 
         <div className="space-y-2">
@@ -210,16 +221,13 @@ export function DriverWorkScheduleEditor({ value, onChange, disabled, readonly }
             const works = h.is_open !== false;
             return (
               <div key={date} className="flex items-center gap-2 rounded-md border border-border bg-background p-2">
-                <input
-                  type="date"
+                <BrDateInput
                   value={date}
                   disabled={locked}
-                  onChange={(e) => {
-                    const nextDate = e.target.value;
+                  onChange={(nextDate) => {
                     removeHoliday(date);
-                    upsertHoliday(nextDate, { is_open: false, name, intervals: [] });
+                    if (nextDate) upsertHoliday(nextDate, { is_open: false, name, intervals: [] });
                   }}
-                  className="h-8 w-40 rounded-md border border-border bg-background px-2 text-xs outline-none disabled:opacity-50"
                 />
                 <input
                   value={name}
@@ -233,7 +241,7 @@ export function DriverWorkScheduleEditor({ value, onChange, disabled, readonly }
                       intervals: works ? [{ start: DEFAULT_START, end: DEFAULT_END }] : [],
                     });
                   }}
-                  className="h-8 flex-1 rounded-md border border-border bg-background px-2 text-xs outline-none disabled:opacity-50"
+                  className={formControlFlexClassName}
                 />
                 <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <input
@@ -267,27 +275,24 @@ export function DriverWorkScheduleEditor({ value, onChange, disabled, readonly }
               </div>
             );
           })}
-          {draftHolidays.map((d) => (
+          {visibleDraftHolidays.map((d) => (
             <div key={d.id} className="flex items-center gap-2 rounded-md border border-border bg-background p-2">
-              <input
-                type="date"
+              <BrDateInput
                 value={d.date}
                 disabled={locked}
-                onChange={(e) => {
-                  const nextDate = e.target.value;
+                onChange={(nextDate) => {
                   setDraftHolidays((curr) => curr.map((x) => (x.id === d.id ? { ...x, date: nextDate } : x)));
                   if (/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) {
                     upsertHoliday(nextDate, { is_open: false, name: d.name, intervals: [] });
                   }
                 }}
-                className="h-8 w-40 rounded-md border border-border bg-background px-2 text-xs outline-none disabled:opacity-50"
               />
               <input
                 value={d.name}
                 disabled={locked}
                 placeholder="Descrição"
                 onChange={(e) => setDraftHolidays((curr) => curr.map((x) => (x.id === d.id ? { ...x, name: e.target.value } : x)))}
-                className="h-8 flex-1 rounded-md border border-border bg-background px-2 text-xs outline-none disabled:opacity-50"
+                className={formControlFlexClassName}
               />
               <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <input
@@ -316,7 +321,7 @@ export function DriverWorkScheduleEditor({ value, onChange, disabled, readonly }
               </button>
             </div>
           ))}
-          {holidayRows.length === 0 && draftHolidays.length === 0 ? (
+          {holidayRows.length === 0 && visibleDraftHolidays.length === 0 ? (
             <div className="py-2 text-center text-xs text-subtle-foreground">Nenhum feriado adicionado.</div>
           ) : null}
         </div>
@@ -326,8 +331,10 @@ export function DriverWorkScheduleEditor({ value, onChange, disabled, readonly }
       <div>
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground">Exceções (turnos especiais)</h3>
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="xs"
             disabled={locked}
             onClick={() => {
               if (locked) return;
@@ -336,13 +343,9 @@ export function DriverWorkScheduleEditor({ value, onChange, disabled, readonly }
                 { id: draftId('exc'), date: '', name: '', start: DEFAULT_START, end: '12:00' },
               ]);
             }}
-            className={cn(
-              'inline-flex h-7 items-center gap-1 rounded-md border border-border bg-background px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-surface-hover',
-              locked && 'opacity-50 pointer-events-none'
-            )}
           >
             <Plus className="h-3 w-3" /> Adicionar
-          </button>
+          </Button>
         </div>
 
         <div className="space-y-2">
@@ -354,16 +357,13 @@ export function DriverWorkScheduleEditor({ value, onChange, disabled, readonly }
             const end = clampTime(h.intervals?.[0]?.end || '', '12:00');
             return (
               <div key={date} className="flex items-center gap-2 rounded-md border border-border bg-background p-2">
-                <input
-                  type="date"
+                <BrDateInput
                   value={date}
                   disabled={locked}
-                  onChange={(e) => {
-                    const nextDate = e.target.value;
+                  onChange={(nextDate) => {
                     removeHoliday(date);
-                    upsertHoliday(nextDate, { is_open: true, name: rawName, intervals: [{ start, end }] });
+                    if (nextDate) upsertHoliday(nextDate, { is_open: true, name: rawName, intervals: [{ start, end }] });
                   }}
-                  className="h-8 w-40 rounded-md border border-border bg-background px-2 text-xs outline-none disabled:opacity-50"
                 />
                 <input
                   value={name}
@@ -373,27 +373,21 @@ export function DriverWorkScheduleEditor({ value, onChange, disabled, readonly }
                     const nextName = e.target.value;
                     upsertHoliday(date, { is_open: true, name: `${EXCEPTION_PREFIX} ${nextName}`.trim(), intervals: [{ start, end }] });
                   }}
-                  className="h-8 flex-1 rounded-md border border-border bg-background px-2 text-xs outline-none disabled:opacity-50"
+                  className={formControlFlexClassName}
                 />
-                <input
-                  type="time"
+                <BrTimeInput
                   value={start}
                   disabled={locked || !date}
-                  onChange={(e) => {
-                    const nextStart = clampTime(e.target.value, DEFAULT_START);
-                    if (date) upsertHoliday(date, { is_open: true, name: rawName, intervals: [{ start: nextStart, end }] });
+                  onChange={(nextStart) => {
+                    if (date) upsertHoliday(date, { is_open: true, name: rawName, intervals: [{ start: clampTime(nextStart, DEFAULT_START), end }] });
                   }}
-                  className="h-8 w-28 rounded-md border border-border bg-background px-2 text-xs outline-none disabled:opacity-50"
                 />
-                <input
-                  type="time"
+                <BrTimeInput
                   value={end}
                   disabled={locked || !date}
-                  onChange={(e) => {
-                    const nextEnd = clampTime(e.target.value, '12:00');
-                    if (date) upsertHoliday(date, { is_open: true, name: rawName, intervals: [{ start, end: nextEnd }] });
+                  onChange={(nextEnd) => {
+                    if (date) upsertHoliday(date, { is_open: true, name: rawName, intervals: [{ start, end: clampTime(nextEnd, '12:00') }] });
                   }}
-                  className="h-8 w-28 rounded-md border border-border bg-background px-2 text-xs outline-none disabled:opacity-50"
                 />
                 <button
                   type="button"
@@ -409,53 +403,46 @@ export function DriverWorkScheduleEditor({ value, onChange, disabled, readonly }
               </div>
             );
           })}
-          {draftExceptions.map((d) => (
+          {visibleDraftExceptions.map((d) => (
             <div key={d.id} className="flex items-center gap-2 rounded-md border border-border bg-background p-2">
-              <input
-                type="date"
+              <BrDateInput
                 value={d.date}
                 disabled={locked}
-                onChange={(e) => {
-                  const nextDate = e.target.value;
+                onChange={(nextDate) => {
                   setDraftExceptions((curr) => curr.map((x) => (x.id === d.id ? { ...x, date: nextDate } : x)));
                   if (/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) {
                     upsertHoliday(nextDate, { is_open: true, name: `${EXCEPTION_PREFIX} ${d.name}`.trim(), intervals: [{ start: d.start, end: d.end }] });
                   }
                 }}
-                className="h-8 w-40 rounded-md border border-border bg-background px-2 text-xs outline-none disabled:opacity-50"
               />
               <input
                 value={d.name}
                 disabled={locked}
                 placeholder="Motivo"
                 onChange={(e) => setDraftExceptions((curr) => curr.map((x) => (x.id === d.id ? { ...x, name: e.target.value } : x)))}
-                className="h-8 flex-1 rounded-md border border-border bg-background px-2 text-xs outline-none disabled:opacity-50"
+                className={formControlFlexClassName}
               />
-              <input
-                type="time"
+              <BrTimeInput
                 value={d.start}
                 disabled={locked || !d.date}
-                onChange={(e) => {
-                  const nextStart = clampTime(e.target.value, DEFAULT_START);
-                  setDraftExceptions((curr) => curr.map((x) => (x.id === d.id ? { ...x, start: nextStart } : x)));
+                onChange={(nextStart) => {
+                  const start = clampTime(nextStart, DEFAULT_START);
+                  setDraftExceptions((curr) => curr.map((x) => (x.id === d.id ? { ...x, start } : x)));
                   if (/^\d{4}-\d{2}-\d{2}$/.test(d.date)) {
-                    upsertHoliday(d.date, { is_open: true, name: `${EXCEPTION_PREFIX} ${d.name}`.trim(), intervals: [{ start: nextStart, end: d.end }] });
+                    upsertHoliday(d.date, { is_open: true, name: `${EXCEPTION_PREFIX} ${d.name}`.trim(), intervals: [{ start, end: d.end }] });
                   }
                 }}
-                className="h-8 w-28 rounded-md border border-border bg-background px-2 text-xs outline-none disabled:opacity-50"
               />
-              <input
-                type="time"
+              <BrTimeInput
                 value={d.end}
                 disabled={locked || !d.date}
-                onChange={(e) => {
-                  const nextEnd = clampTime(e.target.value, '12:00');
-                  setDraftExceptions((curr) => curr.map((x) => (x.id === d.id ? { ...x, end: nextEnd } : x)));
+                onChange={(nextEnd) => {
+                  const end = clampTime(nextEnd, '12:00');
+                  setDraftExceptions((curr) => curr.map((x) => (x.id === d.id ? { ...x, end } : x)));
                   if (/^\d{4}-\d{2}-\d{2}$/.test(d.date)) {
-                    upsertHoliday(d.date, { is_open: true, name: `${EXCEPTION_PREFIX} ${d.name}`.trim(), intervals: [{ start: d.start, end: nextEnd }] });
+                    upsertHoliday(d.date, { is_open: true, name: `${EXCEPTION_PREFIX} ${d.name}`.trim(), intervals: [{ start: d.start, end }] });
                   }
                 }}
-                className="h-8 w-28 rounded-md border border-border bg-background px-2 text-xs outline-none disabled:opacity-50"
               />
               <button
                 type="button"
@@ -468,7 +455,7 @@ export function DriverWorkScheduleEditor({ value, onChange, disabled, readonly }
               </button>
             </div>
           ))}
-          {exceptionRows.length === 0 && draftExceptions.length === 0 ? (
+          {exceptionRows.length === 0 && visibleDraftExceptions.length === 0 ? (
             <div className="py-2 text-center text-xs text-subtle-foreground">Nenhuma exceção cadastrada.</div>
           ) : null}
         </div>

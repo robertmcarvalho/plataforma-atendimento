@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useRef, useState } from 'react';
 import { Upload, Download, X } from 'lucide-react';
@@ -18,6 +18,7 @@ export function CadastroImportModal({
   templatePath,
   importPath,
   entityLabel,
+  downloadFilename,
   onImported,
 }: {
   open: boolean;
@@ -25,6 +26,7 @@ export function CadastroImportModal({
   templatePath: string;
   importPath: string;
   entityLabel: string;
+  downloadFilename?: string;
   onImported: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -41,7 +43,13 @@ export function CadastroImportModal({
       const blob = new Blob([res.data], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       });
-      const name = templatePath.includes('pharmacies') ? 'template_farmacias.xlsx' : 'template_entregadores.xlsx';
+      const name =
+        downloadFilename ??
+        (templatePath.includes('pharmacies')
+          ? 'template_farmacias.xlsx'
+          : templatePath.includes('commercial')
+            ? 'modelo_importacao_leads.xlsx'
+            : 'template_entregadores.xlsx');
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -83,7 +91,7 @@ export function CadastroImportModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-surface p-5 shadow-lg">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-lg">
         <div className="flex items-start justify-between gap-2">
           <div>
             <h2 className="text-sm font-semibold text-foreground">Importar {entityLabel}</h2>
@@ -91,7 +99,7 @@ export function CadastroImportModal({
               Use o modelo Excel (.xlsx). Linhas com CNPJ/CPF ou telefone já existentes serão ignoradas (não atualiza cadastro).
             </p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-muted">
+          <button type="button" onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -107,7 +115,7 @@ export function CadastroImportModal({
           <button
             type="button"
             onClick={() => void downloadTemplate()}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-surface-hover"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-sidebar-accent/60"
           >
             <Download className="h-3.5 w-3.5" /> Baixar modelo (.xlsx)
           </button>
@@ -166,7 +174,7 @@ export function CadastroImportModal({
         ) : null}
 
         <div className="mt-5 flex justify-end">
-          <button type="button" onClick={onClose} className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-surface-hover">
+          <button type="button" onClick={onClose} className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent/60">
             Fechar
           </button>
         </div>
@@ -180,12 +188,14 @@ export function CadastroImportTrigger({
   templatePath,
   importPath,
   entityLabel,
+  downloadFilename,
   onImported,
 }: {
   canImport: boolean;
   templatePath: string;
   importPath: string;
   entityLabel: string;
+  downloadFilename?: string;
   onImported: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -195,7 +205,7 @@ export function CadastroImportTrigger({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-surface-hover transition-colors"
+        className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-sidebar-accent/60 transition-colors"
       >
         <Upload className="h-3.5 w-3.5" /> Importar Excel
       </button>
@@ -205,6 +215,7 @@ export function CadastroImportTrigger({
         templatePath={templatePath}
         importPath={importPath}
         entityLabel={entityLabel}
+        downloadFilename={downloadFilename}
         onImported={onImported}
       />
     </>

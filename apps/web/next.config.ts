@@ -7,7 +7,12 @@ const useStandalone =
   process.env.CI === 'true';
 
 const nextConfig: NextConfig = {
-  transpilePackages: ['@plataforma/operational-notes'],
+  transpilePackages: [
+    '@plataforma/billing-engine',
+    '@plataforma/operational-notes',
+    '@plataforma/financial-cycle',
+    '@plataforma/ops-task-catalog',
+  ],
   // Mantemos um distDir separado para evitar lock do OneDrive/antivirus em .next/standalone
   // enquanto o servidor de prod local ainda esta rodando.
   distDir: ".next_local",

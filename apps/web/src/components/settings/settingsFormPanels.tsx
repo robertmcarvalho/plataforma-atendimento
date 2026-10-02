@@ -1,5 +1,6 @@
-'use client';
+﻿'use client';
 
+import { FormControl } from '@/components/form/FormControl';
 import { cn } from '@/lib/utils';
 
 export function SettingsField({
@@ -21,16 +22,12 @@ export function SettingsField({
   return (
     <div>
       <label className="text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">{label}</label>
-      <input
+      <FormControl
         value={value}
         readOnly={readOnly}
         list={list}
         onChange={(e) => onChange?.(e.target.value)}
-        className={cn(
-          'mt-1 w-full rounded-md border border-border bg-background/40 px-3 py-2 text-sm outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/20',
-          mono && 'font-mono',
-          readOnly && 'cursor-not-allowed opacity-80'
-        )}
+        className={cn('mt-1', mono && 'font-mono', readOnly && 'cursor-not-allowed opacity-80')}
       />
     </div>
   );
@@ -58,7 +55,7 @@ export function SettingsPlaceholderCard({
   description: string;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-surface p-12 text-center">
+    <div className="rounded-xl border border-border bg-background p-12 text-center">
       <p className="text-sm font-semibold tracking-tight text-foreground">{title}</p>
       <p className="mt-1 text-xs text-muted-foreground">{description}</p>
       <p className="mt-4 text-[11px] text-subtle-foreground">Em breve nesta versão.</p>
@@ -147,7 +144,7 @@ export function SettingsWorkspaceIdentityPanel({
           <button
             type="button"
             onClick={() => void onRetryLoad()}
-            className="mt-3 rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-foreground hover:bg-surface-hover"
+            className="mt-3 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-sidebar-accent/60"
           >
             Tentar novamente
           </button>
@@ -169,7 +166,7 @@ export function SettingsWorkspaceIdentityPanel({
             // eslint-disable-next-line @next/next/no-img-element
             <img src={logoUrl} alt="" className="h-16 w-16 rounded-xl border border-border object-cover" />
           ) : (
-            <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-gradient-primary text-2xl font-bold text-primary-foreground shadow-glow">
+            <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-gradient-primary text-2xl font-bold text-primary-foreground shadow-md">
               {initial}
             </div>
           )}
@@ -244,7 +241,7 @@ export function SettingsWorkspaceIdentityPanel({
               type="button"
               disabled={saving}
               onClick={() => void onSaveTimezone()}
-              className="rounded-md border border-border bg-background/40 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-surface-hover disabled:opacity-50"
+              className="rounded-md border border-border bg-background/40 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-sidebar-accent/60 disabled:opacity-50"
             >
               {saving ? 'Salvando…' : 'Salvar fuso'}
             </button>

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { Info } from 'lucide-react';
@@ -8,13 +8,11 @@ import type { ChannelAssignmentRow } from '@/lib/users/usersApi';
 type Sector = { id: string; name: string };
 
 export function FilasSetoresPicker({
-  channels,
   sectors,
   value,
   onChange,
   perfil,
 }: {
-  channels: ChannelAssignmentRow[];
   sectors: Sector[];
   value: ChannelAssignmentRow[];
   onChange: (next: ChannelAssignmentRow[]) => void;
@@ -104,7 +102,7 @@ export function FilasSetoresPicker({
                           onClick={() => toggleSector(w.workspace_channel_id, s.id)}
                           className={cn(
                             'rounded-md border px-2 py-1 text-[10px] transition-colors',
-                            on ? 'border-primary bg-primary/15 text-primary' : 'border-border bg-background text-muted-foreground hover:bg-surface-hover'
+                            on ? 'border-primary bg-primary/15 text-primary' : 'border-border bg-background text-muted-foreground hover:bg-sidebar-accent/60'
                           )}
                         >
                           {on ? '✓ ' : ''}

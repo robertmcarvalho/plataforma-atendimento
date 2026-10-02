@@ -1,3 +1,4 @@
+import { DEFAULT_OUT_OF_HOURS_MESSAGE } from '@plataforma/channel-runtime';
 import { novoBloco, type Bloco, type BlocoTipo } from '@/lib/conversation-flow/fluxo';
 import type { SetoresPorPerfilPools } from '@/lib/conversation-flow/triagemPorPerfilPreset';
 import type { ChannelOperationalCatalog } from '@/lib/integrations/useSectorsFromMessagingWebhooks';
@@ -164,9 +165,7 @@ export function buildEscalacaoPorSlaPreset(options?: PresetOptions): Bloco[] {
 
 export function buildForaHorarioPreset(options?: PresetOptions): Bloco[] {
   const config = firstChannel(options?.catalog);
-  const message =
-    config?.messages.out_of_hours ||
-    'Olá! Nosso atendimento está fora do horário (seg-sex 08h-18h). Deixe sua mensagem que retornaremos no próximo turno.';
+  const message = config?.messages.out_of_hours || DEFAULT_OUT_OF_HOURS_MESSAGE;
   const queueName = firstQueueName(options?.catalog) || 'retorno-proximo-turno';
   const tags = config?.operation.tags || [];
   const oohTag = tags.find((tag) => tag.toLowerCase().includes('hor')) || 'fora do horário';

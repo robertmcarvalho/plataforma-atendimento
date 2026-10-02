@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, ExternalLink, Eye, EyeOff, Sparkles } from 'lucide-react';
@@ -149,7 +149,9 @@ export function LlmWorkspaceChannelPanel({ isAdmin = false }: { isAdmin?: boolea
 
     if (f.kind === 'secret') {
       const maskedStored =
-        llmChannel?.provider === modalDef?.id &&
+        llmChannel != null &&
+        modalDef != null &&
+        llmChannel.provider === modalDef.id &&
         typeof llmChannel.credentials[f.key] === 'string' &&
         String(llmChannel.credentials[f.key]).length > 0;
 
@@ -173,7 +175,7 @@ export function LlmWorkspaceChannelPanel({ isAdmin = false }: { isAdmin?: boolea
             />
             <button
               type="button"
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-surface-hover"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-sidebar-accent/60"
               onClick={() => setShowSecret((s) => ({ ...s, [f.key]: !s[f.key] }))}
               title={showSecret[f.key] ? 'Ocultar' : 'Mostrar'}
             >
@@ -208,7 +210,7 @@ export function LlmWorkspaceChannelPanel({ isAdmin = false }: { isAdmin?: boolea
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-border bg-surface p-5">
+      <div className="rounded-xl border border-border bg-background p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/15">
@@ -267,7 +269,7 @@ export function LlmWorkspaceChannelPanel({ isAdmin = false }: { isAdmin?: boolea
                   setModalProviderId(p.id);
                 }}
                 className={cn(
-                  'rounded-xl border border-border bg-background p-4 text-left transition-colors hover:bg-surface-hover disabled:opacity-60',
+                  'rounded-xl border border-border bg-background p-4 text-left transition-colors hover:bg-sidebar-accent/60 disabled:opacity-60',
                   llmChannel?.provider === p.id && 'ring-2 ring-primary/40'
                 )}
               >

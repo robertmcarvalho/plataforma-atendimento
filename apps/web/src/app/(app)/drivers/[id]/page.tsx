@@ -1,5 +1,7 @@
 'use client';
 
+import { cadastroPageApi } from '@/lib/cadastro/cadastroPageApi';
+
 import { useMemo } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -18,14 +20,19 @@ import {
   MapPin,
   Phone,
   ShieldCheck,
+  Truck,
   Star,
+  Car,
+  Link2,
 } from 'lucide-react';
-import api from '@/lib/api';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatusDot } from '@/components/ui/StatusDot';
-import { reviveOutlineSmActionClass, revivePrimarySmActionClass } from '@/components/ui/reviveActionButtonStyles';
+import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { formatBrazilPhone, formatCnpj, formatCpf } from '@/lib/brFormat';
+import { formatBrazilPhone, formatCep, formatCnpj, formatCpf } from '@/lib/brFormat';
+import { cadastroStatusDot } from '@/lib/cadastroStatus';
+import { DriverDocumentationSection } from '@/components/cadastro/driver/DriverDocumentationSection';
+import { DriverDocumentHeaderBadge } from '@/components/cadastro/driver/DriverDocumentStatusBadge';
 import { ensureBusinessHoursPayload } from '@/components/settings/BusinessHoursEditor';
 
 type DriverStatus = 'active' | 'inactive' | 'blocked';
@@ -56,6 +63,23 @@ type ApiDriverDetail = {
   has_digital_certificate: boolean;
   digital_certificate_expires_at: string | null;
   pix_key: string | null;
+  pix_key_type: string | null;
+  whatsapp: string | null;
+  birth_date: string | null;
+  cnh_number: string | null;
+  cnh_expires_at: string | null;
+  address_cep: string | null;
+  address_street: string | null;
+  address_number: string | null;
+  address_neighborhood: string | null;
+  address_complement: string | null;
+  vehicle_plate: string | null;
+  vehicle_model: string | null;
+  vehicle_color: string | null;
+  vehicle_renavam: string | null;
+  vehicle_model_year: string | null;
+  flux_delivery_driver_id: string | null;
+  flux_delivery_synced_at: string | null;
   is_leader: boolean;
   work_schedule: unknown | null;
   primary_pharmacy: { id: string; trade_name: string; city: string | null; leader_id: string | null } | null;
@@ -64,16 +88,10 @@ type ApiDriverDetail = {
 };
 
 const STATUS_LABEL: Record<DriverStatus, string> = {
-  active: 'Disponível',
-  blocked: 'Em rota',
-  inactive: 'Offline',
+  active: 'Ativo',
+  blocked: 'Bloqueado',
+  inactive: 'Inativo',
 };
-
-function statusToDot(status: DriverStatus) {
-  if (status === 'active') return 'online';
-  if (status === 'blocked') return 'busy';
-  return 'offline';
-}
 
 function initials(input: string) {
   const trimmed = (input || '').trim();
@@ -103,7 +121,7 @@ export default function DriverFichaPage() {
   const driverQuery = useQuery<ApiDriverDetail>({
     queryKey: ['driver-ficha', id],
     enabled: Boolean(id),
-    queryFn: async () => (await api.get(`/api/drivers/${id}`)).data as ApiDriverDetail,
+    queryFn: async () => await cadastroPageApi.fetchDriver(id) as ApiDriverDetail,
   });
 
   const driver = driverQuery.data || null;
@@ -111,7 +129,11 @@ export default function DriverFichaPage() {
   const leader = useMemo(() => {
     if (!driver) return null;
     if (driver.override_leader?.id) return { id: driver.override_leader.id, name: driver.override_leader.name };
-    if (driver.primary_pharmacy?.leader_id) return { id: driver.primary_pharmacy.leader_id, name: 'Líder' };
+    if (driver.primary_pharmacy?.leader_id) {
+      const leaderName =
+        (driver.primary_pharmacy as { leader?: { name?: string } }).leader?.name?.trim() || 'Líder';
+      return { id: driver.primary_pharmacy.leader_id, name: leaderName };
+    }
     return null;
   }, [driver]);
 
@@ -178,6 +200,7 @@ export default function DriverFichaPage() {
         </Link>
 
         <PageHeader
+          icon={Truck}
           eyebrow="Pessoas · Ficha"
           title="Ficha do entregador"
           description="Cadastro completo, escala, vínculos e histórico operacional."
@@ -190,13 +213,13 @@ export default function DriverFichaPage() {
                   downloadJson(`entregador_${id}.json`, exportData);
                 }}
                 disabled={!exportData}
-                className={cn(reviveOutlineSmActionClass, !exportData && 'opacity-50 pointer-events-none')}
+                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), !exportData && 'opacity-50 pointer-events-none')}
               >
                 <FileText className="h-3.5 w-3.5" /> Exportar
               </button>
               <Link
                 href={`/drivers/new?id=${encodeURIComponent(id)}`}
-                className={revivePrimarySmActionClass}
+                className={buttonVariants()}
               >
                 <Edit3 className="h-3.5 w-3.5" /> Editar
               </Link>
@@ -222,7 +245,7 @@ export default function DriverFichaPage() {
                       <Crown className="h-3.5 w-3.5" />
                     </div>
                   ) : null}
-                  <StatusDot status={statusToDot(driver.status)} pulse={driver.status === 'active'} className="absolute -bottom-0.5 -right-0.5" />
+                  <StatusDot status={cadastroStatusDot(driver.status)} pulse={driver.status === 'active'} className="absolute -bottom-0.5 -right-0.5" />
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-3">
@@ -240,6 +263,16 @@ export default function DriverFichaPage() {
                     <span className="rounded bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
                       {driver.driver_type === 'daily' ? 'Diarista' : 'Fixo'}
                     </span>
+                    {driver.flux_delivery_driver_id ? (
+                      <span className="rounded bg-info/15 px-2 py-0.5 text-[10px] font-medium text-info">
+                        Sincronizado Flux
+                      </span>
+                    ) : null}
+                    <DriverDocumentHeaderBadge
+                      cnhExpiresAt={driver.cnh_expires_at}
+                      hasDigitalCertificate={driver.has_digital_certificate}
+                      digitalCertificateExpiresAt={driver.digital_certificate_expires_at}
+                    />
                   </div>
                   <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-muted-foreground">
                     {driver.email ? (
@@ -250,10 +283,24 @@ export default function DriverFichaPage() {
                     <span className="inline-flex items-center gap-1.5 font-mono">
                       <Phone className="h-3 w-3" /> {formatBrazilPhone(driver.phone) || driver.phone}
                     </span>
+                    {driver.whatsapp ? (
+                      <span className="inline-flex items-center gap-1.5 font-mono">
+                        WhatsApp · {formatBrazilPhone(driver.whatsapp) || driver.whatsapp}
+                      </span>
+                    ) : null}
                     {driver.cpf ? <span className="inline-flex items-center gap-1.5 font-mono">CPF · {formatCpf(driver.cpf) || driver.cpf}</span> : null}
+                    {driver.birth_date ? <span>Nasc. · {driver.birth_date}</span> : null}
                     <span className="inline-flex items-center gap-1.5">
                       <MapPin className="h-3 w-3" /> {driver.city && driver.state ? `${driver.city} - ${driver.state}` : driver.city || driver.state || '—'}
                     </span>
+                    {driver.flux_delivery_driver_id ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Link2 className="h-3 w-3" /> Flux ID {driver.flux_delivery_driver_id}
+                        {driver.flux_delivery_synced_at
+                          ? ` · sync ${new Date(driver.flux_delivery_synced_at).toLocaleString('pt-BR')}`
+                          : ''}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 
@@ -280,56 +327,7 @@ export default function DriverFichaPage() {
             <div className="grid gap-5 lg:grid-cols-3">
               {/* Coluna principal */}
               <div className="space-y-5 lg:col-span-2">
-                {/* Documentação */}
-                <section className="rounded-xl border border-border bg-surface p-5">
-                  <h3 className="mb-3 text-sm font-semibold">Documentação fiscal</h3>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div className="rounded-lg border border-border bg-background p-3">
-                      <div className="mb-1 flex items-center justify-between">
-                        <span className="text-xs font-medium">MEI</span>
-                        <span
-                          className={cn(
-                            'rounded px-1.5 py-0.5 text-[10px] font-medium',
-                            driver.is_mei ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground'
-                          )}
-                        >
-                          {driver.is_mei ? 'Sim' : 'Não'}
-                        </span>
-                      </div>
-                      {driver.is_mei && driver.mei_cnpj ? (
-                        <div className="font-mono text-xs text-muted-foreground">CNPJ · {formatCnpj(driver.mei_cnpj) || driver.mei_cnpj}</div>
-                      ) : null}
-                    </div>
-                    <div className="rounded-lg border border-border bg-background p-3">
-                      <div className="mb-1 flex items-center justify-between">
-                        <span className="inline-flex items-center gap-1.5 text-xs font-medium">
-                          <ShieldCheck className="h-3.5 w-3.5" /> Certificado digital
-                        </span>
-                        <span
-                          className={cn(
-                            'rounded px-1.5 py-0.5 text-[10px] font-medium',
-                            driver.has_digital_certificate ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground'
-                          )}
-                        >
-                          {driver.has_digital_certificate ? 'Ativo' : 'Não'}
-                        </span>
-                      </div>
-                      {driver.has_digital_certificate && driver.digital_certificate_expires_at ? (
-                        <div className="text-xs text-muted-foreground">
-                          Expira em <span className="font-mono text-foreground">{driver.digital_certificate_expires_at}</span>
-                        </div>
-                      ) : null}
-                    </div>
-                    {driver.pix_key ? (
-                      <div className="rounded-lg border border-border bg-background p-3 md:col-span-2">
-                        <div className="mb-1 flex items-center gap-1.5 text-xs font-medium">
-                          <CreditCard className="h-3.5 w-3.5" /> Chave PIX
-                        </div>
-                        <div className="font-mono text-xs text-muted-foreground">{driver.pix_key}</div>
-                      </div>
-                    ) : null}
-                  </div>
-                </section>
+                <DriverDocumentationSection driver={driver} />
 
                 {/* Farmácias vinculadas */}
                 <section className="rounded-xl border border-border bg-surface p-5">
@@ -342,7 +340,7 @@ export default function DriverFichaPage() {
                         <Link
                           key={p.id}
                           href={`/pharmacies/${p.id}`}
-                          className="group flex items-center gap-3 rounded-lg border border-border bg-background p-3 hover:border-primary/40 hover:bg-surface-elevated transition-colors"
+                          className="group flex items-center gap-3 rounded-lg border border-border bg-background p-3 transition-colors hover:border-primary/40 hover:bg-sidebar-accent/40"
                         >
                           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-primary text-primary-foreground">
                             <Building2 className="h-4.5 w-4.5" />
@@ -399,7 +397,7 @@ export default function DriverFichaPage() {
                     <h3 className="mb-3 text-sm font-semibold">Líder responsável</h3>
                     <Link
                       href={`/leaders/${leader.id}`}
-                      className="group flex items-center gap-3 rounded-lg border border-border bg-background p-3 hover:border-primary/40 hover:bg-surface-elevated"
+                      className="group flex items-center gap-3 rounded-lg border border-border bg-background p-3 hover:border-primary/40 hover:bg-sidebar-accent/40"
                     >
                       <div className="flex h-9 w-9 items-center justify-center rounded-full bg-warning/20 text-warning">
                         <Crown className="h-4 w-4" />
