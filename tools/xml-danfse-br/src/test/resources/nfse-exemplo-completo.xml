@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Exemplo FICTICIO completo: exercita tributacao federal, totais aproximados por esfera,
+     intermediario, suspensao de exigibilidade, beneficio municipal e valores apurados do
+     infNFSe (vBC/pAliqAplic/vISSQN/vTotalRet). Nenhum dado real de contribuinte. -->
+<NFSe versao="1.01" xmlns="http://www.sped.fazenda.gov.br/nfse">
+  <infNFSe Id="NFS35503082212345678000199000000000007770000000000000003">
+    <xLocEmi>Sao Paulo</xLocEmi>
+    <xLocPrestacao>Sao Paulo</xLocPrestacao>
+    <nNFSe>777</nNFSe>
+    <cLocIncid>3550308</cLocIncid>
+    <xLocIncid>Sao Paulo</xLocIncid>
+    <xTribNac>Analise e desenvolvimento de sistemas.</xTribNac>
+    <xTribMun>Desenvolvimento de programas de computador sob encomenda.</xTribMun>
+    <xNBS>Servicos de desenho tecnico</xNBS>
+    <verAplic>xml-danfse-br</verAplic>
+    <ambGer>2</ambGer>
+    <tpEmis>1</tpEmis>
+    <procEmi>2</procEmi>
+    <cStat>100</cStat>
+    <dhProc>2026-06-30T10:00:00-03:00</dhProc>
+    <nDFSe>777777</nDFSe>
+    <emit>
+      <CNPJ>12345678000199</CNPJ>
+      <IM>1234567890</IM>
+      <xNome>EMPRESA EXEMPLO LTDA</xNome>
+      <enderNac>
+        <xLgr>Rua das Flores</xLgr>
+        <nro>100</nro>
+        <xCpl>Sala 5</xCpl>
+        <xBairro>Centro</xBairro>
+        <cMun>3550308</cMun>
+        <UF>SP</UF>
+        <CEP>01000000</CEP>
+      </enderNac>
+      <fone>1133334444</fone>
+      <email>contato@empresaexemplo.com.br</email>
+    </emit>
+    <valores>
+      <vCalcDR>10.00</vCalcDR>
+      <tpBM>1</tpBM>
+      <vCalcBM>5.00</vCalcBM>
+      <vBC>240.00</vBC>
+      <pAliqAplic>2.00</pAliqAplic>
+      <vISSQN>4.80</vISSQN>
+      <vTotalRet>13.80</vTotalRet>
+      <vLiq>226.20</vLiq>
+      <xOutInf>Nota fiscal de teste gerada em producao restrita.</xOutInf>
+    </valores>
+    <DPS versao="1.01" xmlns="http://www.sped.fazenda.gov.br/nfse">
+      <infDPS Id="DPS3550308212345678000199000010000000000777">
+        <tpAmb>2</tpAmb>
+        <dhEmi>2026-06-30T09:59:00-03:00</dhEmi>
+        <verAplic>xml-danfse-br</verAplic>
+        <serie>00001</serie>
+        <nDPS>777</nDPS>
+        <dCompet>2026-06-30</dCompet>
+        <tpEmit>1</tpEmit>
+        <cLocEmi>3550308</cLocEmi>
+        <prest>
+          <CNPJ>12345678000199</CNPJ>
+          <IM>1234567890</IM>
+          <fone>1133334444</fone>
+          <email>contato@empresaexemplo.com.br</email>
+          <regTrib>
+            <opSimpNac>1</opSimpNac>
+            <regEspTrib>2</regEspTrib>
+          </regTrib>
+        </prest>
+        <toma>
+          <CNPJ>98765432000188</CNPJ>
+          <IM>9988776655</IM>
+          <xNome>CLIENTE EXEMPLO SA</xNome>
+          <end>
+            <endNac>
+              <cMun>3550308</cMun>
+              <CEP>01001000</CEP>
+            </endNac>
+            <xLgr>Avenida Central</xLgr>
+            <nro>200</nro>
+            <xBairro>Se</xBairro>
+          </end>
+          <fone>1155556666</fone>
+          <email>fiscal@clienteexemplo.com.br</email>
+        </toma>
+        <interm>
+          <CNPJ>11222333000144</CNPJ>
+          <IM>5544332211</IM>
+          <xNome>INTERMEDIARIA EXEMPLO LTDA</xNome>
+          <end>
+            <endNac>
+              <cMun>3550308</cMun>
+              <CEP>01002000</CEP>
+            </endNac>
+            <xLgr>Praca da Matriz</xLgr>
+            <nro>300</nro>
+            <xBairro>Centro</xBairro>
+          </end>
+          <fone>1177778888</fone>
+          <email>contato@intermediariaexemplo.com.br</email>
+        </interm>
+        <serv>
+          <locPrest>
+            <cLocPrestacao>3550308</cLocPrestacao>
+          </locPrest>
+          <cServ>
+            <cTribNac>010101</cTribNac>
+            <cTribMun>001</cTribMun>
+            <xDescServ>Desenvolvimento de modulo de integracao para emissao de notas fiscais de servico eletronicas, incluindo testes automatizados e documentacao tecnica.</xDescServ>
+            <cNBS>123456789</cNBS>
+          </cServ>
+          <infoCompl>
+            <idDocTec>OS-2026-0042</idDocTec>
+            <xInfComp>Pagamento via PIX em ate 5 dias uteis.</xInfComp>
+          </infoCompl>
+        </serv>
+        <valores>
+          <vServPrest>
+            <vServ>250.00</vServ>
+          </vServPrest>
+          <vDescCondIncond>
+            <vDescIncond>10.00</vDescIncond>
+          </vDescCondIncond>
+          <vDedRed>
+            <vDR>10.00</vDR>
+          </vDedRed>
+          <trib>
+            <tribMun>
+              <tribISSQN>1</tribISSQN>
+              <exigSusp>
+                <tpSusp>1</tpSusp>
+                <nProcesso>0012345-67.2026.8.26.0100</nProcesso>
+              </exigSusp>
+              <pAliq>2.00</pAliq>
+              <tpRetISSQN>2</tpRetISSQN>
+            </tribMun>
+            <tribFed>
+              <piscofins>
+                <CST>01</CST>
+                <vBCPisCofins>250.00</vBCPisCofins>
+                <pAliqPis>0.65</pAliqPis>
+                <pAliqCofins>3.00</pAliqCofins>
+                <vPis>1.63</vPis>
+                <vCofins>7.50</vCofins>
+                <tpRetPisCofins>2</tpRetPisCofins>
+              </piscofins>
+              <vRetCP>2.75</vRetCP>
+              <vRetIRRF>3.75</vRetIRRF>
+              <vRetCSLL>2.50</vRetCSLL>
+            </tribFed>
+            <totTrib>
+              <vTotTrib>
+                <vTotTribFed>33.13</vTotTribFed>
+                <vTotTribEst>0.00</vTotTribEst>
+                <vTotTribMun>4.80</vTotTribMun>
+              </vTotTrib>
+            </totTrib>
+          </trib>
+        </valores>
+      </infDPS>
+    </DPS>
+  </infNFSe>
+</NFSe>

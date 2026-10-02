@@ -1,0 +1,7 @@
+# Portal-patched xml-danfse-br CLI (optional local/dev copy).
+# Production image builds the jar from tools/xml-danfse-br in Docker.
+# Rebuild: cd tools/xml-danfse-br && mvn -Pcli -DskipTests package
+# Then: copy target/xml-danfse-br-cli.jar here.
+*
+!.gitignore
+!README.md
