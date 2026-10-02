@@ -7,6 +7,9 @@
 **/dist
 **/coverage
 *.md
+!tools/xml-danfse-br/NOTICE.md
+!tools/xml-danfse-br/THIRD-PARTY.md
+!apps/api-service/vendor/xml-danfse-br/README.md
 .env
 .env.*
 !.env.example

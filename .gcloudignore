@@ -15,6 +15,8 @@ apps/*
 !apps/web/**
 !apps/scheduler-service
 !apps/scheduler-service/**
+!apps/campaign-worker
+!apps/campaign-worker/**
 apps/web/node_modules/**
 apps/web/.next/**
 apps/web/.next_local/**
@@ -44,6 +46,21 @@ packages/*
 !packages/ai-core/**
 !packages/operational-notes
 !packages/operational-notes/**
+!packages/financial-cycle
+!packages/financial-cycle/**
+!packages/ops-task-catalog
+!packages/ops-task-catalog/**
+!packages/billing-engine
+!packages/billing-engine/**
+!packages/flux-delivery
+!packages/flux-delivery/**
+
+!tools
+tools/*
+!tools/xml-danfse-br
+!tools/xml-danfse-br/**
+tools/xml-danfse-br/target/**
+tools/xml-danfse-br/.git/**
 
 !deploy
 deploy/*
@@ -54,16 +71,22 @@ deploy/*
 !deploy/cloudbuild-governance-check.yaml
 !deploy/cloudbuild-flux-farma-api-gated.yaml
 !deploy/cloudbuild-flux-farma-scheduler.yaml
+!deploy/cloudbuild-flux-farma-campaign.yaml
 !deploy/dockerfiles
 !deploy/dockerfiles/api.Dockerfile
 !deploy/dockerfiles/orchestrator.Dockerfile
 !deploy/dockerfiles/webhook.Dockerfile
 !deploy/dockerfiles/scheduler.Dockerfile
+!deploy/dockerfiles/campaign.Dockerfile
 
 !scripts
 scripts/*
-!scripts/prepare-web-standalone.mjs
-!scripts/audit-workspace-guards.mjs
-!scripts/audit-automation-governance.mjs
+!scripts/deploy
+!scripts/deploy/prepare-web-standalone.mjs
+!scripts/deploy/overlay-financial-entries-fix
+!scripts/deploy/overlay-financial-entries-fix/**
+!scripts/smoke
+!scripts/smoke/audit-workspace-guards.mjs
+!scripts/smoke/audit-automation-governance.mjs
 !scripts/lib
 !scripts/lib/**

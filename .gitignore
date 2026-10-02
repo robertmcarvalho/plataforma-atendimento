@@ -13,11 +13,56 @@ build/
 coverage/
 .secrets/
 !.secrets/README.md
-reports/
+reports/*
+!reports/README.md
+scripts/gcp/backups/
 .run-logs/
 .npm-cache/
-project-revive-main/
 scratch/
+
+# Temporários locais
+.tmp-*
+.tmp-smoke.txt
+
+# Fork DANFSe (build Maven / fat-jar)
+tools/xml-danfse-br/target/
+
+# Artefatos locais / POCs / projetos fora do monorepo
+tmp/
+scripts/one-off/
+scripts/reports/
+scripts/tmp-*
+Project Revive/
+dash_dre_flux/
+*-password-reset.txt
+
+# Build outputs / binários
+target/
+*.jar
+*.class
+*.pyc
+**/__pycache__/
+*.bak
+*.tgz
+*.tsbuildinfo
+
+# Artefatos de debug (proposta comercial)
+apps/api-service/assets/debug-*
+apps/api-service/assets/royal-farma-preview.html
+
+# Documentos de negócio na raiz (usar storage externo)
+/*.docx
+/*.pdf
+/*.xlsx
+/*.zip
+/*.PDF
+/*.csv
+/*.xls
+/*.xml
+/2026-*
+/ERROR
+!apps/api-service/assets/**
+apps/api-service/assets/Proposta_*.docx
 supabase_status.txt
 lint_output.txt
 .git_new/
@@ -29,6 +74,11 @@ supabase/.branches/
 .deploy-tag.txt
 *.pem
 *.key
+*.pfx
+*.p12
+*.crt
+*.cer
+*.jks
 credentials*.json
 **/credentials.json
 
