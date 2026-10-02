@@ -125,22 +125,33 @@ export function normalizeBusinessHours(raw: unknown, fallbackTz = 'America/Sao_P
   };
 }
 
+function parseIntervalPair(startRaw: unknown, endRaw: unknown): BusinessHoursInterval | null {
+  const start = String(startRaw || '').trim();
+  const end = String(endRaw || '').trim();
+  if (!/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end)) return null;
+  return { start, end };
+}
+
+function intervalsFromDayObject(o: Record<string, unknown>): BusinessHoursInterval[] {
+  if (Array.isArray(o.intervals)) {
+    const parsed = (o.intervals as unknown[])
+      .map((iv) => {
+        if (!iv || typeof iv !== 'object') return null;
+        const x = iv as Record<string, unknown>;
+        return parseIntervalPair(x.start, x.end);
+      })
+      .filter(Boolean) as BusinessHoursInterval[];
+    if (parsed.length) return parsed;
+  }
+  const flat = parseIntervalPair(o.start ?? o.inicio, o.end ?? o.fim);
+  return flat ? [flat] : [];
+}
+
 function normalizeDay(day: unknown): DaySchedule {
   if (!day || typeof day !== 'object') return closedDay();
   const o = day as Record<string, unknown>;
-  const isOpen = o.is_open !== false;
-  const intervals = Array.isArray(o.intervals)
-    ? (o.intervals as unknown[])
-        .map((iv) => {
-          if (!iv || typeof iv !== 'object') return null;
-          const x = iv as Record<string, unknown>;
-          const start = String(x.start || '').trim();
-          const end = String(x.end || '').trim();
-          if (!/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end)) return null;
-          return { start, end };
-        })
-        .filter(Boolean) as BusinessHoursInterval[]
-    : [];
+  const isOpen = o.is_open !== false && o.ativo !== false;
+  const intervals = intervalsFromDayObject(o);
   if (!isOpen || intervals.length === 0) return { is_open: false, intervals: [] };
   return { is_open: true, intervals: mergeIntervals(intervals) };
 }
@@ -189,22 +200,47 @@ function parseHM(s: string): number {
   return h * 60 + m;
 }
 
+/** Fim exclusivo em minutos. `00:00` após um início diurno = meia-noite (24:00). */
+function endMinutesExclusive(end: string, start: string): number {
+  const sm = parseHM(start);
+  if (end === '00:00' && sm > 0) return 24 * 60;
+  return parseHM(end);
+}
+
+export function isValidBusinessInterval(start: string, end: string): boolean {
+  if (!/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end)) return false;
+  const sm = parseHM(start);
+  const em = parseHM(end);
+  if (end === '00:00' && sm > 0) return true;
+  if (em > sm) return true;
+  if (em < sm) return true;
+  return false;
+}
+
+export function isMinuteWithinBusinessInterval(cur: number, start: string, end: string): boolean {
+  const sm = parseHM(start);
+  const emEx = endMinutesExclusive(end, start);
+  if (end === '00:00' && sm > 0) return cur >= sm && cur < emEx;
+  const em = parseHM(end);
+  if (em > sm) return cur >= sm && cur < em;
+  return cur >= sm || cur < em;
+}
+
 function mergeIntervals(intervals: BusinessHoursInterval[]): BusinessHoursInterval[] {
   const sorted = [...intervals].sort((a, b) => parseHM(a.start) - parseHM(b.start));
   const out: BusinessHoursInterval[] = [];
   for (const iv of sorted) {
+    if (!isValidBusinessInterval(iv.start, iv.end)) continue;
     const sm = parseHM(iv.start);
-    const em = parseHM(iv.end);
-    if (!(sm < em)) continue;
+    const emEx = endMinutesExclusive(iv.end, iv.start);
     if (!out.length) {
       out.push({ ...iv });
       continue;
     }
     const last = out[out.length - 1]!;
-    const lsm = parseHM(last.start);
-    const lem = parseHM(last.end);
-    if (sm <= lem) {
-      last.end = parseHM(iv.end) > lem ? iv.end : last.end;
+    const lemEx = endMinutesExclusive(last.end, last.start);
+    if (sm <= lemEx) {
+      if (emEx > lemEx) last.end = iv.end;
     } else {
       out.push({ ...iv });
     }
@@ -313,23 +349,27 @@ export function isOpen(config: BusinessHoursConfig | null | undefined, date: Dat
   if (!day.is_open || day.intervals.length === 0) return false;
   const cur = parts.hour * 60 + parts.minute;
   for (const iv of day.intervals) {
-    const sm = parseHM(iv.start);
-    const em = parseHM(iv.end);
-    if (cur >= sm && cur < em) return true;
+    if (isMinuteWithinBusinessInterval(cur, iv.start, iv.end)) return true;
   }
   return false;
 }
 
 export function formatNextOpenHuman(config: BusinessHoursConfig, next: Date, locale = 'pt-BR'): string {
   try {
-    return new Intl.DateTimeFormat(locale, {
-      timeZone: config.timezone,
-      weekday: 'short',
-      day: '2-digit',
-      month: '2-digit',
+    const tz = config.timezone;
+    const weekday = new Intl.DateTimeFormat(locale, { timeZone: tz, weekday: 'long' }).format(next);
+    const day = new Intl.DateTimeFormat(locale, { timeZone: tz, day: 'numeric' }).format(next);
+    const month = new Intl.DateTimeFormat(locale, { timeZone: tz, month: 'long' }).format(next);
+    const parts = new Intl.DateTimeFormat(locale, {
+      timeZone: tz,
       hour: '2-digit',
       minute: '2-digit',
-    }).format(next);
+      hour12: false,
+    }).formatToParts(next);
+    const hour = parts.find((p) => p.type === 'hour')?.value ?? '00';
+    const minute = parts.find((p) => p.type === 'minute')?.value ?? '00';
+    const timeLabel = minute === '00' ? `${hour}h00` : `${hour}h${minute}`;
+    return `${weekday}, ${day} de ${month}, às ${timeLabel}`;
   } catch {
     return next.toISOString();
   }
@@ -354,13 +394,16 @@ export function nextOpenAt(config: BusinessHoursConfig | null | undefined, fromU
     if (daySched.is_open && daySched.intervals.length > 0) {
       const sorted = [...daySched.intervals].sort((a, b) => parseHM(a.start) - parseHM(b.start));
       for (const iv of sorted) {
+        if (!isValidBusinessInterval(iv.start, iv.end)) continue;
         const sm = parseHM(iv.start);
-        const em = parseHM(iv.end);
-        if (!(sm < em)) continue;
+        const emEx = endMinutesExclusive(iv.end, iv.start);
         if (curMin < sm) {
           return zonedLocalToUtc(parts.year, parts.month, parts.day, Math.floor(sm / 60), sm % 60, tz);
         }
-        if (curMin < em) {
+        if (isMinuteWithinBusinessInterval(curMin, iv.start, iv.end)) {
+          return t;
+        }
+        if (curMin < emEx) {
           return t;
         }
       }
@@ -415,9 +458,9 @@ export function addBusinessMinutes(
 
     let advanced = false;
     for (const iv of sorted) {
+      if (!isValidBusinessInterval(iv.start, iv.end)) continue;
       const sm = parseHM(iv.start);
-      const em = parseHM(iv.end);
-      if (!(sm < em)) continue;
+      const emEx = endMinutesExclusive(iv.end, iv.start);
 
       if (curMin < sm) {
         cursor = zonedLocalToUtc(parts.year, parts.month, parts.day, Math.floor(sm / 60), sm % 60, c.timezone);
@@ -425,8 +468,8 @@ export function addBusinessMinutes(
         break;
       }
 
-      if (curMin >= sm && curMin < em) {
-        const left = em - curMin;
+      if (isMinuteWithinBusinessInterval(curMin, iv.start, iv.end)) {
+        const left = emEx - curMin;
         const take = Math.min(remaining, left);
         remaining -= take;
         cursor = new Date(cursor.getTime() + take * 60000);

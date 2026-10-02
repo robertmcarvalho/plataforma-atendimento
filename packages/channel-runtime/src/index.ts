@@ -33,14 +33,69 @@ export {
   serializeChannelMessagesForConfig,
   validateChannelIntakeMessages,
   applyMessageReplacements,
+  DEFAULT_OUT_OF_HOURS_MESSAGE,
+  LEGACY_OUT_OF_HOURS_MESSAGES,
 } from './channelMessages';
+export { formatNextOpenHuman } from './businessHours';
+export { metaWebhookTimestampToIso } from './metaTimestamp';
 export {
   buildChannelOutOfHoursText,
   channelConfigToBusinessHours,
   isChannelOpenNow,
   isEdgeOutOfHoursReplyEnabled,
   sendWhatsAppTextViaChannel,
+  sendWhatsAppListViaChannel,
+  sendWhatsAppInteractiveViaChannel,
   tryEdgeOutOfHoursReply,
   tryWebhookEdgeOutOfHoursReply,
   type EdgeOutOfHoursResult,
 } from './channelOutOfHours';
+export {
+  CSAT_LIST_BUTTON_LABEL,
+  CSAT_LIST_SECTION_TITLE,
+  CSAT_ROW_ID_PREFIX,
+  CSAT_SCORE_LIST_ROWS,
+  extractInteractiveReplyId,
+  findPendingCsatDispatch,
+  hasCsatSentThisMonthForSector,
+  currentMonthKey,
+  monthKeyForIso,
+  monthStartIso,
+  parseCsatScore,
+  parseCsatScoreFromMessage,
+  extractInboundMessageText,
+  type ContactCsatDispatchRow,
+} from './csatRuntime';
+export { canonicalBrazilWaPhone, onlyDigits, waPhoneLookupVariants } from './waPhone';
+export {
+  findOpenConversationForContact,
+  findReopenableConversationForContact,
+  mergeDuplicateOpenConversations,
+  isUniqueOpenConversationViolation,
+  type ConversationRecord,
+} from './resolveConversation';
+export {
+  MESSAGE_MEDIA_BUCKET,
+  META_WHATSAPP_UPLOAD_MIMES,
+  buildInboundMediaFileName,
+  detectMessageTypeFromMime,
+  resolveOutboundUploadMime,
+  extractInboundDisplayContent,
+  extractInboundMediaRef,
+  fetchMetaMediaBuffer,
+  isMediaMessageType,
+  isMetaWhatsAppUploadMime,
+  normalizeMimeType,
+  uploadMessageMediaToStorage,
+  ensureMessageMediaBucket,
+  type InboundMediaRef,
+} from './whatsappMedia';
+export {
+  buildCatalogGuidedIntakeV2Graph,
+  buildTriagemPorPerfilV2Graph,
+  compileFlowGraphToV2,
+  compileReviveBlocosToV2,
+  graphHasUserFacingSteps,
+  isSkeletonFlowGraph,
+  type V2FlowGraph,
+} from './flowGraphCompile';

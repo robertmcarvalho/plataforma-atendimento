@@ -1,15 +1,13 @@
 {
-  "name": "@plataforma/operational-notes",
+  "name": "@plataforma/billing-engine",
   "version": "1.0.0",
   "private": true,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "lint": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.43.4"
+    "lint": "tsc --noEmit",
+    "test": "npm run build && node --test dist/tests/settlement.test.js"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

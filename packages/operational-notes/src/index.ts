@@ -1,3 +1,13 @@
+export * from './constants';
+export * from './driverDocumentExpiry';
+export * from './templateBodyResolve';
+export * from './autentiqueSignature';
+export * from './autentiqueClient';
+export * from './signatureSyncCore';
+export * from './gestorScope';
+export * from './gestorSectorResolve';
+export * from './systemNoteAuthor';
+
 export type QueueSlaDeadlines = {
   first?: Date | string | null;
   treatment?: Date | string | null;
@@ -55,8 +65,32 @@ export function formatQueueSlaEscalationNote(): string {
   return 'Escalonamento automático para supervisão após vencimento do SLA de tratamento.';
 }
 
-export function formatTriagemGuidadaNote(profile: string, sectorName: string, demandTitle: string, demandId: string): string {
-  return `Triagem guiada concluída: perfil ${profile}, setor ${sectorName}, demanda ${demandTitle} (${demandId}).`;
+export function formatTriagemGuidadaNote(profile: string, sectorName: string, demandTitle: string, _demandId?: string): string {
+  return `Triagem guiada concluída: perfil ${profile}, setor ${sectorName}, demanda ${demandTitle}.`;
+}
+
+/** Nota única ao concluir triagem (SLA + resumo). */
+export function formatTriagemCompleteNote(input: {
+  profile: string;
+  sectorName: string;
+  demandTitle: string;
+  nodeLabel: string;
+  firstMin: number;
+  treatmentMin: number;
+  resolutionMin: number;
+  deadlines: QueueSlaDeadlines;
+  businessHours: boolean;
+}): string {
+  const slaBlock = formatQueueSlaAppliedNote({
+    nodeLabel: input.nodeLabel,
+    firstMin: input.firstMin,
+    treatmentMin: input.treatmentMin,
+    resolutionMin: input.resolutionMin,
+    deadlines: input.deadlines,
+    businessHours: input.businessHours,
+  });
+  const summary = formatTriagemGuidadaNote(input.profile, input.sectorName, input.demandTitle);
+  return `${summary}\n\n${slaBlock}`;
 }
 
 /** Converte notas legadas `[Queue SLA]` / `[Triagem guiada]` para texto operacional. */

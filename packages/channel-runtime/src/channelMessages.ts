@@ -21,6 +21,7 @@ export const CHANNEL_INTAKE_MESSAGE_KEYS = [
   'driver_greeting_list',
   'pharmacy_greeting_list',
   'leader_greeting_list',
+  'partner_greeting_list',
   'ask_intent_invalid',
   'leader_ask_pharmacy_numbered',
   'leader_ask_pharmacy',
@@ -60,6 +61,7 @@ export const INTAKE_MESSAGE_LABELS: Record<
   driver_greeting_list: { label: 'Boas-vindas — lista de setores (entregador)', section: 'welcome' },
   pharmacy_greeting_list: { label: 'Boas-vindas — farmácia', section: 'welcome' },
   leader_greeting_list: { label: 'Boas-vindas — líder (legado)', section: 'welcome', optional: true },
+  partner_greeting_list: { label: 'Boas-vindas — parceiro', section: 'welcome' },
   leader_greeting_pharmacy: { label: 'Boas-vindas — líder escolhe farmácia', section: 'welcome' },
   ask_intent_invalid: { label: 'Setor inválido', optional: true, section: 'sector' },
   ask_driver_name: { label: 'Pergunta nome completo', section: 'collect' },
@@ -92,6 +94,22 @@ export const CHANNEL_MESSAGE_KEY_ALIASES: Record<string, ChannelOperationalMessa
   out_of_hours: 'out_of_hours',
 };
 
+/** Textos legados substituídos pela mensagem padrão atual (migration / backfill). */
+export const LEGACY_OUT_OF_HOURS_MESSAGES = [
+  'Obrigado pelo contato. No momento estamos fora do horario de atendimento. Voltamos em {{next_open_at}}.',
+  'Obrigado pelo contato. No momento estamos fora do horário de atendimento. Voltamos em {{next_open_at}}.',
+] as const;
+
+export const DEFAULT_OUT_OF_HOURS_MESSAGE = [
+  'Olá! Obrigado pelo contato.',
+  '',
+  'No momento estamos fora do horário de atendimento.',
+  '',
+  'Retornamos na {{next_open_at}}.',
+  '',
+  'Pode deixar sua mensagem aqui — responderemos assim que voltarmos.',
+].join('\n');
+
 const REQUIRED_INTAKE_KEYS: ChannelIntakeMessageKey[] = CHANNEL_INTAKE_MESSAGE_KEYS.filter(
   (k) => !INTAKE_MESSAGE_LABELS[k]?.optional
 );
@@ -99,7 +117,7 @@ const REQUIRED_INTAKE_KEYS: ChannelIntakeMessageKey[] = CHANNEL_INTAKE_MESSAGE_K
 export function defaultChannelOperationalMessages(): ChannelOperationalMessages {
   return {
     greeting: 'Olá! Como podemos ajudar hoje?',
-    out_of_hours: 'Estamos fora do horário de atendimento. Retornaremos no próximo turno.',
+    out_of_hours: DEFAULT_OUT_OF_HOURS_MESSAGE,
     queue_full: 'Nossa fila está com alto volume. Você está na lista e retornaremos em instantes.',
     closing: 'Atendimento encerrado. Obrigado pelo contato!',
     csat: 'De 1 a 5, como você avalia nosso atendimento?',
@@ -120,6 +138,8 @@ export function defaultChannelIntakeMessages(): ChannelIntakeMessages {
       'Olá! Como posso te ajudar? Toque em Ver setores e escolha o tipo de atendimento:',
     pharmacy_greeting_list: 'Olá! Escolha o setor macro e depois o tipo de demanda.',
     leader_greeting_list: 'Olá! Escolha o setor para encaminhamento:',
+    partner_greeting_list:
+      'Olá! Escolha o setor para seu atendimento. Toque em Ver setores e selecione a área:',
     leader_greeting_pharmacy:
       'Olá! Sobre qual farmácia você quer falar? Toque em Ver opções ou responda com o número da opção.',
     leader_ask_about_driver: 'O assunto é sobre algum entregador desta farmácia?',

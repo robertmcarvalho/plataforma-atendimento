@@ -56,6 +56,65 @@ export function buildChannelOutOfHoursText(channelConfig: Record<string, unknown
   return applyMessageReplacements(base, { next_open_at: human });
 }
 
+export async function sendWhatsAppInteractiveViaChannel(
+  channel: ResolvedChannel,
+  toWaPhone: string,
+  payload: Record<string, unknown>
+): Promise<void> {
+  const token = String(channel.credentials.access_token || '').trim();
+  const phoneNumberId = String(channel.external_id || channel.credentials.phone_number_id || '').trim();
+  const to = String(toWaPhone || '').replace(/\D/g, '');
+  if (!token || !phoneNumberId || !to) {
+    throw new Error('Canal WhatsApp incompleto para envio (token, phone_number_id ou destino).');
+  }
+
+  const url = `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      ...payload,
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Meta API ${res.status}: ${errText.slice(0, 240)}`);
+  }
+}
+
+export async function sendWhatsAppListViaChannel(
+  channel: ResolvedChannel,
+  toWaPhone: string,
+  bodyText: string,
+  buttonLabel: string,
+  sectionTitle: string,
+  rows: Array<{ id: string; title: string; description?: string }>
+): Promise<void> {
+  const limited = rows.slice(0, 10).map((r) => ({
+    id: r.id.slice(0, 200),
+    title: r.title.slice(0, 24),
+    ...(r.description ? { description: r.description.slice(0, 72) } : {}),
+  }));
+  await sendWhatsAppInteractiveViaChannel(channel, toWaPhone, {
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      body: { text: bodyText.slice(0, 1024) },
+      action: {
+        button: buttonLabel.slice(0, 20),
+        sections: [{ title: sectionTitle.slice(0, 24), rows: limited }],
+      },
+    },
+  });
+}
+
 export async function sendWhatsAppTextViaChannel(
   channel: ResolvedChannel,
   toWaPhone: string,
@@ -97,7 +156,7 @@ export type EdgeOutOfHoursResult =
       message_preview: string;
     };
 
-/** Resposta automática na borda (webhook) quando o canal está fora do horário. */
+/** Resposta automática na borda (webhook) — DEPRECATED: não enviar; OOH centralizado no orchestrator. */
 export async function tryEdgeOutOfHoursReply(args: {
   channel: ResolvedChannel;
   toWaPhone: string;

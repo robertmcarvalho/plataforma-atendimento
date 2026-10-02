@@ -9,6 +9,8 @@ export type AiFeaturesConfig = {
   inbound_assist: boolean;
   nps_predicted: boolean;
   topic_clustering: boolean;
+  /** Score comercial de leads via Gemini (CRM). */
+  commercial_lead_scoring: boolean;
 };
 
 export const DEFAULT_AI_FEATURES: AiFeaturesConfig = {
@@ -18,6 +20,7 @@ export const DEFAULT_AI_FEATURES: AiFeaturesConfig = {
   inbound_assist: true,
   nps_predicted: true,
   topic_clustering: true,
+  commercial_lead_scoring: true,
 };
 
 function parseStoredValue(raw: unknown): Partial<AiFeaturesConfig> {
@@ -39,6 +42,7 @@ function parseStoredValue(raw: unknown): Partial<AiFeaturesConfig> {
   if (typeof o.inbound_assist === 'boolean') out.inbound_assist = o.inbound_assist;
   if (typeof o.nps_predicted === 'boolean') out.nps_predicted = o.nps_predicted;
   if (typeof o.topic_clustering === 'boolean') out.topic_clustering = o.topic_clustering;
+  if (typeof o.commercial_lead_scoring === 'boolean') out.commercial_lead_scoring = o.commercial_lead_scoring;
   return out;
 }
 

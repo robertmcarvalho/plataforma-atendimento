@@ -18,7 +18,7 @@ function cleanText(raw: unknown): string {
   return String(raw ?? '').replace(/\s+/g, ' ').trim();
 }
 
-export type InboundAiReason = 'first_message' | 'reopened' | 'transferred';
+export type InboundAiReason = 'first_message' | 'reopened' | 'transferred' | 'portal_first_message' | 'sentiment_backfill';
 
 export type RunInboundAiAnalysisArgs = {
   conversationId: string;

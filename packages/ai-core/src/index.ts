@@ -4,3 +4,4 @@ export * from './aiTopics';
 export * from './aiFeaturesConfig';
 export * from './runInboundAiAnalysis';
 export * from './runNpsOnConversationResolved';
+export * from './runCommercialLeadScoring';

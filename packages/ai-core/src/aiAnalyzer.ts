@@ -26,6 +26,15 @@ export type TopicNameResult = {
   name: string;
 };
 
+export type CommercialLeadScoreTemperature = 'frio' | 'morno' | 'quente' | 'urgente';
+
+export type CommercialLeadScoreResult = {
+  score: number;
+  temperature: CommercialLeadScoreTemperature;
+  explanation: string;
+  signals?: string[];
+};
+
 const sentimentUrgencySchemaZ = z.object({
   sentiment: z.enum(['positivo', 'neutro', 'negativo']),
   sentimentScore: z.coerce.number(),
@@ -40,6 +49,13 @@ const npsSchemaZ = z.object({
 
 const topicNameSchemaZ = z.object({
   name: z.string().min(2).max(120),
+});
+
+const commercialLeadScoreSchemaZ = z.object({
+  score: z.coerce.number(),
+  temperature: z.enum(['frio', 'morno', 'quente', 'urgente']),
+  explanation: z.string().min(4).max(500),
+  signals: z.array(z.string()).optional(),
 });
 
 const sentimentUrgencyResponseSchema: GeminiResponseSchema = {
@@ -68,6 +84,21 @@ const topicNameResponseSchema: GeminiResponseSchema = {
     name: { type: 'STRING', description: 'Nome curto do topico em pt-BR, maximo 80 caracteres' },
   },
   required: ['name'],
+};
+
+const commercialLeadScoreResponseSchema: GeminiResponseSchema = {
+  type: 'OBJECT',
+  properties: {
+    score: { type: 'NUMBER', description: 'Probabilidade de conversao 0 a 100 (inteiro)' },
+    temperature: { type: 'STRING', enum: ['frio', 'morno', 'quente', 'urgente'] },
+    explanation: { type: 'STRING', description: 'Resumo curto em pt-BR para o vendedor' },
+    signals: {
+      type: 'ARRAY',
+      items: { type: 'STRING' },
+      description: 'Sinais objetivos que justificam o score',
+    },
+  },
+  required: ['score', 'temperature', 'explanation'],
 };
 
 function clamp01(n: number): number {
@@ -239,6 +270,60 @@ export async function nameTopicFromExamples(samples: string[], apiKey?: string |
         continue;
       }
       return { name: name.slice(0, 80) };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
+/**
+ * Score comercial de lead (0-100) + temperatura com base na ficha, atividades e conversa.
+ */
+export async function predictCommercialLeadScore(
+  contextText: string,
+  apiKey?: string | null,
+): Promise<CommercialLeadScoreResult> {
+  const key = apiKey ?? resolveGeminiApiKey();
+  if (!key) throw new Error('Gemini nao configurado (GOOGLE_API_KEY ou GEMINI_API_KEY).');
+
+  const models = uniqueModels(resolveGeminiModel(), resolveGeminiFallbackModels());
+  const userText = truncate(contextText, 12000);
+  const systemInstruction = [
+    'Voce e analista comercial de prospeccao B2B para operacao de delivery de farmacias.',
+    'Avalie a probabilidade de fechamento do lead (score 0-100) e a temperatura do engajamento.',
+    'Use apenas os dados fornecidos; nao invente fatos.',
+    'temperature: frio (baixo interesse), morno (interesse moderado), quente (alto interesse), urgente (decisao iminente ou pedido explicito de proposta).',
+    'score inteiro de 0 a 100.',
+    'explanation: 1-2 frases objetivas em pt-BR para o vendedor.',
+  ].join('\n');
+
+  let lastErr: unknown = null;
+  for (const model of models) {
+    try {
+      const { json } = await geminiGenerateJson({
+        apiKey: key,
+        model,
+        systemInstruction,
+        userText,
+        responseSchema: commercialLeadScoreResponseSchema,
+        maxOutputTokens: 512,
+        temperature: 0.3,
+      });
+      const parsed = commercialLeadScoreSchemaZ.safeParse(json);
+      if (!parsed.success) {
+        lastErr = parsed.error;
+        continue;
+      }
+      let score = Math.round(parsed.data.score);
+      if (!Number.isFinite(score)) score = 0;
+      score = Math.min(100, Math.max(0, score));
+      return {
+        score,
+        temperature: parsed.data.temperature,
+        explanation: parsed.data.explanation.trim(),
+        signals: parsed.data.signals?.map((s) => s.trim()).filter(Boolean),
+      };
     } catch (e) {
       lastErr = e;
     }
