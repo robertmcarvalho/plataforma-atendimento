@@ -1,14 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { MapPin, Search } from 'lucide-react';
 import { UseQueryResult } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { BrCepInput } from '@/components/form/BrInputs';
 import { CadastroField } from '@/components/cadastro/CadastroPrimitives';
+import { FormControl, formControlSizes } from '@/components/form/FormControl';
+import { FormSelect } from '@/components/form/FormSelect';
+import { Button } from '@/components/ui/button';
 import { onlyDigits } from '@/lib/brFormat';
 import {
   cityMatchesIbge,
+  resolveCityIbgeCode,
   type ApiCity,
   type CepLookupResult,
 } from '@/lib/pharmacyAddress';
@@ -24,6 +28,8 @@ export type PharmacyAddressValues = {
   complement: string;
   city: string;
   state: string;
+  /** Preenchido automaticamente via ViaCEP / catálogo IBGE (UF+cidade). */
+  ibge_city_code?: string;
 };
 
 type Props = {
@@ -34,6 +40,11 @@ type Props = {
   disabled?: boolean;
   onLookupMessage?: (msg: string | null) => void;
 };
+
+function normalizeIbge(raw: string | null | undefined): string {
+  const digits = onlyDigits(raw || '').slice(0, 7);
+  return digits.length === 7 ? digits : '';
+}
 
 export function PharmacyAddressFields({
   values,
@@ -47,9 +58,11 @@ export function PharmacyAddressFields({
   const [addressManualMode, setAddressManualMode] = useState(false);
   const [addressHint, setAddressHint] = useState<string | null>(null);
 
-  const cities = citiesQuery.data || [];
+  const cities = useMemo(() => citiesQuery.data || [], [citiesQuery.data]);
   const useCitySelect =
-    !addressManualMode && Boolean(values.state) && cities.length > 0 && cityMatchesIbge(values.city, cities);
+    !addressManualMode &&
+    Boolean(values.state) &&
+    (!values.city.trim() || cityMatchesIbge(values.city, cities));
 
   const enableManual = useCallback(
     (hint: string) => {
@@ -84,7 +97,6 @@ export function PharmacyAddressFields({
       if (data?.complement) patch.complement = String(data.complement);
       if (data?.state) patch.state = String(data.state);
       if (data?.city) patch.city = String(data.city);
-      onChange(patch);
 
       const nextState = patch.state || values.state;
       const nextCity = patch.city || values.city;
@@ -93,6 +105,7 @@ export function PharmacyAddressFields({
         return;
       }
 
+      let ibge = normalizeIbge(data?.ibge);
       if (nextState) {
         let ibgeCities = cities;
         if (patch.state && patch.state !== values.state) {
@@ -104,10 +117,15 @@ export function PharmacyAddressFields({
         }
         if (!cityMatchesIbge(nextCity, ibgeCities)) {
           enableManual('Cidade do CEP não está no catálogo IBGE. Confirme ou edite o nome da cidade.');
+          if (ibge) patch.ibge_city_code = ibge;
+          onChange(patch);
           return;
         }
+        if (!ibge) ibge = normalizeIbge(resolveCityIbgeCode(nextCity, ibgeCities));
       }
+      if (ibge) patch.ibge_city_code = ibge;
 
+      onChange(patch);
       setAddressManualMode(false);
       setAddressHint(null);
       onLookupMessage?.(null);
@@ -128,8 +146,15 @@ export function PharmacyAddressFields({
     }
   }, [values.state, values.city, cities, addressManualMode]);
 
-  const inputClass =
-    'h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50 disabled:opacity-50';
+  // Backfill IBGE quando a lista da UF chega e o código ainda está vazio (ex.: edição).
+  // Não depende de onChange para evitar loop; não regrava se o usuário limpar o campo.
+  useEffect(() => {
+    if (!values.city.trim() || !cities.length) return;
+    if (normalizeIbge(values.ibge_city_code)) return;
+    const resolved = normalizeIbge(resolveCityIbgeCode(values.city, cities));
+    if (resolved) onChange({ ibge_city_code: resolved });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- só reagir a cidade/lista IBGE
+  }, [values.city, values.ibge_city_code, cities]);
 
   return (
     <div className="grid gap-4 md:grid-cols-2">
@@ -138,21 +163,20 @@ export function PharmacyAddressFields({
           <BrCepInput
             value={values.cep}
             onChange={(digits) => onChange({ cep: digits })}
-            className="w-full"
+            className={cn(formControlSizes.lg, 'w-full')}
             placeholder="00000-000"
             disabled={disabled}
           />
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={() => void lookupCep()}
             disabled={disabled || cepLoading}
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs text-muted-foreground hover:text-foreground hover:bg-surface-hover',
-              (disabled || cepLoading) && 'opacity-50 pointer-events-none'
-            )}
+            className="gap-1.5"
           >
             <Search className="h-3.5 w-3.5" /> {cepLoading ? '...' : 'Buscar'}
-          </button>
+          </Button>
         </div>
       </CadastroField>
       <div />
@@ -162,75 +186,58 @@ export function PharmacyAddressFields({
         </div>
       ) : null}
       <CadastroField icon={MapPin} label="Logradouro">
-        <input
-          value={values.street}
-          onChange={(e) => onChange({ street: e.target.value })}
-          disabled={disabled}
-          className={inputClass}
-        />
+        <FormControl inputSize="lg" value={values.street} onChange={(e) => onChange({ street: e.target.value })} disabled={disabled} />
       </CadastroField>
       <CadastroField icon={MapPin} label="Número">
-        <input
-          value={values.number}
-          onChange={(e) => onChange({ number: e.target.value })}
-          disabled={disabled}
-          className={inputClass}
-        />
+        <FormControl inputSize="lg" value={values.number} onChange={(e) => onChange({ number: e.target.value })} disabled={disabled} />
       </CadastroField>
       <CadastroField icon={MapPin} label="Bairro">
-        <input
-          value={values.neighborhood}
-          onChange={(e) => onChange({ neighborhood: e.target.value })}
-          disabled={disabled}
-          className={inputClass}
-        />
+        <FormControl inputSize="lg" value={values.neighborhood} onChange={(e) => onChange({ neighborhood: e.target.value })} disabled={disabled} />
       </CadastroField>
       <CadastroField icon={MapPin} label="Complemento">
-        <input
-          value={values.complement}
-          onChange={(e) => onChange({ complement: e.target.value })}
-          disabled={disabled}
-          className={inputClass}
-        />
+        <FormControl inputSize="lg" value={values.complement} onChange={(e) => onChange({ complement: e.target.value })} disabled={disabled} />
       </CadastroField>
       <CadastroField icon={MapPin} label="Estado">
-        <select
+        <FormSelect
           value={values.state}
-          onChange={(e) => {
-            onChange({ state: e.target.value, city: '' });
+          onChange={(v) => {
+            onChange({ state: v, city: '', ibge_city_code: '' });
             setAddressManualMode(false);
             setAddressHint(null);
           }}
           disabled={disabled}
-          className={inputClass}
-        >
-          <option value="">Selecione…</option>
-          {(statesQuery.data || []).map((s) => (
-            <option key={s.code} value={s.code}>
-              {s.name} ({s.code})
-            </option>
-          ))}
-        </select>
+          size="lg"
+          options={[
+            { value: '', label: 'Selecione…' },
+            ...(statesQuery.data || []).map((s) => ({ value: s.code, label: `${s.name} (${s.code})` })),
+          ]}
+        />
       </CadastroField>
       <CadastroField icon={MapPin} label="Cidade">
         {useCitySelect ? (
-          <select
+          <FormSelect
             value={values.city}
-            onChange={(e) => onChange({ city: e.target.value })}
+            onChange={(v) => {
+              const ibge = normalizeIbge(resolveCityIbgeCode(v, cities));
+              onChange({ city: v, ibge_city_code: ibge });
+            }}
             disabled={disabled || !values.state}
-            className={inputClass}
-          >
-            <option value="">{values.state ? 'Selecione…' : 'Selecione o estado primeiro'}</option>
-            {cities.map((c) => (
-              <option key={c.name} value={c.name}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+            size="lg"
+            placeholder={values.state ? 'Selecione…' : 'Selecione o estado primeiro'}
+            options={[
+              { value: '', label: values.state ? 'Selecione…' : 'Selecione o estado primeiro' },
+              ...cities.map((c) => ({ value: c.name, label: c.name })),
+            ]}
+          />
         ) : (
-          <input
+          <FormControl
+            inputSize="lg"
             value={values.city}
-            onChange={(e) => onChange({ city: e.target.value })}
+            onChange={(e) => {
+              const city = e.target.value;
+              const ibge = normalizeIbge(resolveCityIbgeCode(city, cities));
+              onChange({ city, ibge_city_code: ibge });
+            }}
             disabled={disabled || (!values.state && !addressManualMode)}
             placeholder={
               values.state
@@ -239,7 +246,6 @@ export function PharmacyAddressFields({
                   : 'Digite a cidade'
                 : 'Selecione o estado ou use busca CEP'
             }
-            className={inputClass}
           />
         )}
       </CadastroField>

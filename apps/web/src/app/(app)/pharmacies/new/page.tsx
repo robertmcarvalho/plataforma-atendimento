@@ -1,5 +1,6 @@
 'use client';
 
+import { cadastroPageApi, pharmacyNfseFieldsForSave } from '@/lib/cadastro/cadastroPageApi';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -8,21 +9,30 @@ import {
   ArrowLeft,
   Building2,
   Calendar,
-  Crown,
-  Headphones,
   MapPin,
   Phone,
   Save,
   Truck,
   Users,
 } from 'lucide-react';
-import api from '@/lib/api';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Switch } from '@/components/ui/Switch';
-import { BrCepInput, BrCnpjInput, BrPhoneInput } from '@/components/form/BrInputs';
-import { CadastroField, CadastroPageScroll, CadastroSection } from '@/components/cadastro/CadastroPrimitives';
-import { onlyDigits, normalizeBrazilPhone } from '@/lib/brFormat';
+import { BrCnpjInput, BrPhoneInput } from '@/components/form/BrInputs';
+import {
+  FormControl,
+  formControlSizes,
+} from '@/components/form/FormControl';
+import { CadastroSearchCombobox } from '@/components/cadastro/CadastroSearchCombobox';
+import { FormSelect } from '@/components/form/FormSelect';
+import {
+  CadastroField,
+  CadastroPageScroll,
+  CadastroSection,
+  cadastroSwitchRowClassName,
+} from '@/components/cadastro/CadastroPrimitives';
+import { onlyDigits, normalizeBrazilPhone, formatCnpj, formatBrazilPhone } from '@/lib/brFormat';
 import { cn } from '@/lib/utils';
+import { buttonVariants, Button } from '@/components/ui/button';
 import { useAuth } from '@/store/auth';
 import { canManageCadastro } from '@/lib/cadastroPermissions';
 import { formatWorkScheduleSummary, hasConfiguredWorkSchedule } from '@/components/settings/BusinessHoursEditor';
@@ -33,6 +43,15 @@ import {
   validatePharmacyDeliverySchedule,
 } from '@/lib/pharmacyDeliverySchedule';
 import { PharmacyCommercialTermsFields } from '@/components/cadastro/pharmacy/PharmacyCommercialTermsFields';
+import { PharmacyCostCenterSelect } from '@/components/billing/PharmacyCostCenterSelect';
+import { PharmacyBillingEditor } from '@/components/billing/PharmacyBillingEditor';
+import { useBillingModuleEnabled } from '@/lib/billing/useBillingQueries';
+import {
+  EMPTY_PHARMACY_BILLING,
+  pharmacyBillingFromApi,
+  pharmacyBillingToApi,
+  type PharmacyBillingForm,
+} from '@/lib/billing/billingApi';
 import { PharmacyDeliveryScheduleSection } from '@/components/cadastro/pharmacy/PharmacyDeliveryScheduleSection';
 import { PharmacyLinkedAttendantsSection } from '@/components/cadastro/pharmacy/PharmacyLinkedAttendantsSection';
 import {
@@ -40,6 +59,7 @@ import {
   validateCommercialPayoutWarning,
   type PharmacyCommercialForm,
 } from '@/lib/pharmacyCommercial';
+import { readPharmacyPrefill } from '@/lib/commercial/pharmacyPrefill';
 
 type ApiLeader = { id: string; name: string; phone?: string | null; status?: string | null };
 type ApiAttendant = { id: string; name: string };
@@ -57,6 +77,8 @@ type ApiPharmacyDetail = {
   address_number?: string | null;
   address_neighborhood?: string | null;
   address_complement?: string | null;
+  municipal_registration?: string | null;
+  ibge_city_code?: string | null;
   contact_expedition_name?: string | null;
   contact_expedition_phone?: string | null;
   contact_expedition_email?: string | null;
@@ -104,8 +126,10 @@ export default function PharmacyNewPage() {
   const canEdit = canManageCadastro(user?.role, hasPermission, 'pharmacies');
   const editId = (searchParams.get('id') || '').trim();
   const isEditing = Boolean(editId);
+  const fromCommercial = searchParams.get('from_commercial') === '1';
 
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [commercialPrefillApplied, setCommercialPrefillApplied] = useState(false);
   const [createdId, setCreatedId] = useState<string>('');
   const [linkDriverId, setLinkDriverId] = useState('');
   const [linkPrimary, setLinkPrimary] = useState(false);
@@ -124,6 +148,8 @@ export default function PharmacyNewPage() {
   const [formNumber, setFormNumber] = useState('');
   const [formNeighborhood, setFormNeighborhood] = useState('');
   const [formComplement, setFormComplement] = useState('');
+  const [formIbgeCityCode, setFormIbgeCityCode] = useState('');
+  const [formMunicipalRegistration, setFormMunicipalRegistration] = useState('');
 
   const [formLeaderId, setFormLeaderId] = useState('');
   const [formPrimaryAttendantId, setFormPrimaryAttendantId] = useState('');
@@ -143,41 +169,58 @@ export default function PharmacyNewPage() {
 
   const [sectorAttendantMap, setSectorAttendantMap] = useState<Record<string, string>>({});
   const [commercial, setCommercial] = useState<PharmacyCommercialForm>(EMPTY_PHARMACY_COMMERCIAL);
+  const [billing, setBilling] = useState<PharmacyBillingForm>(EMPTY_PHARMACY_BILLING);
+  const billingModuleEnabled = useBillingModuleEnabled(canFetch);
   const [deliverySchedule, setDeliverySchedule] = useState<Record<string, unknown>>({});
+
+  useEffect(() => {
+    if (!fromCommercial || isEditing || commercialPrefillApplied) return;
+    const prefill = readPharmacyPrefill();
+    if (!prefill) return;
+    setFormTrade(prefill.trade_name);
+    setFormLegal(prefill.legal_name);
+    setFormCnpj(prefill.cnpj ? formatCnpj(prefill.cnpj) : '');
+    setFormPhone(prefill.phone ? formatBrazilPhone(prefill.phone) : '');
+    setFormCity(prefill.city);
+    setFormState(prefill.state);
+    setFormExpName(prefill.contact_expedition_name);
+    setFormExpPhone(prefill.contact_expedition_phone ? formatBrazilPhone(prefill.contact_expedition_phone) : '');
+    setFormExpEmail(prefill.contact_expedition_email);
+    setFormMgrName(prefill.contact_manager_name);
+    setFormMgrPhone(prefill.contact_manager_phone ? formatBrazilPhone(prefill.contact_manager_phone) : '');
+    setFormMgrEmail(prefill.contact_manager_email);
+    setCommercialPrefillApplied(true);
+  }, [fromCommercial, isEditing, commercialPrefillApplied]);
 
   const leadersQuery = useQuery({
     queryKey: ['pharmacies', 'leaders'],
     enabled: canFetch && canEdit,
-    queryFn: async () => (await api.get('/api/leaders', { params: { status: 'active' } })).data as ApiLeader[],
+    queryFn: async () => await cadastroPageApi.fetchLeaders({ status: 'active' }) as ApiLeader[],
   });
 
   const attendantsQuery = useQuery({
     queryKey: ['pharmacies', 'attendants', 'workspace'],
     enabled: canFetch && canEdit,
     queryFn: async () =>
-      (
-        await api.get('/api/users/attendants', {
-          params: { scope: 'workspace', include_supervisors: '1' },
-        })
-      ).data as ApiAttendant[],
+      await cadastroPageApi.fetchAttendants({ scope: 'workspace', include_supervisors: '1' }) as ApiAttendant[],
   });
 
   const sectorsQuery = useQuery({
     queryKey: ['pharmacies', 'sectors'],
     enabled: canFetch && canEdit,
-    queryFn: async () => (await api.get('/api/sectors')).data as ApiSector[],
+    queryFn: async () => await cadastroPageApi.fetchSectors() as ApiSector[],
   });
 
   const statesQuery = useQuery({
     queryKey: ['geo', 'states'],
     enabled: canFetch && canEdit,
-    queryFn: async () => (await api.get('/api/geo/states')).data as ApiState[],
+    queryFn: async () => await cadastroPageApi.fetchGeoStates() as ApiState[],
   });
 
   const citiesQuery = useQuery({
     queryKey: ['geo', 'cities', formState],
     enabled: canFetch && canEdit && Boolean(formState),
-    queryFn: async () => (await api.get(`/api/geo/states/${encodeURIComponent(formState)}/cities`)).data as ApiCity[],
+    queryFn: async () => await cadastroPageApi.fetchGeoCities(formState) as ApiCity[],
   });
 
   const activeSectors = useMemo(() => (sectorsQuery.data || []).filter((s) => s.is_active !== false), [sectorsQuery.data]);
@@ -185,13 +228,13 @@ export default function PharmacyNewPage() {
   const driversQuery = useQuery({
     queryKey: ['drivers', 'options'],
     enabled: canFetch && canEdit && Boolean(activePharmacyId),
-    queryFn: async () => (await api.get('/api/drivers')).data as ApiDriver[],
+    queryFn: async () => await cadastroPageApi.fetchDrivers({ status: 'active' }) as ApiDriver[],
   });
 
   const detailQuery = useQuery({
     queryKey: ['pharmacies', 'detail', activePharmacyId],
     enabled: canFetch && canEdit && Boolean(activePharmacyId),
-    queryFn: async () => (await api.get(`/api/pharmacies/${activePharmacyId}`)).data as ApiPharmacyDetail,
+    queryFn: async () => await cadastroPageApi.fetchPharmacy(activePharmacyId) as ApiPharmacyDetail,
   });
 
   const hasPrefilled = useRef(false);
@@ -220,6 +263,8 @@ export default function PharmacyNewPage() {
     setFormNumber(data.address_number || '');
     setFormNeighborhood(data.address_neighborhood || '');
     setFormComplement(data.address_complement || '');
+    setFormIbgeCityCode(onlyDigits(data.ibge_city_code || '').slice(0, 7));
+    setFormMunicipalRegistration(data.municipal_registration || '');
     setFormLeaderId(data.leader?.id || '');
     setFormPrimaryAttendantId(data.primary_attendant?.id || '');
     setFormSecondaryAttendantId(data.secondary_attendant?.id || '');
@@ -241,6 +286,7 @@ export default function PharmacyNewPage() {
       minimum_guaranteed_cents: data.minimum_guaranteed_cents ?? null,
       minimum_guaranteed_driver_payout_cents: data.minimum_guaranteed_driver_payout_cents ?? null,
     });
+    setBilling(pharmacyBillingFromApi(data as Record<string, unknown>));
     setDeliverySchedule(parsePharmacyDeliveryScheduleForEdit(data.delivery_schedule));
   }, [detailQuery.data, isEditing]);
 
@@ -253,8 +299,9 @@ export default function PharmacyNewPage() {
       complement: formComplement,
       city: formCity,
       state: formState,
+      ibge_city_code: formIbgeCityCode,
     }),
-    [formCep, formStreet, formNumber, formNeighborhood, formComplement, formCity, formState]
+    [formCep, formStreet, formNumber, formNeighborhood, formComplement, formCity, formState, formIbgeCityCode]
   );
 
   const patchAddress = (patch: Partial<typeof addressValues>) => {
@@ -265,6 +312,9 @@ export default function PharmacyNewPage() {
     if (patch.complement !== undefined) setFormComplement(patch.complement);
     if (patch.city !== undefined) setFormCity(patch.city);
     if (patch.state !== undefined) setFormState(patch.state);
+    if (patch.ibge_city_code !== undefined) {
+      setFormIbgeCityCode(onlyDigits(patch.ibge_city_code || '').slice(0, 7));
+    }
   };
 
   const saveMutation = useMutation({
@@ -325,6 +375,7 @@ export default function PharmacyNewPage() {
         contact_manager_email: formMgrEmail.trim() || null,
         city: formCity.trim() || undefined,
         state: formState.trim() || undefined,
+        ...pharmacyNfseFieldsForSave(formIbgeCityCode, formMunicipalRegistration),
         phone: normalizeBrazilPhone(formPhone) || undefined,
         status: formStatus,
         leader_id: formLeaderId || null,
@@ -336,14 +387,15 @@ export default function PharmacyNewPage() {
         minimum_guaranteed_cents: commercial.minimum_guaranteed_cents,
         minimum_guaranteed_driver_payout_cents: commercial.minimum_guaranteed_driver_payout_cents,
         delivery_schedule: serializePharmacyDeliveryScheduleForApi(deliverySchedule),
+        ...(billingModuleEnabled ? pharmacyBillingToApi(billing) : {}),
       };
 
       if (isEditing) {
-        await api.put(`/api/pharmacies/${editId}`, payload);
+        await cadastroPageApi.updatePharmacy(editId, payload);
         return editId;
       }
 
-      const created = (await api.post('/api/pharmacies', payload)).data as { id?: string };
+      const created = await cadastroPageApi.createPharmacy(payload) as { id?: string };
       const id = String(created?.id || '');
       if (!id) throw new Error('Pharmacy created, but the API did not return an id.');
       return id;
@@ -372,7 +424,7 @@ export default function PharmacyNewPage() {
     if (!activePharmacyId || !linkDriverId) return;
     setSaveError(null);
     try {
-      await api.post(`/api/drivers/${linkDriverId}/pharmacies`, { pharmacy_id: activePharmacyId, is_primary: Boolean(linkPrimary) });
+      await cadastroPageApi.linkDriverPharmacy(linkDriverId, { pharmacy_id: activePharmacyId, is_primary: Boolean(linkPrimary) });
       setLinkDriverId('');
       setLinkPrimary(false);
       await detailQuery.refetch();
@@ -384,7 +436,7 @@ export default function PharmacyNewPage() {
   const unlinkDriver = async (driverId: string) => {
     if (!activePharmacyId || !driverId) return;
     try {
-      await api.delete(`/api/drivers/${driverId}/pharmacies/${activePharmacyId}`);
+      await cadastroPageApi.unlinkDriverPharmacy(driverId, activePharmacyId);
       await detailQuery.refetch();
     } catch {
       // ignore
@@ -395,7 +447,7 @@ export default function PharmacyNewPage() {
     return (
       <CadastroPageScroll maxWidthClassName="max-w-5xl">
         <PageHeader eyebrow="Acesso" title={isEditing ? 'Editar farmácia' : 'Nova farmácia'} description="Você não tem permissão para cadastrar farmácias." />
-        <Link className="button-secondary" href="/pharmacies">
+        <Link className={buttonVariants({ variant: 'secondary' })} href="/pharmacies">
           Voltar
         </Link>
       </CadastroPageScroll>
@@ -410,13 +462,23 @@ export default function PharmacyNewPage() {
         <ArrowLeft className="h-3 w-3" /> Voltar para farmácias
       </Link>
 
+      {fromCommercial && commercialPrefillApplied ? (
+        <div className="mb-6 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+          <p className="font-medium text-foreground">Cadastro pré-preenchido da conversão comercial</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Dados importados do lead. Complete líder, taxas, horários e vínculos operacionais antes de salvar.
+          </p>
+        </div>
+      ) : null}
+
       <PageHeader
+        icon={Building2}
         eyebrow="Operação · Cadastro"
         title={isEditing ? 'Editar farmácia' : 'Nova farmácia'}
         description={isEditing ? 'Atualize os dados, contatos e vínculos da unidade.' : 'Cadastre uma unidade parceira e configure atendimento.'}
         actions={
           <div className="flex gap-2">
-            <Link href={backHref} className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-surface-hover">
+            <Link href={backHref} className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground">
               Cancelar
             </Link>
             <button
@@ -424,7 +486,7 @@ export default function PharmacyNewPage() {
               onClick={() => void saveMutation.mutateAsync()}
               disabled={saveMutation.isPending}
               className={cn(
-                'flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-glow transition-colors',
+                'flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/80 transition-colors',
                 saveMutation.isPending && 'opacity-50 pointer-events-none'
               )}
             >
@@ -454,32 +516,24 @@ export default function PharmacyNewPage() {
         <CadastroSection title="Dados da empresa">
           <div className="grid gap-4 md:grid-cols-2">
             <CadastroField icon={Building2} label="Nome fantasia" required>
-              <input
-                value={formTrade}
-                onChange={(e) => setFormTrade(e.target.value)}
-                placeholder="Farmácia Central"
-                className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50"
-              />
+              <FormControl inputSize="lg" value={formTrade} onChange={(e) => setFormTrade(e.target.value)} placeholder="Farmácia Central" />
             </CadastroField>
             <CadastroField icon={Building2} label="Razão social" required>
-              <input
-                value={formLegal}
-                onChange={(e) => setFormLegal(e.target.value)}
-                placeholder="Farmácia Central LTDA"
-                className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50"
-              />
+              <FormControl inputSize="lg" value={formLegal} onChange={(e) => setFormLegal(e.target.value)} placeholder="Farmácia Central LTDA" />
             </CadastroField>
             <CadastroField icon={Users} label="Status">
-              <label className="flex h-10 items-center justify-between rounded-md border border-border bg-background px-3">
-                <span className="text-xs text-muted-foreground">{formStatus === 'active' ? 'Ativa' : 'Inativa'}</span>
+              <label className={cadastroSwitchRowClassName}>
+                <span className={cn('text-xs font-medium', formStatus === 'active' ? 'text-success' : 'text-muted-foreground')}>
+                  {formStatus === 'active' ? 'Ativa' : 'Inativa'}
+                </span>
                 <Switch checked={formStatus === 'active'} onCheckedChange={(c) => setFormStatus(c ? 'active' : 'inactive')} disabled={!canEdit} />
               </label>
             </CadastroField>
             <CadastroField icon={Phone} label="Telefone da farmácia" required>
-              <BrPhoneInput value={formPhone} onChange={setFormPhone} className="w-full" placeholder="(11) 3000-0000" />
+              <BrPhoneInput value={formPhone} onChange={setFormPhone} className={cn(formControlSizes.lg, 'w-full')} placeholder="(11) 3000-0000" />
             </CadastroField>
             <CadastroField icon={Building2} label="CNPJ" required>
-              <BrCnpjInput value={formCnpj} onChange={setFormCnpj} className="w-full" placeholder="00.000.000/0000-00" />
+              <BrCnpjInput value={formCnpj} onChange={setFormCnpj} className={cn(formControlSizes.lg, 'w-full')} placeholder="00.000.000/0000-00" />
             </CadastroField>
           </div>
         </CadastroSection>
@@ -492,49 +546,53 @@ export default function PharmacyNewPage() {
             citiesQuery={citiesQuery}
             disabled={!canEdit}
           />
-        </CadastroSection>
-
-        <CadastroSection title="Vínculos" desc="Líder de operação responsável pela unidade.">
-          <CadastroField icon={Crown} label="Líder responsável" required>
-            <select
-              value={formLeaderId}
-              onChange={(e) => setFormLeaderId(e.target.value)}
-              className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50"
-            >
-              <option value="">Selecione…</option>
-              {(leadersQuery.data || []).map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
-          </CadastroField>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <CadastroField icon={MapPin} label="Código IBGE (município)">
+              <FormControl
+                inputSize="lg"
+                value={formIbgeCityCode}
+                onChange={(e) => setFormIbgeCityCode(onlyDigits(e.target.value).slice(0, 7))}
+                placeholder="Auto ao buscar CEP / cidade"
+                className="font-mono"
+                disabled={!canEdit}
+              />
+            </CadastroField>
+            <CadastroField icon={MapPin} label="Inscrição municipal">
+              <FormControl
+                inputSize="lg"
+                value={formMunicipalRegistration}
+                onChange={(e) => setFormMunicipalRegistration(e.target.value)}
+                placeholder="Opcional para NFS-e"
+                disabled={!canEdit}
+              />
+            </CadastroField>
+          </div>
         </CadastroSection>
 
         <CadastroSection title="Contatos por perfil" desc="Expedição, financeiro e gestor na farmácia (sem atendentes da plataforma).">
           <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-lg border border-border bg-background p-3">
+            <div className="rounded-xl border border-border bg-surface p-3">
               <div className="text-xs font-semibold text-foreground">Expedição</div>
               <div className="mt-3 space-y-2">
-                <input value={formExpName} onChange={(e) => setFormExpName(e.target.value)} placeholder="Nome" className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50" />
+                <FormControl value={formExpName} onChange={(e) => setFormExpName(e.target.value)} placeholder="Nome" />
                 <BrPhoneInput value={formExpPhone} onChange={setFormExpPhone} className="w-full" placeholder="Telefone" />
-                <input value={formExpEmail} onChange={(e) => setFormExpEmail(e.target.value)} placeholder="E-mail" className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50" />
+                <FormControl type="email" value={formExpEmail} onChange={(e) => setFormExpEmail(e.target.value)} placeholder="E-mail" />
               </div>
             </div>
-            <div className="rounded-lg border border-border bg-background p-3">
+            <div className="rounded-xl border border-border bg-surface p-3">
               <div className="text-xs font-semibold text-foreground">Financeiro</div>
               <div className="mt-3 space-y-2">
-                <input value={formFinName} onChange={(e) => setFormFinName(e.target.value)} placeholder="Nome" className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50" />
+                <FormControl value={formFinName} onChange={(e) => setFormFinName(e.target.value)} placeholder="Nome" />
                 <BrPhoneInput value={formFinPhone} onChange={setFormFinPhone} className="w-full" placeholder="Telefone" />
-                <input value={formFinEmail} onChange={(e) => setFormFinEmail(e.target.value)} placeholder="E-mail" className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50" />
+                <FormControl type="email" value={formFinEmail} onChange={(e) => setFormFinEmail(e.target.value)} placeholder="E-mail" />
               </div>
             </div>
-            <div className="rounded-lg border border-border bg-background p-3">
+            <div className="rounded-xl border border-border bg-surface p-3">
               <div className="text-xs font-semibold text-foreground">Gestor</div>
               <div className="mt-3 space-y-2">
-                <input value={formMgrName} onChange={(e) => setFormMgrName(e.target.value)} placeholder="Nome" className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50" />
+                <FormControl value={formMgrName} onChange={(e) => setFormMgrName(e.target.value)} placeholder="Nome" />
                 <BrPhoneInput value={formMgrPhone} onChange={setFormMgrPhone} className="w-full" placeholder="Telefone" />
-                <input value={formMgrEmail} onChange={(e) => setFormMgrEmail(e.target.value)} placeholder="E-mail" className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50" />
+                <FormControl type="email" value={formMgrEmail} onChange={(e) => setFormMgrEmail(e.target.value)} placeholder="E-mail" />
               </div>
             </div>
           </div>
@@ -544,15 +602,24 @@ export default function PharmacyNewPage() {
           <PharmacyCommercialTermsFields value={commercial} onChange={setCommercial} disabled={!canEdit} />
         </CadastroSection>
 
-        <CadastroSection
-          title="Horário de funcionamento do delivery"
-          desc="Grade semanal e feriados no formato canônico de horário comercial."
-        >
-          <PharmacyDeliveryScheduleSection value={deliverySchedule} onChange={setDeliverySchedule} disabled={!canEdit} />
-        </CadastroSection>
+        {billingModuleEnabled ? (
+          <>
+            <CadastroSection title="Centro de custo" desc="Vincula esta farmácia ao catálogo de /billing/config.">
+              <PharmacyCostCenterSelect
+                value={billing.billing_cost_center_id}
+                onChange={(id) => setBilling((b) => ({ ...b, billing_cost_center_id: id }))}
+                disabled={!canEdit}
+              />
+            </CadastroSection>
+            <PharmacyBillingEditor value={billing} onChange={setBilling} disabled={!canEdit} />
+          </>
+        ) : null}
 
-        <CadastroSection title="Atendentes vinculados" desc="Fila padrão, backup e atendente opcional por setor.">
+        <CadastroSection title="Vínculos & atendimento">
           <PharmacyLinkedAttendantsSection
+            leaders={(leadersQuery.data || []).map((l) => ({ id: l.id, name: l.name }))}
+            leaderId={formLeaderId}
+            onLeaderChange={setFormLeaderId}
             attendants={attendantsQuery.data || []}
             sectors={activeSectors}
             primaryId={formPrimaryAttendantId}
@@ -567,12 +634,19 @@ export default function PharmacyNewPage() {
           />
         </CadastroSection>
 
+        <CadastroSection
+          title="Horário de funcionamento do delivery"
+          desc="Defina os turnos por dia da semana e exceções em feriados."
+        >
+          <PharmacyDeliveryScheduleSection value={deliverySchedule} onChange={setDeliverySchedule} disabled={!canEdit} />
+        </CadastroSection>
+
         <CadastroSection title="Entregadores vinculados" desc="Visualize a escala de cada entregador da unidade.">
           {!activePharmacyId ? (
             <div className="text-sm text-muted-foreground">Salve a farmácia para vincular entregadores.</div>
           ) : (
             <>
-              <div className="overflow-hidden rounded-md border border-border bg-background">
+              <div className="overflow-hidden rounded-md border border-border">
                 <table className="w-full text-xs">
                   <thead className="bg-background">
                     <tr className="text-left text-[10px] uppercase tracking-wider text-subtle-foreground">
@@ -581,13 +655,12 @@ export default function PharmacyNewPage() {
                         <Calendar className="inline h-3 w-3" /> Escala
                       </th>
                       <th className="px-3 py-2">Status</th>
-                      <th className="px-3 py-2 w-8" />
                     </tr>
                   </thead>
                   <tbody>
                     {linkedDrivers.length === 0 ? (
                       <tr className="border-t border-border/60">
-                        <td colSpan={4} className="px-3 py-3 text-xs text-muted-foreground">
+                        <td colSpan={3} className="px-3 py-3 text-xs text-muted-foreground">
                           Nenhum entregador vinculado.
                         </td>
                       </tr>
@@ -595,7 +668,8 @@ export default function PharmacyNewPage() {
                       linkedDrivers.map(({ driver }) => {
                         const schedule = hasConfiguredWorkSchedule(driver.work_schedule) ? formatWorkScheduleSummary(driver.work_schedule) : '—';
                         const status = String(driver.status || '').toLowerCase();
-                        const statusLabel = status === 'active' ? 'Disponível' : status === 'blocked' ? 'Em rota' : 'Offline';
+                        const statusLabel =
+                          status === 'active' ? 'Disponível' : status === 'blocked' ? 'Em rota' : 'Folga';
                         return (
                           <tr key={driver.id} className="border-t border-border/60">
                             <td className="px-3 py-2">
@@ -603,16 +677,13 @@ export default function PharmacyNewPage() {
                                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-channel-whatsapp/40 to-primary/40 text-[10px] font-semibold">
                                   {(driver.name || '?')
                                     .trim()
-                                    .split(/\\s+/)
+                                    .split(/\s+/)
                                     .filter(Boolean)
                                     .slice(0, 2)
                                     .map((w) => w[0]?.toUpperCase())
                                     .join('') || '??'}
                                 </div>
-                                <div className="min-w-0">
-                                  <div className="truncate font-medium">{driver.name}</div>
-                                  <div className="font-mono text-[10px] text-muted-foreground">{driver.phone}</div>
-                                </div>
+                                <span className="font-medium">{driver.name}</span>
                               </div>
                             </td>
                             <td className="px-3 py-2 text-muted-foreground">{schedule}</td>
@@ -622,20 +693,11 @@ export default function PharmacyNewPage() {
                                   'rounded px-2 py-0.5 text-[10px] font-medium',
                                   status === 'active' && 'bg-success/15 text-success',
                                   status === 'blocked' && 'bg-warning/15 text-warning',
-                                  status !== 'active' && status !== 'blocked' && 'bg-muted text-muted-foreground'
+                                  status !== 'active' && status !== 'blocked' && 'bg-muted text-muted-foreground',
                                 )}
                               >
                                 {statusLabel}
                               </span>
-                            </td>
-                            <td className="px-3 py-2 text-right">
-                              <button
-                                type="button"
-                                onClick={() => void unlinkDriver(driver.id)}
-                                className="rounded-md border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground hover:text-destructive hover:bg-surface-hover"
-                              >
-                                Remover
-                              </button>
                             </td>
                           </tr>
                         );
@@ -645,33 +707,23 @@ export default function PharmacyNewPage() {
                 </table>
               </div>
 
-              <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto_auto]">
-                <select
+              <div className="mt-3 flex gap-2">
+                <CadastroSearchCombobox
+                  entity="driver"
+                  className="flex-1"
                   value={linkDriverId}
-                  onChange={(e) => setLinkDriverId(e.target.value)}
-                  className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50"
-                >
-                  <option value="">Selecione um entregador…</option>
-                  {(driversQuery.data || []).map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
-
-                <label className="flex h-9 items-center justify-between gap-3 rounded-md border border-border bg-background px-3">
-                  <span className="text-xs text-muted-foreground">Primário</span>
-                  <Switch checked={linkPrimary} onCheckedChange={(c) => setLinkPrimary(Boolean(c))} />
-                </label>
-
-                <button
+                  onChange={setLinkDriverId}
+                />
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={() => void linkDriver()}
                   disabled={!linkDriverId}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-surface-hover disabled:opacity-50 disabled:pointer-events-none"
+                  className="gap-1.5"
                 >
                   <Truck className="h-3.5 w-3.5" /> Vincular entregador existente
-                </button>
+                </Button>
               </div>
             </>
           )}

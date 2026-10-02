@@ -1,5 +1,7 @@
 'use client';
 
+import { cadastroPageApi } from '@/lib/cadastro/cadastroPageApi';
+
 import { useMemo } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -8,6 +10,7 @@ import {
   ArrowLeft,
   Building2,
   ChevronRight,
+  CalendarDays,
   Clock,
   Crown,
   FileText,
@@ -22,14 +25,22 @@ import {
   Edit3,
   DollarSign,
 } from 'lucide-react';
-import api from '@/lib/api';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatusDot } from '@/components/ui/StatusDot';
-import { reviveOutlineSmActionClass, revivePrimarySmActionClass } from '@/components/ui/reviveActionButtonStyles';
+import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { interactiveRowSurface } from '@/lib/interactiveRow';
 import { formatBrazilPhone, formatCep, formatCnpj } from '@/lib/brFormat';
-import { formatWorkScheduleSummary, hasConfiguredWorkSchedule } from '@/components/settings/BusinessHoursEditor';
+import { cadastroStatusDot } from '@/lib/cadastroStatus';
+import {
+  ensureBusinessHoursPayload,
+  formatWorkScheduleSummary,
+  hasConfiguredWorkSchedule,
+  type Weekday,
+} from '@/components/settings/BusinessHoursEditor';
+import { formatIsoDateBr } from '@/lib/datetimeBr';
 import { formatCentsBRL } from '@/lib/pharmacyCommercial';
+import { useBillingModuleEnabled } from '@/lib/billing/useBillingQueries';
 
 type ApiPharmacySummary = {
   id: string;
@@ -93,14 +104,20 @@ type ApiPharmacyDetail = {
   commercial_terms?: string[];
   delivery_schedule_summary?: string;
   delivery_open_now?: boolean | null;
+  billing_cost_center_id?: string | null;
+  contract_scope?: 'flux_only' | 'coop_only' | 'both';
+  billing_email?: string | null;
+  mg_enabled?: boolean;
+  flux_codpes?: number | null;
+  flux_codloc?: number | null;
 };
 
 type EntStatus = 'active' | 'blocked' | 'inactive';
 
 const ENT_STATUS_LABEL: Record<EntStatus, string> = {
-  active: 'Disponível',
-  blocked: 'Em rota',
-  inactive: 'Offline',
+  active: 'Ativo',
+  blocked: 'Bloqueado',
+  inactive: 'Inativo',
 };
 
 const SETOR_ICONS = {
@@ -110,9 +127,22 @@ const SETOR_ICONS = {
   suporte: Wrench,
 };
 
-function statusToDot(status: 'active' | 'inactive') {
-  return status === 'active' ? 'online' : 'offline';
-}
+const SETOR_SLOTS = [
+  ['geral', 'Atendimento Geral'],
+  ['financeiro', 'Financeiro'],
+  ['operacional', 'Operacional'],
+  ['suporte', 'Suporte Técnico'],
+] as const;
+
+const DELIVERY_DAY_LABELS: { key: Weekday; label: string }[] = [
+  { key: 'monday', label: 'Seg' },
+  { key: 'tuesday', label: 'Ter' },
+  { key: 'wednesday', label: 'Qua' },
+  { key: 'thursday', label: 'Qui' },
+  { key: 'friday', label: 'Sex' },
+  { key: 'saturday', label: 'Sáb' },
+  { key: 'sunday', label: 'Dom' },
+];
 
 function joinNonEmpty(parts: Array<string | null | undefined>, sep = ' · ') {
   return parts.map((p) => String(p || '').trim()).filter(Boolean).join(sep);
@@ -139,17 +169,18 @@ function downloadJson(filename: string, data: unknown) {
 export default function PharmacyFichaPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id || '';
+  const billingModuleEnabled = useBillingModuleEnabled(Boolean(id));
 
   const detailQuery = useQuery<ApiPharmacyDetail>({
     queryKey: ['pharmacy-ficha', id],
     enabled: Boolean(id),
-    queryFn: async () => (await api.get(`/api/pharmacies/${id}`)).data as ApiPharmacyDetail,
+    queryFn: async () => await cadastroPageApi.fetchPharmacy(id) as ApiPharmacyDetail,
   });
 
   const summaryQuery = useQuery<ApiPharmacySummary[]>({
     queryKey: ['pharmacies', 'summary'],
     enabled: Boolean(id),
-    queryFn: async () => (await api.get('/api/pharmacies/summary')).data as ApiPharmacySummary[],
+    queryFn: async () => await cadastroPageApi.fetchPharmaciesSummary() as ApiPharmacySummary[],
   });
 
   const detail = detailQuery.data || null;
@@ -158,6 +189,22 @@ export default function PharmacyFichaPage() {
   const contatos = useMemo(() => {
     if (!detail) return [];
     return [
+      {
+        tag: 'Principal',
+        accent: 'text-primary',
+        name: detail.primary_attendant?.name || '',
+        role: '',
+        phone: '',
+        email: detail.primary_attendant?.email || '',
+      },
+      {
+        tag: 'Secundário',
+        accent: 'text-foreground',
+        name: detail.secondary_attendant?.name || '',
+        role: '',
+        phone: '',
+        email: detail.secondary_attendant?.email || '',
+      },
       {
         tag: 'Expedição',
         accent: 'text-subtle-foreground',
@@ -185,15 +232,35 @@ export default function PharmacyFichaPage() {
     ] as const;
   }, [detail]);
 
-  const setorRows = useMemo(() => {
-    const rows = (detail?.pharmacy_sector_attendants || []).filter((r) => r.attendant_id);
-    return rows.map((r) => {
+  const atendentesPorSetor = useMemo(() => {
+    const map: Record<(typeof SETOR_SLOTS)[number][0], string> = {
+      geral: '',
+      financeiro: '',
+      operacional: '',
+      suporte: '',
+    };
+    for (const r of detail?.pharmacy_sector_attendants || []) {
+      if (!r.attendant_id) continue;
       const name = String(r.sector?.name || r.sector_id || '').toLowerCase();
       const key =
         name.includes('finan') ? 'financeiro' : name.includes('oper') ? 'operacional' : name.includes('suport') ? 'suporte' : 'geral';
-      return { ...r, iconKey: key as keyof typeof SETOR_ICONS };
-    });
-  }, [detail?.pharmacy_sector_attendants]);
+      map[key] = r.attendant?.name || r.attendant_id;
+    }
+    if (!map.geral && detail?.primary_attendant?.name) map.geral = detail.primary_attendant.name;
+    return map;
+  }, [detail?.pharmacy_sector_attendants, detail?.primary_attendant?.name]);
+
+  const deliveryScheduleCfg = useMemo(
+    () => (detail?.delivery_schedule ? ensureBusinessHoursPayload(detail.delivery_schedule) : null),
+    [detail?.delivery_schedule],
+  );
+
+  const deliveryHolidays = useMemo(() => {
+    if (!deliveryScheduleCfg) return [];
+    return [...deliveryScheduleCfg.holidays]
+      .filter((h) => !String(h.name || '').startsWith('EXC:'))
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  }, [deliveryScheduleCfg]);
 
   const linkedDrivers = useMemo(() => {
     const links = (detail?.driver_pharmacy_links || []).filter((l) => l.is_active && l.drivers?.id);
@@ -210,6 +277,11 @@ export default function PharmacyFichaPage() {
     });
     return out;
   }, [detail?.driver_pharmacy_links]);
+
+  const activeDriversCount = useMemo(
+    () => linkedDrivers.filter((d) => d.status === 'active').length,
+    [linkedDrivers],
+  );
 
   const exportData = useMemo(() => {
     if (!detail) return null;
@@ -264,6 +336,7 @@ export default function PharmacyFichaPage() {
         </Link>
 
         <PageHeader
+          icon={Building2}
           eyebrow="Operação · Ficha"
           title="Ficha da farmácia"
           description="Cadastro completo, contatos, atendentes e equipe vinculada."
@@ -276,13 +349,13 @@ export default function PharmacyFichaPage() {
                   downloadJson(`farmacia_${id}.json`, exportData);
                 }}
                 disabled={!exportData}
-                className={cn(reviveOutlineSmActionClass, !exportData && 'opacity-50 pointer-events-none')}
+                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), !exportData && 'opacity-50 pointer-events-none')}
               >
                 <FileText className="h-3.5 w-3.5" /> Exportar
               </button>
               <Link
                 href={`/pharmacies/new?id=${encodeURIComponent(id)}`}
-                className={revivePrimarySmActionClass}
+                className={buttonVariants()}
               >
                 <Edit3 className="h-3.5 w-3.5" /> Editar
               </Link>
@@ -303,7 +376,7 @@ export default function PharmacyFichaPage() {
                   <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-gradient-primary text-primary-foreground">
                     <Building2 className="h-7 w-7" />
                   </div>
-                  <StatusDot status={statusToDot(detail.status)} pulse={detail.status === 'active'} className="absolute -bottom-0.5 -right-0.5" />
+                  <StatusDot status={cadastroStatusDot(detail.status)} pulse={detail.status === 'active'} className="absolute -bottom-0.5 -right-0.5" />
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-3">
@@ -314,7 +387,7 @@ export default function PharmacyFichaPage() {
                         detail.status === 'active' ? 'bg-success/15 text-success' : 'bg-muted/50 text-subtle-foreground'
                       )}
                     >
-                      {detail.status === 'active' ? 'Online' : 'Offline'}
+                      {detail.status === 'active' ? 'Ativo' : 'Inativo'}
                     </span>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-muted-foreground">
@@ -355,55 +428,6 @@ export default function PharmacyFichaPage() {
             <div className="grid gap-5 lg:grid-cols-3">
               {/* Main */}
               <div className="space-y-5 lg:col-span-2">
-                {/* Condições comerciais */}
-                <section className="rounded-xl border border-border bg-surface p-5">
-                  <h3 className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold">
-                    <DollarSign className="h-3.5 w-3.5" /> Condições comerciais
-                  </h3>
-                  <div className="grid gap-3 md:grid-cols-2 text-xs">
-                    <div className="rounded-lg border border-border bg-background p-3">
-                      <div className="text-[10px] uppercase tracking-wider text-subtle-foreground">Taxa de entrega</div>
-                      <div className="mt-1 font-mono text-sm">{formatCentsBRL(detail.delivery_fee_cents)}</div>
-                      <div className="mt-1 text-muted-foreground">
-                        Repasse entregador: {formatCentsBRL(detail.delivery_fee_driver_payout_cents)}
-                      </div>
-                    </div>
-                    <div className="rounded-lg border border-border bg-background p-3">
-                      <div className="text-[10px] uppercase tracking-wider text-subtle-foreground">Mínimo garantido</div>
-                      <div className="mt-1 font-mono text-sm">{formatCentsBRL(detail.minimum_guaranteed_cents)}</div>
-                      <div className="mt-1 text-muted-foreground">
-                        Repasse: {formatCentsBRL(detail.minimum_guaranteed_driver_payout_cents)}
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                {/* Horário delivery */}
-                <section className="rounded-xl border border-border bg-surface p-5">
-                  <h3 className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold">
-                    <Clock className="h-3.5 w-3.5" /> Horário de funcionamento do delivery
-                  </h3>
-                  {hasConfiguredWorkSchedule(detail.delivery_schedule) ? (
-                    <>
-                      <div className="text-sm text-foreground">
-                        {detail.delivery_schedule_summary || formatWorkScheduleSummary(detail.delivery_schedule)}
-                      </div>
-                      {detail.delivery_open_now != null ? (
-                        <div
-                          className={cn(
-                            'mt-2 inline-flex rounded px-2 py-0.5 text-[10px] font-medium',
-                            detail.delivery_open_now ? 'bg-success/15 text-success' : 'bg-muted/50 text-subtle-foreground',
-                          )}
-                        >
-                          Delivery agora: {detail.delivery_open_now ? 'aberto' : 'fechado'}
-                        </div>
-                      ) : null}
-                    </>
-                  ) : (
-                    <div className="text-xs text-muted-foreground">Horário não configurado.</div>
-                  )}
-                </section>
-
                 {/* Contatos */}
                 <section className="rounded-xl border border-border bg-surface p-5">
                   <h3 className="mb-3 text-sm font-semibold">Contatos por perfil</h3>
@@ -422,60 +446,185 @@ export default function PharmacyFichaPage() {
                   </div>
                 </section>
 
-                {/* Atendentes vinculados */}
-                {(detail.primary_attendant?.id ||
-                  detail.secondary_attendant?.id ||
-                  setorRows.length > 0) ? (
-                  <section className="rounded-xl border border-border bg-surface p-5">
-                    <h3 className="mb-3 text-sm font-semibold">Atendentes vinculados</h3>
-                    {(detail.primary_attendant?.id || detail.secondary_attendant?.id) ? (
-                      <div className="mb-3 grid gap-3 md:grid-cols-2">
-                        {detail.primary_attendant?.id ? (
-                          <div className="rounded-lg border border-border bg-background p-3">
-                            <div className="text-[10px] font-medium uppercase tracking-wider text-primary">Principal</div>
-                            <div className="mt-1 text-sm font-medium">{detail.primary_attendant.name}</div>
-                            {detail.primary_attendant.email ? (
-                              <div className="text-[11px] text-muted-foreground truncate">{detail.primary_attendant.email}</div>
-                            ) : null}
+                {/* Atendentes por setor */}
+                <section className="rounded-xl border border-border bg-surface p-5">
+                  <h3 className="mb-3 text-sm font-semibold">Atendentes por setor</h3>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {SETOR_SLOTS.map(([key, label]) => {
+                      const Icon = SETOR_ICONS[key];
+                      return (
+                        <div key={key} className="flex items-center gap-3 rounded-lg border border-border bg-background p-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <Icon className="h-4 w-4" />
                           </div>
-                        ) : null}
-                        {detail.secondary_attendant?.id ? (
-                          <div className="rounded-lg border border-border bg-background p-3">
-                            <div className="text-[10px] font-medium uppercase tracking-wider text-foreground">Secundário</div>
-                            <div className="mt-1 text-sm font-medium">{detail.secondary_attendant.name}</div>
-                            {detail.secondary_attendant.email ? (
-                              <div className="text-[11px] text-muted-foreground truncate">{detail.secondary_attendant.email}</div>
-                            ) : null}
+                          <div className="flex-1">
+                            <div className="text-[10px] uppercase tracking-wider text-subtle-foreground">{label}</div>
+                            <div className="text-sm font-medium">{atendentesPorSetor[key] || '—'}</div>
                           </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {setorRows.length ? (
-                    <div className="grid gap-3 md:grid-cols-2">
-                      {setorRows.map((r) => {
-                        const Icon = SETOR_ICONS[r.iconKey] || MessageSquare;
-                        return (
-                          <div key={r.sector_id} className="flex items-center gap-3 rounded-lg border border-border bg-background p-3">
-                            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                              <Icon className="h-4 w-4" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="text-xs font-semibold">{r.sector?.name || r.sector_id}</div>
-                              <div className="text-[11px] text-muted-foreground truncate">{r.attendant?.name || r.attendant_id}</div>
-                            </div>
-                          </div>
-                        );
-                      })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+
+                {/* Condições comerciais */}
+                <section className="rounded-xl border border-border bg-surface p-5">
+                  <h3 className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold">
+                    <DollarSign className="h-3.5 w-3.5" /> Condições comerciais
+                  </h3>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="rounded-lg border border-border bg-background p-3">
+                      <div className="text-[10px] uppercase tracking-wider text-subtle-foreground">Taxa de entrega</div>
+                      <div className="mt-1 font-mono text-sm font-medium">{formatCentsBRL(detail.delivery_fee_cents)}</div>
                     </div>
-                    ) : null}
+                    <div className="rounded-lg border border-border bg-background p-3">
+                      <div className="text-[10px] uppercase tracking-wider text-subtle-foreground">Taxa repassada ao entregador</div>
+                      <div className="mt-1 font-mono text-sm font-medium">{formatCentsBRL(detail.delivery_fee_driver_payout_cents)}</div>
+                    </div>
+                    <div className="rounded-lg border border-border bg-background p-3">
+                      <div className="text-[10px] uppercase tracking-wider text-subtle-foreground">Mínimo garantido</div>
+                      <div className="mt-1 font-mono text-sm font-medium">{formatCentsBRL(detail.minimum_guaranteed_cents)}</div>
+                    </div>
+                    <div className="rounded-lg border border-border bg-background p-3">
+                      <div className="text-[10px] uppercase tracking-wider text-subtle-foreground">Mínimo garantido repassado</div>
+                      <div className="mt-1 font-mono text-sm font-medium">{formatCentsBRL(detail.minimum_guaranteed_driver_payout_cents)}</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 rounded-md border border-dashed border-border bg-background/40 p-3 text-[11px] text-muted-foreground">
+                    Valores em reais (BRL). O repasse ao entregador não pode exceder o valor cobrado da farmácia.
+                  </div>
+                </section>
+
+                {billingModuleEnabled ? (
+                  <section className="rounded-xl border border-border bg-surface p-5">
+                    <h3 className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold">
+                      <Wallet className="h-3.5 w-3.5" /> Faturamento
+                    </h3>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-lg border border-border bg-background p-3">
+                        <div className="text-[10px] uppercase tracking-wider text-subtle-foreground">Contrato</div>
+                        <div className="mt-1 text-sm font-medium capitalize">{detail.contract_scope?.replace('_', ' ') || 'both'}</div>
+                      </div>
+                      <div className="rounded-lg border border-border bg-background p-3">
+                        <div className="text-[10px] uppercase tracking-wider text-subtle-foreground">E-mail faturamento</div>
+                        <div className="mt-1 text-sm font-medium">{detail.billing_email || '—'}</div>
+                      </div>
+                      <div className="rounded-lg border border-border bg-background p-3">
+                        <div className="text-[10px] uppercase tracking-wider text-subtle-foreground">MG ativo</div>
+                        <div className="mt-1 text-sm font-medium">{detail.mg_enabled === false ? 'Não' : 'Sim'}</div>
+                      </div>
+                      <div className="rounded-lg border border-border bg-background p-3">
+                        <div className="text-[10px] uppercase tracking-wider text-subtle-foreground">Flux CodPes / CodLoc</div>
+                        <div className="mt-1 font-mono text-sm font-medium">
+                          {detail.flux_codpes ?? '—'} / {detail.flux_codloc ?? '—'}
+                        </div>
+                      </div>
+                    </div>
                   </section>
                 ) : null}
 
-                {/* Entregadores vinculados */}
+                {/* Horário delivery */}
                 <section className="rounded-xl border border-border bg-surface p-5">
                   <h3 className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold">
-                    <Truck className="h-3.5 w-3.5" /> Entregadores vinculados
+                    <CalendarDays className="h-3.5 w-3.5" /> Horário de funcionamento do delivery
                   </h3>
+                  {deliveryScheduleCfg && hasConfiguredWorkSchedule(detail.delivery_schedule) ? (
+                    <>
+                      <div className="overflow-hidden rounded-md border border-border">
+                        <table className="w-full text-xs">
+                          <thead className="bg-background">
+                            <tr className="text-left text-[10px] uppercase tracking-wider text-subtle-foreground">
+                              <th className="px-3 py-2">Dia</th>
+                              <th className="px-3 py-2">Status</th>
+                              <th className="px-3 py-2">Início</th>
+                              <th className="px-3 py-2">Fim</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {DELIVERY_DAY_LABELS.map(({ key, label }) => {
+                              const day = deliveryScheduleCfg.weekly[key];
+                              const active = Boolean(day.is_open && day.intervals.length > 0);
+                              const start = day.intervals[0]?.start || '—';
+                              const end = day.intervals[0]?.end || '—';
+                              return (
+                                <tr key={key} className="border-t border-border/60">
+                                  <td className="px-3 py-2 font-medium">{label}</td>
+                                  <td className="px-3 py-2">
+                                    <span
+                                      className={cn(
+                                        'rounded px-2 py-0.5 text-[10px] font-medium',
+                                        active ? 'bg-success/15 text-success' : 'bg-muted/50 text-subtle-foreground',
+                                      )}
+                                    >
+                                      {active ? 'Aberto' : 'Fechado'}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2 font-mono text-muted-foreground">{active ? start : '—'}</td>
+                                  <td className="px-3 py-2 font-mono text-muted-foreground">{active ? end : '—'}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      {deliveryHolidays.length > 0 ? (
+                        <div className="mt-4">
+                          <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-subtle-foreground">Feriados</h4>
+                          <div className="space-y-2">
+                            {deliveryHolidays.map((fer) => {
+                              const abre = fer.is_open !== false && (fer.intervals?.length || 0) > 0;
+                              const ini = fer.intervals?.[0]?.start || '';
+                              const fim = fer.intervals?.[0]?.end || '';
+                              return (
+                                <div
+                                  key={fer.date}
+                                  className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-background p-2.5 text-xs"
+                                >
+                                  <div className="flex items-center gap-1.5">
+                                    <CalendarDays className="h-3 w-3 text-muted-foreground" />
+                                    <span className="font-mono">{formatIsoDateBr(fer.date)}</span>
+                                  </div>
+                                  <span className="font-medium">{fer.name || '—'}</span>
+                                  <span
+                                    className={cn(
+                                      'rounded px-2 py-0.5 text-[10px] font-medium',
+                                      abre ? 'bg-success/15 text-success' : 'bg-muted/50 text-subtle-foreground',
+                                    )}
+                                  >
+                                    {abre ? `Aberto ${ini}–${fim}` : 'Fechado'}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+                      {detail.delivery_open_now != null ? (
+                        <div
+                          className={cn(
+                            'mt-3 inline-flex rounded px-2 py-0.5 text-[10px] font-medium',
+                            detail.delivery_open_now ? 'bg-success/15 text-success' : 'bg-muted/50 text-subtle-foreground',
+                          )}
+                        >
+                          Delivery agora: {detail.delivery_open_now ? 'aberto' : 'fechado'}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className="text-xs text-muted-foreground">Horário não configurado.</div>
+                  )}
+                </section>
+
+                {/* Entregadores vinculados */}
+                <section className="rounded-xl border border-border bg-surface p-5">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="inline-flex items-center gap-1.5 text-sm font-semibold">
+                      <Truck className="h-3.5 w-3.5" /> Entregadores vinculados
+                    </h3>
+                    <span className="font-mono text-[10px] text-subtle-foreground">
+                      {activeDriversCount} ativos / {linkedDrivers.length} total
+                    </span>
+                  </div>
                   {linkedDrivers.length === 0 ? (
                     <div className="text-xs text-muted-foreground">Nenhum vínculo ativo.</div>
                   ) : (
@@ -492,7 +641,7 @@ export default function PharmacyFichaPage() {
                         </thead>
                         <tbody>
                           {linkedDrivers.map((e) => (
-                            <tr key={e.id} className="border-t border-border/60">
+                            <tr key={e.id} className={cn('border-t border-border/60', interactiveRowSurface())}>
                               <td className="px-3 py-2">
                                 <Link href={`/drivers/${e.id}`} className="flex items-center gap-2 hover:underline">
                                   <div className="relative">
@@ -505,7 +654,7 @@ export default function PharmacyFichaPage() {
                                         .map((w) => w[0]?.toUpperCase())
                                         .join('') || '??'}
                                     </div>
-                                    <StatusDot status={e.status === 'active' ? 'online' : e.status === 'blocked' ? 'busy' : 'offline'} className="absolute -bottom-0.5 -right-0.5" />
+                                    <StatusDot status={cadastroStatusDot(e.status)} className="absolute -bottom-0.5 -right-0.5" />
                                   </div>
                                   <span className="font-medium">{e.name}</span>
                                 </Link>
@@ -552,7 +701,7 @@ export default function PharmacyFichaPage() {
                     <h3 className="mb-3 text-sm font-semibold">Líder responsável</h3>
                     <Link
                       href={`/leaders/${detail.leader.id}`}
-                      className="group flex items-center gap-3 rounded-lg border border-border bg-background p-3 hover:border-primary/40 hover:bg-surface-elevated"
+                      className="group flex items-center gap-3 rounded-lg border border-border bg-surface p-3 transition-colors hover:border-primary/40 hover:bg-sidebar-accent/40"
                     >
                       <div className="flex h-9 w-9 items-center justify-center rounded-full bg-warning/20 text-warning">
                         <Crown className="h-4 w-4" />

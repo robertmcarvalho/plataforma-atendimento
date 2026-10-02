@@ -1,4 +1,10 @@
 import { sidebarHrefsForRole, roleHasSettingsAccess } from '@/lib/roleNav';
+import { isCommercialCrmEnabled, roleCanAccessCommercial } from '@/lib/commercial/commercialAccess';
+import { isBillingModuleEnabled, roleCanAccessBilling } from '@/lib/billing/billingAccess';
+import {
+  isFinancialAuditorBillingPath,
+  isFinancialAuditorRole,
+} from '@/lib/billing/billingFinancialAuth';
 
 const PLATFORM_PREFIXES = ['/platform'];
 
@@ -9,7 +15,11 @@ function normalizePath(pathname: string) {
 }
 
 /** Returns redirect target when role cannot access path, or null if allowed. */
-export function redirectForRoleOnPath(role: string | undefined, pathname: string): string | null {
+export function redirectForRoleOnPath(
+  role: string | undefined,
+  pathname: string,
+  permissions?: Record<string, unknown>
+): string | null {
   const path = normalizePath(pathname);
   const r = String(role || '').toLowerCase();
 
@@ -23,11 +33,30 @@ export function redirectForRoleOnPath(role: string | undefined, pathname: string
     return '/inbox';
   }
 
+  if (path.startsWith('/commercial')) {
+    if (!isCommercialCrmEnabled()) return '/inbox';
+    if (!roleCanAccessCommercial(r)) return '/inbox';
+    return null;
+  }
+
+  if (path.startsWith('/billing')) {
+    if (!isBillingModuleEnabled()) return '/inbox';
+    if (!roleCanAccessBilling(r, permissions)) return '/inbox';
+    if (isFinancialAuditorRole(r) && !isFinancialAuditorBillingPath(path)) {
+      return '/billing/conciliacao';
+    }
+    return null;
+  }
+
   if (path.startsWith('/settings') && !roleHasSettingsAccess(r)) {
     return '/inbox';
   }
 
-  const allowed = sidebarHrefsForRole(r);
+  if (isFinancialAuditorRole(r)) {
+    return '/billing/conciliacao';
+  }
+
+  const allowed = sidebarHrefsForRole(r, permissions);
   if (allowed === 'all') return null;
 
   if (allowed.some((href) => path === href || path.startsWith(`${href}/`))) return null;

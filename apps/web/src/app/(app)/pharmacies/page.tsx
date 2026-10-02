@@ -1,11 +1,14 @@
 'use client';
 
+import { cadastroPageApi, pharmacyNfseFieldsForSave } from '@/lib/cadastro/cadastroPageApi';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Building2, ChevronDown, ChevronRight, Edit3, FileText, Mail, MapPin, MoreHorizontal, Phone, Plus, Search, Truck, Users } from 'lucide-react';
+import { Building2, ChevronDown, ChevronRight, Edit3, FileText, Mail, MapPin, MoreHorizontal, Phone, Plus, Truck, Users } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { ListToolbar } from '@/components/ui/ListToolbar';
 import { StatusDot } from '@/components/ui/StatusDot';
 import {
   BusinessHoursEditor,
@@ -14,6 +17,15 @@ import {
 } from '@/components/settings/BusinessHoursEditor';
 import { PharmacyAddressFields } from '@/components/cadastro/pharmacy/PharmacyAddressFields';
 import { PharmacyCommercialTermsFields } from '@/components/cadastro/pharmacy/PharmacyCommercialTermsFields';
+import { PharmacyCostCenterSelect } from '@/components/billing/PharmacyCostCenterSelect';
+import { PharmacyBillingEditor } from '@/components/billing/PharmacyBillingEditor';
+import { useBillingModuleEnabled } from '@/lib/billing/useBillingQueries';
+import {
+  EMPTY_PHARMACY_BILLING,
+  pharmacyBillingFromApi,
+  pharmacyBillingToApi,
+  type PharmacyBillingForm,
+} from '@/lib/billing/billingApi';
 import {
   parsePharmacyDeliveryScheduleForEdit,
   serializePharmacyDeliveryScheduleForApi,
@@ -26,16 +38,22 @@ import {
   validateCommercialPayoutWarning,
   type PharmacyCommercialForm,
 } from '@/lib/pharmacyCommercial';
-import api from '@/lib/api';
 import { useAuth } from '@/store/auth';
 import { canManageCadastro } from '@/lib/cadastroPermissions';
+import { apiErrorMessage } from '@/lib/apiErrorMessage';
 import { cn } from '@/lib/utils';
+import { reviveKpiCardClassName, reviveListCardClassName, reviveToolbarButtonClassName } from '@/lib/reviveSurfaces';
 import { CadastroImportTrigger } from '@/components/cadastros/CadastroImportModal';
-import { BrCepInput, BrCnpjInput, BrPhoneInput } from '@/components/form/BrInputs';
+import { BrCnpjInput, BrPhoneInput } from '@/components/form/BrInputs';
+import { FormControl } from '@/components/form/FormControl';
+import { CadastroSearchCombobox } from '@/components/cadastro/CadastroSearchCombobox';
+import { FormSelect } from '@/components/form/FormSelect';
+import { ToolbarSelect } from '@/components/form/ToolbarSelect';
 import { onlyDigits, normalizeBrazilPhone, formatBrazilPhone, formatCnpj, formatCep } from '@/lib/brFormat';
 import { CadastroField, CadastroSection } from '@/components/cadastro/CadastroPrimitives';
 import { DEFAULT_LIST_PAGE_SIZE, PaginationControls } from '@/components/ui/PaginationControls';
-import { reviveHeaderPrimaryActionClass, reviveInlineTextActionClass, revivePrimarySmActionClass } from '@/components/ui/reviveActionButtonStyles';
+import { buttonVariants } from '@/components/ui/button';
+import { cadastroStatusDot } from '@/lib/cadastroStatus';
 
 type ApiLeader = { id: string; name: string; phone: string; status: string };
 type ApiDriver = { id: string; name: string; phone: string; status: string };
@@ -79,6 +97,8 @@ type ApiPharmacyDetail = {
   address_number?: string | null;
   address_neighborhood?: string | null;
   address_complement?: string | null;
+  municipal_registration?: string | null;
+  ibge_city_code?: string | null;
   contact_expedition_name?: string | null;
   contact_expedition_phone?: string | null;
   contact_expedition_email?: string | null;
@@ -120,10 +140,6 @@ function normText(value: string | null | undefined): string {
   return String(value || '').trim().toLowerCase();
 }
 
-function statusToDot(status: 'active' | 'inactive') {
-  return status === 'active' ? 'online' : 'offline';
-}
-
 function Modal({
   open,
   title,
@@ -151,12 +167,12 @@ function Modal({
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-sm p-4">
-      <div className={cn('flex w-full flex-col max-h-[90vh] rounded-2xl border border-border bg-surface-elevated shadow-glow', maxWidthClassName)}>
+      <div className={cn('flex w-full flex-col max-h-[90vh] rounded-2xl border border-border bg-muted shadow-md', maxWidthClassName)}>
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div className="text-sm font-semibold tracking-tight">{title}</div>
           <div className="flex items-center gap-2">
             {headerActions}
-            <button type="button" onClick={onClose} className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground">
+            <button type="button" onClick={onClose} className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground">
               Fechar
             </button>
           </div>
@@ -214,7 +230,7 @@ function PharmacyDriversTeamSection({
               const has = hasConfiguredWorkSchedule(ws);
               const expanded = expandedScheduleLinkId === l.id;
               return (
-                <div key={l.id} className="flex flex-col gap-1 rounded-lg border border-border bg-surface px-3 py-2 text-xs">
+                <div key={l.id} className="flex flex-col gap-1 rounded-lg border border-border bg-card px-3 py-2 text-xs">
                   <div className="flex items-center justify-between gap-3 min-w-0">
                     <div className="truncate text-foreground">{l.drivers?.name || '—'}</div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -223,7 +239,7 @@ function PharmacyDriversTeamSection({
                         <button
                           type="button"
                           onClick={() => void onUnlink(l.drivers!.id)}
-                          className="rounded border border-border bg-background/40 px-2 py-1 text-[10px] text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+                          className="rounded border border-border bg-muted/30 px-2 py-1 text-[10px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
                         >
                           Remover
                         </button>
@@ -267,30 +283,24 @@ function PharmacyDriversTeamSection({
         )}
       </div>
 
-      <div className="mt-3 rounded-xl border border-border bg-background/30 p-3">
+      <div className="mt-3 rounded-xl border border-border bg-muted/30 p-3">
         <div className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground">Adicionar entregador</div>
         <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-          <select
+          <CadastroSearchCombobox
+            entity="driver"
             value={linkDriverId}
-            onChange={(e) => setLinkDriverId(e.target.value)}
-            className="flex-1 rounded-md border border-border bg-surface px-3 py-2 text-xs outline-none"
-          >
-            <option value="">Selecione...</option>
-            {driversOptions.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name} ({formatBrazilPhone(d.phone) || d.phone})
-              </option>
-            ))}
-          </select>
+            onChange={setLinkDriverId}
+            className="flex-1"
+          />
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input type="checkbox" checked={linkPrimary} onChange={(e) => setLinkPrimary(e.target.checked)} className="rounded border-border bg-background" />
+            <input type="checkbox" checked={linkPrimary} onChange={(e) => setLinkPrimary(e.target.checked)} className="rounded border-border bg-card" />
             Primário
           </label>
           <button
             type="button"
             onClick={() => void onLink()}
             disabled={!linkDriverId}
-            className="rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary-glow disabled:opacity-60"
+            className="rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/80 disabled:opacity-60"
           >
             Vincular
           </button>
@@ -312,7 +322,7 @@ export default function PharmaciesPage() {
   const canFetch = hasHydrated && isAuthenticated;
 
   const [q, setQ] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [statusFilter, setStatusFilter] = useState<'active' | 'inactive'>('active');
   const [leaderFilter, setLeaderFilter] = useState<string>('all');
   const [cityFilter, setCityFilter] = useState<string>('all');
   const [stateFilter, setStateFilter] = useState<string>('all');
@@ -339,6 +349,8 @@ export default function PharmaciesPage() {
   const [formComplement, setFormComplement] = useState('');
   const [formCity, setFormCity] = useState('');
   const [formState, setFormState] = useState('');
+  const [formIbgeCityCode, setFormIbgeCityCode] = useState('');
+  const [formMunicipalRegistration, setFormMunicipalRegistration] = useState('');
   const [formPhone, setFormPhone] = useState('');
   const [formStatus, setFormStatus] = useState<'active' | 'inactive'>('active');
   const [formLeaderId, setFormLeaderId] = useState('');
@@ -346,6 +358,8 @@ export default function PharmaciesPage() {
   const [formSecondaryAttendantId, setFormSecondaryAttendantId] = useState('');
   const [sectorAttendantMap, setSectorAttendantMap] = useState<Record<string, string>>({});
   const [commercial, setCommercial] = useState<PharmacyCommercialForm>(EMPTY_PHARMACY_COMMERCIAL);
+  const [billing, setBilling] = useState<PharmacyBillingForm>(EMPTY_PHARMACY_BILLING);
+  const billingModuleEnabled = useBillingModuleEnabled(canFetch);
   const [deliverySchedule, setDeliverySchedule] = useState<Record<string, unknown>>({});
 
   const [formExpName, setFormExpName] = useState('');
@@ -365,60 +379,56 @@ export default function PharmaciesPage() {
   const summaryQuery = useQuery({
     queryKey: ['pharmacies', 'summary'],
     enabled: canFetch,
-    queryFn: async () => (await api.get('/api/pharmacies/summary')).data as ApiPharmacySummary[],
+    queryFn: async () => await cadastroPageApi.fetchPharmaciesSummary() as ApiPharmacySummary[],
   });
 
   const leadersQuery = useQuery({
     queryKey: ['pharmacies', 'leaders'],
     enabled: canFetch,
-    queryFn: async () => (await api.get('/api/leaders', { params: { status: 'active' } })).data as ApiLeader[],
+    queryFn: async () => await cadastroPageApi.fetchLeaders({ status: 'active' }) as ApiLeader[],
   });
 
   const sectorsQuery = useQuery({
     queryKey: ['pharmacies', 'sectors'],
     enabled: canFetch && editorOpen,
-    queryFn: async () => (await api.get('/api/sectors')).data as ApiSector[],
+    queryFn: async () => await cadastroPageApi.fetchSectors() as ApiSector[],
   });
 
   const attendantsQuery = useQuery({
     queryKey: ['pharmacies', 'attendants', 'workspace'],
     enabled: canFetch && editorOpen && canManage,
     queryFn: async () =>
-      (
-        await api.get('/api/users/attendants', {
-          params: { scope: 'workspace', include_supervisors: '1' },
-        })
-      ).data as Array<{ id: string; name: string }>,
+      await cadastroPageApi.fetchAttendants({ scope: 'workspace', include_supervisors: '1' }) as Array<{ id: string; name: string }>,
   });
 
   const driversQuery = useQuery({
     queryKey: ['pharmacies', 'drivers'],
     enabled: canFetch && editorOpen && Boolean(editingId),
-    queryFn: async () => (await api.get('/api/drivers')).data as ApiDriver[],
+    queryFn: async () => await cadastroPageApi.fetchDrivers({ status: 'active' }) as ApiDriver[],
   });
 
   const statesQuery = useQuery({
     queryKey: ['geo', 'states'],
     enabled: canFetch && editorOpen,
-    queryFn: async () => (await api.get('/api/geo/states')).data as ApiState[],
+    queryFn: async () => await cadastroPageApi.fetchGeoStates() as ApiState[],
   });
 
   const citiesQuery = useQuery({
     queryKey: ['geo', 'cities', formState],
     enabled: canFetch && editorOpen && Boolean(formState),
-    queryFn: async () => (await api.get(`/api/geo/states/${encodeURIComponent(formState)}/cities`)).data as ApiCity[],
+    queryFn: async () => await cadastroPageApi.fetchGeoCities(formState) as ApiCity[],
   });
 
   const editDetailQuery = useQuery({
     queryKey: ['pharmacies', 'edit', editingId],
     enabled: canFetch && editorOpen && Boolean(editingId),
-    queryFn: async () => (await api.get(`/api/pharmacies/${editingId}`)).data as ApiPharmacyDetail,
+    queryFn: async () => await cadastroPageApi.fetchPharmacy(editingId) as ApiPharmacyDetail,
   });
 
   const detailQuery = useQuery({
     queryKey: ['pharmacies', 'detail', activeDetailId],
     enabled: canFetch && detailOpen && Boolean(activeDetailId),
-    queryFn: async () => (await api.get(`/api/pharmacies/${activeDetailId}`)).data as ApiPharmacyDetail,
+    queryFn: async () => await cadastroPageApi.fetchPharmacy(activeDetailId) as ApiPharmacyDetail,
   });
 
   useEffect(() => {
@@ -451,6 +461,8 @@ export default function PharmaciesPage() {
     setFormComplement(d.address_complement || '');
     setFormCity(d.city || '');
     setFormState(d.state || '');
+    setFormIbgeCityCode(onlyDigits(d.ibge_city_code || '').slice(0, 7));
+    setFormMunicipalRegistration(d.municipal_registration || '');
     setFormPhone(d.phone || '');
     setFormStatus(d.status || 'active');
     setFormLeaderId(d.leader_id || d.leader?.id || '');
@@ -476,6 +488,7 @@ export default function PharmaciesPage() {
       minimum_guaranteed_cents: d.minimum_guaranteed_cents ?? null,
       minimum_guaranteed_driver_payout_cents: d.minimum_guaranteed_driver_payout_cents ?? null,
     });
+    setBilling(pharmacyBillingFromApi(d as Record<string, unknown>));
     setDeliverySchedule(parsePharmacyDeliveryScheduleForEdit(d.delivery_schedule));
   }, [editorOpen, editingId, editDetailQuery.data]);
 
@@ -488,8 +501,9 @@ export default function PharmaciesPage() {
       complement: formComplement,
       city: formCity,
       state: formState,
+      ibge_city_code: formIbgeCityCode,
     }),
-    [formCep, formStreet, formNumber, formNeighborhood, formComplement, formCity, formState]
+    [formCep, formStreet, formNumber, formNeighborhood, formComplement, formCity, formState, formIbgeCityCode]
   );
 
   const patchAddress = (patch: Partial<typeof addressValues>) => {
@@ -500,6 +514,9 @@ export default function PharmaciesPage() {
     if (patch.complement !== undefined) setFormComplement(patch.complement);
     if (patch.city !== undefined) setFormCity(patch.city);
     if (patch.state !== undefined) setFormState(patch.state);
+    if (patch.ibge_city_code !== undefined) {
+      setFormIbgeCityCode(onlyDigits(patch.ibge_city_code || '').slice(0, 7));
+    }
   };
 
   const items = useMemo(() => {
@@ -509,7 +526,7 @@ export default function PharmaciesPage() {
       if (needle && !(p.trade_name || '').toLowerCase().includes(needle) && !(p.legal_name || '').toLowerCase().includes(needle)) {
         return false;
       }
-      if (statusFilter !== 'all' && p.status !== statusFilter) return false;
+      if (p.status !== statusFilter) return false;
       if (leaderFilter !== 'all' && String(p.leader?.id || '') !== leaderFilter) return false;
       if (cityFilter !== 'all' && normText(p.city) !== normText(cityFilter)) return false;
       if (stateFilter !== 'all' && normText(p.state) !== normText(stateFilter)) return false;
@@ -643,6 +660,7 @@ export default function PharmaciesPage() {
         contact_manager_email: formMgrEmail.trim() || null,
         city: formCity.trim() || undefined,
         state: formState.trim() || undefined,
+        ...pharmacyNfseFieldsForSave(formIbgeCityCode, formMunicipalRegistration),
         phone: normalizeBrazilPhone(formPhone) || undefined,
         status: formStatus,
         leader_id: formLeaderId || null,
@@ -654,17 +672,17 @@ export default function PharmaciesPage() {
         minimum_guaranteed_cents: commercial.minimum_guaranteed_cents,
         minimum_guaranteed_driver_payout_cents: commercial.minimum_guaranteed_driver_payout_cents,
         delivery_schedule: serializePharmacyDeliveryScheduleForApi(deliverySchedule),
+        ...(billingModuleEnabled ? pharmacyBillingToApi(billing) : {}),
       };
 
-      if (editingId) await api.put(`/api/pharmacies/${editingId}`, payload);
-      else await api.post('/api/pharmacies', payload);
+      if (editingId) await cadastroPageApi.updatePharmacy(editingId, payload);
+      else await cadastroPageApi.createPharmacy(payload);
 
       setEditorOpen(false);
       setEditingId(null);
       await summaryQuery.refetch();
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      setSaveError(msg || 'Falha ao salvar farmácia.');
+      setSaveError(apiErrorMessage(err, 'Falha ao salvar farmácia.'));
     } finally {
       setSaving(false);
     }
@@ -674,7 +692,7 @@ export default function PharmaciesPage() {
     const ok = window.confirm(`Excluir a farmácia "${p.trade_name}"?`);
     if (!ok) return;
     try {
-      await api.delete(`/api/pharmacies/${p.id}`);
+      await cadastroPageApi.deletePharmacy(p.id);
       await summaryQuery.refetch();
     } catch {
       // ignore
@@ -684,7 +702,7 @@ export default function PharmaciesPage() {
   const linkDriver = async (pharmacyId: string) => {
     if (!pharmacyId || !linkDriverId) return;
     try {
-      await api.post(`/api/drivers/${linkDriverId}/pharmacies`, { pharmacy_id: pharmacyId, is_primary: linkPrimary });
+      await cadastroPageApi.linkDriverPharmacy(linkDriverId, { pharmacy_id: pharmacyId, is_primary: linkPrimary });
       setLinkDriverId('');
       setLinkPrimary(false);
       await Promise.all([summaryQuery.refetch(), editDetailQuery.refetch()]);
@@ -696,7 +714,7 @@ export default function PharmaciesPage() {
   const unlinkDriver = async (pharmacyId: string, driverId: string) => {
     if (!pharmacyId || !driverId) return;
     try {
-      await api.delete(`/api/drivers/${driverId}/pharmacies/${pharmacyId}`);
+      await cadastroPageApi.unlinkDriverPharmacy(driverId, pharmacyId);
       await Promise.all([summaryQuery.refetch(), editDetailQuery.refetch()]);
     } catch {
       // ignore
@@ -713,7 +731,7 @@ export default function PharmaciesPage() {
 
   const clearFilters = () => {
     setQ('');
-    setStatusFilter('all');
+    setStatusFilter('active');
     setLeaderFilter('all');
     setCityFilter('all');
     setStateFilter('all');
@@ -741,6 +759,8 @@ export default function PharmaciesPage() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-7xl px-8 py-8">
         <PageHeader
+          icon={Building2}
+          live
           eyebrow="Operação"
           title="Farmácias"
           description="Unidades parceiras conectadas à plataforma."
@@ -754,7 +774,7 @@ export default function PharmaciesPage() {
                 onImported={() => void summaryQuery.refetch()}
               />
               {canManage ? (
-                <Link href="/pharmacies/new" className={reviveHeaderPrimaryActionClass}>
+                <Link href="/pharmacies/new" className={buttonVariants({ size: 'sm' })}>
                   <Plus className="h-3.5 w-3.5" /> Nova farmácia
                 </Link>
               ) : null}
@@ -765,80 +785,58 @@ export default function PharmaciesPage() {
         <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
           {[
             { label: 'Farmácias ativas', value: String(stats.active), icon: Building2 },
-            { label: 'Online agora', value: String(stats.active), accent: stats.active ? 'text-success' : undefined, icon: Users },
+            { label: 'Ativas', value: String(stats.active), accent: stats.active ? 'text-success' : undefined, icon: Users },
             { label: 'Entregadores totais', value: String(stats.driversTotal), icon: Truck },
             { label: 'SLA médio', value: `${stats.slaAvg.toFixed(1)}%`, accent: stats.slaAvg > 0 ? 'text-success' : undefined, icon: Users },
           ].map((s) => (
-            <div key={s.label} className="rounded-xl border border-border bg-surface p-4">
+            <div key={s.label} className={reviveKpiCardClassName}>
               <div className={cn('text-xl font-semibold tracking-tight', s.accent)}>{s.value}</div>
               <div className="mt-0.5 text-xs text-muted-foreground">{s.label}</div>
             </div>
           ))}
         </div>
 
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <div className="flex min-w-[240px] flex-1 items-center gap-2 rounded-md border border-border bg-surface px-3 py-2">
-            <Search className="h-3.5 w-3.5 text-muted-foreground" />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Buscar farmácia por nome..."
-              className="flex-1 bg-transparent text-sm outline-none placeholder:text-subtle-foreground"
-            />
-          </div>
-          <select
+        <ListToolbar
+          searchValue={q}
+          onSearchChange={setQ}
+          searchPlaceholder="Buscar farmácia por nome..."
+        >
+          <ToolbarSelect
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
-            className="rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground outline-none"
-          >
-            <option value="all">Status</option>
-            <option value="active">Ativa</option>
-            <option value="inactive">Inativa</option>
-          </select>
-          <select
+            onChange={(v) => setStatusFilter(v as 'active' | 'inactive')}
+            options={[
+              { value: 'active', label: 'Ativa' },
+              { value: 'inactive', label: 'Inativa' },
+            ]}
+          />
+          <ToolbarSelect
+            wideMenu
             value={leaderFilter}
-            onChange={(e) => setLeaderFilter(e.target.value)}
-            className="rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground outline-none"
-          >
-            <option value="all">Líder</option>
-            {(leadersQuery.data || []).map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
-          <select
+            onChange={setLeaderFilter}
+            options={[
+              { value: 'all', label: 'Líder' },
+              ...(leadersQuery.data || []).map((l) => ({ value: l.id, label: l.name })),
+            ]}
+          />
+          <ToolbarSelect
+            wideMenu
             value={cityFilter}
-            onChange={(e) => setCityFilter(e.target.value)}
-            className="rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground outline-none"
-          >
-            <option value="all">Cidade</option>
-            {cityOptions.map((city) => (
-              <option key={city} value={city}>
-                {city}
-              </option>
-            ))}
-          </select>
-          <select
+            onChange={setCityFilter}
+            options={[{ value: 'all', label: 'Cidade' }, ...cityOptions.map((city) => ({ value: city, label: city }))]}
+          />
+          <ToolbarSelect
             value={stateFilter}
-            onChange={(e) => setStateFilter(e.target.value)}
-            className="rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground outline-none"
-          >
-            <option value="all">Estado</option>
-            {stateOptions.map((uf) => (
-              <option key={uf} value={uf}>
-                {uf}
-              </option>
-            ))}
-          </select>
+            onChange={setStateFilter}
+            options={[{ value: 'all', label: 'Estado' }, ...stateOptions.map((uf) => ({ value: uf, label: uf }))]}
+          />
           <button
             type="button"
             onClick={clearFilters}
-            className="rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+            className={reviveToolbarButtonClassName}
           >
             Limpar filtros
           </button>
-        </div>
+        </ListToolbar>
 
         {summaryQuery.isError ? <div className="mb-3 text-xs text-destructive">Falha ao carregar farmácias.</div> : null}
 
@@ -849,7 +847,7 @@ export default function PharmaciesPage() {
             <div className="text-sm text-muted-foreground">Nenhuma farmácia encontrada.</div>
           ) : (
             pagedItems.map((p) => (
-              <div key={p.id} data-pharmacy-id={p.id} className="group rounded-xl border border-border bg-surface p-5 hover:bg-surface-elevated transition-colors">
+              <div key={p.id} data-pharmacy-id={p.id} className={reviveListCardClassName}>
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-primary text-primary-foreground">
@@ -857,25 +855,25 @@ export default function PharmaciesPage() {
                     </div>
                     <div>
                       <div className="text-sm font-semibold">{p.trade_name}</div>
-                      <div className="font-mono text-[10px] text-subtle-foreground">{p.id.slice(0, 8)}</div>
+                      {p.city ? <div className="text-[10px] text-subtle-foreground">{p.city}</div> : null}
                     </div>
                   </div>
 
                   <div className="relative">
                     <button
                       onClick={() => setMenuId((v) => (v === p.id ? null : p.id))}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity rounded p-1 hover:bg-surface-hover"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity rounded p-1 hover:bg-sidebar-accent/60"
                       title="Ações"
                     >
                       <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
                     </button>
                     {menuId === p.id ? (
-                      <div ref={menuRef} className="absolute right-0 top-8 z-30 w-40 rounded-xl border border-border bg-surface-elevated p-1 shadow-glow">
+                      <div ref={menuRef} className="absolute right-0 top-8 z-30 w-40 rounded-xl border border-border bg-muted p-1 shadow-md">
                         {canManage ? (
                           <Link
                             href={`/pharmacies/new?id=${encodeURIComponent(p.id)}`}
                             onClick={() => setMenuId(null)}
-                            className={`${revivePrimarySmActionClass} flex w-full justify-start`}
+                            className={`${buttonVariants()} flex w-full justify-start`}
                           >
                             <Edit3 className="h-3.5 w-3.5" />
                             Editar
@@ -886,7 +884,7 @@ export default function PharmaciesPage() {
                             setMenuId(null);
                             void remove(p);
                           }}
-                          className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-destructive hover:bg-surface-hover"
+                          className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-destructive hover:bg-sidebar-accent/60"
                         >
                           Excluir
                         </button>
@@ -926,10 +924,10 @@ export default function PharmaciesPage() {
 
                 <div className="mt-3 flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
-                    <StatusDot status={statusToDot(p.status)} pulse={p.status === 'active'} />
-                    <span className="text-[10px] capitalize text-muted-foreground">{p.status === 'active' ? 'online' : 'offline'}</span>
+                    <StatusDot status={cadastroStatusDot(p.status)} pulse={p.status === 'active'} />
+                    <span className="text-[10px] text-muted-foreground">{p.status === 'active' ? 'Ativa' : 'Inativa'}</span>
                   </div>
-                  <Link href={`/pharmacies/${encodeURIComponent(p.id)}`} className={reviveInlineTextActionClass}>
+                  <Link href={`/pharmacies/${encodeURIComponent(p.id)}`} className={buttonVariants({ variant: 'link', size: 'sm' })}>
                     Detalhes →
                   </Link>
                 </div>
@@ -956,44 +954,34 @@ export default function PharmaciesPage() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="sm:col-span-2">
                 <CadastroField icon={Building2} label="Nome fantasia" required>
-                  <input value={formTrade} onChange={(e) => setFormTrade(e.target.value)} className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none" required />
+                  <FormControl value={formTrade} onChange={(e) => setFormTrade(e.target.value)} required />
                 </CadastroField>
               </div>
               <div className="sm:col-span-2">
                 <CadastroField icon={Building2} label="Razão social" required>
-                  <input value={formLegal} onChange={(e) => setFormLegal(e.target.value)} className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none" required />
+                  <FormControl value={formLegal} onChange={(e) => setFormLegal(e.target.value)} required />
                 </CadastroField>
               </div>
               <div className="sm:col-span-2">
                 <CadastroField icon={FileText} label="CNPJ" required>
-                  <BrCnpjInput value={onlyDigits(formCnpj)} onChange={(digits) => setFormCnpj(digits)} className="bg-surface font-mono" placeholder="00.000.000/0000-00" required />
+                  <BrCnpjInput value={onlyDigits(formCnpj)} onChange={(digits) => setFormCnpj(digits)} className="font-mono" placeholder="00.000.000/0000-00" required />
                 </CadastroField>
               </div>
               <div className="sm:col-span-2">
                 <CadastroField icon={Phone} label="Telefone">
-                  <BrPhoneInput value={formPhone} onChange={setFormPhone} className="bg-surface font-mono" placeholder="(11) 99999-9999" />
-                </CadastroField>
-              </div>
-              <div className="sm:col-span-2">
-                <CadastroField icon={Users} label="Líder">
-                  <select value={formLeaderId} onChange={(e) => setFormLeaderId(e.target.value)} className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none">
-                    <option value="">—</option>
-                    {(leadersQuery.data || [])
-                      .filter((l) => l.status === 'active')
-                      .map((l) => (
-                        <option key={l.id} value={l.id}>
-                          {l.name}
-                        </option>
-                      ))}
-                  </select>
+                  <BrPhoneInput value={formPhone} onChange={setFormPhone} className="font-mono" placeholder="(11) 99999-9999" />
                 </CadastroField>
               </div>
               <div className="sm:col-span-2">
                 <CadastroField icon={StatusDot as unknown as typeof Building2} label="Status">
-                  <select value={formStatus} onChange={(e) => setFormStatus(e.target.value as 'active' | 'inactive')} className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none">
-                    <option value="active">Ativa</option>
-                    <option value="inactive">Inativa</option>
-                  </select>
+                  <FormSelect
+                    value={formStatus}
+                    onChange={(v) => setFormStatus(v as 'active' | 'inactive')}
+                    options={[
+                      { value: 'active', label: 'Ativa' },
+                      { value: 'inactive', label: 'Inativa' },
+                    ]}
+                  />
                 </CadastroField>
               </div>
             </div>
@@ -1006,46 +994,63 @@ export default function PharmaciesPage() {
               statesQuery={statesQuery}
               citiesQuery={citiesQuery}
             />
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <CadastroField icon={MapPin} label="Código IBGE (município)">
+                <FormControl
+                  value={formIbgeCityCode}
+                  onChange={(e) => setFormIbgeCityCode(onlyDigits(e.target.value).slice(0, 7))}
+                  placeholder="Auto ao buscar CEP / cidade"
+                  className="font-mono"
+                />
+              </CadastroField>
+              <CadastroField icon={MapPin} label="Inscrição municipal">
+                <FormControl
+                  value={formMunicipalRegistration}
+                  onChange={(e) => setFormMunicipalRegistration(e.target.value)}
+                  placeholder="Opcional para NFS-e"
+                />
+              </CadastroField>
+            </div>
           </CadastroSection>
 
           <CadastroSection title="Contatos por perfil" desc="Opcional">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="sm:col-span-2 text-[11px] font-semibold text-foreground">Expedição</div>
               <CadastroField icon={Users} label="Nome">
-                <input value={formExpName} onChange={(e) => setFormExpName(e.target.value)} className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none" placeholder="Opcional" />
+                <FormControl value={formExpName} onChange={(e) => setFormExpName(e.target.value)} placeholder="Opcional" />
               </CadastroField>
               <CadastroField icon={Phone} label="Telefone">
-                <BrPhoneInput value={formExpPhone} onChange={setFormExpPhone} className="bg-surface font-mono" placeholder="(11) 99999-9999" />
+                <BrPhoneInput value={formExpPhone} onChange={setFormExpPhone} className="font-mono" placeholder="(11) 99999-9999" />
               </CadastroField>
               <div className="sm:col-span-2">
                 <CadastroField icon={Mail} label="E-mail">
-                  <input value={formExpEmail} onChange={(e) => setFormExpEmail(e.target.value)} className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none" placeholder="Opcional" type="email" />
+                  <FormControl value={formExpEmail} onChange={(e) => setFormExpEmail(e.target.value)} placeholder="Opcional" type="email" />
                 </CadastroField>
               </div>
 
               <div className="sm:col-span-2 pt-1 text-[11px] font-semibold text-foreground">Financeiro</div>
               <CadastroField icon={Users} label="Nome">
-                <input value={formFinName} onChange={(e) => setFormFinName(e.target.value)} className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none" placeholder="Opcional" />
+                <FormControl value={formFinName} onChange={(e) => setFormFinName(e.target.value)} placeholder="Opcional" />
               </CadastroField>
               <CadastroField icon={Phone} label="Telefone">
-                <BrPhoneInput value={formFinPhone} onChange={setFormFinPhone} className="bg-surface font-mono" placeholder="(11) 99999-9999" />
+                <BrPhoneInput value={formFinPhone} onChange={setFormFinPhone} className="font-mono" placeholder="(11) 99999-9999" />
               </CadastroField>
               <div className="sm:col-span-2">
                 <CadastroField icon={Mail} label="E-mail">
-                  <input value={formFinEmail} onChange={(e) => setFormFinEmail(e.target.value)} className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none" placeholder="Opcional" type="email" />
+                  <FormControl value={formFinEmail} onChange={(e) => setFormFinEmail(e.target.value)} placeholder="Opcional" type="email" />
                 </CadastroField>
               </div>
 
               <div className="sm:col-span-2 pt-1 text-[11px] font-semibold text-foreground">Gestor</div>
               <CadastroField icon={Users} label="Nome">
-                <input value={formMgrName} onChange={(e) => setFormMgrName(e.target.value)} className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none" placeholder="Opcional" />
+                <FormControl value={formMgrName} onChange={(e) => setFormMgrName(e.target.value)} placeholder="Opcional" />
               </CadastroField>
               <CadastroField icon={Phone} label="Telefone">
-                <BrPhoneInput value={formMgrPhone} onChange={setFormMgrPhone} className="bg-surface font-mono" placeholder="(11) 99999-9999" />
+                <BrPhoneInput value={formMgrPhone} onChange={setFormMgrPhone} className="font-mono" placeholder="(11) 99999-9999" />
               </CadastroField>
               <div className="sm:col-span-2">
                 <CadastroField icon={Mail} label="E-mail">
-                  <input value={formMgrEmail} onChange={(e) => setFormMgrEmail(e.target.value)} className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none" placeholder="Opcional" type="email" />
+                  <FormControl value={formMgrEmail} onChange={(e) => setFormMgrEmail(e.target.value)} placeholder="Opcional" type="email" />
                 </CadastroField>
               </div>
             </div>
@@ -1055,12 +1060,29 @@ export default function PharmaciesPage() {
             <PharmacyCommercialTermsFields value={commercial} onChange={setCommercial} />
           </CadastroSection>
 
+          {billingModuleEnabled ? (
+            <>
+              <CadastroSection title="Centro de custo" desc="Catálogo em /billing/config.">
+                <PharmacyCostCenterSelect
+                  value={billing.billing_cost_center_id}
+                  onChange={(id) => setBilling((b) => ({ ...b, billing_cost_center_id: id }))}
+                />
+              </CadastroSection>
+              <PharmacyBillingEditor value={billing} onChange={setBilling} />
+            </>
+          ) : null}
+
           <CadastroSection title="Horário de funcionamento do delivery">
             <PharmacyDeliveryScheduleSection value={deliverySchedule} onChange={setDeliverySchedule} />
           </CadastroSection>
 
           <CadastroSection title="Atendentes vinculados" desc="Fila padrão, backup e atendente opcional por setor.">
             <PharmacyLinkedAttendantsSection
+              leaders={(leadersQuery.data || [])
+                .filter((l) => l.status === 'active')
+                .map((l) => ({ id: l.id, name: l.name }))}
+              leaderId={formLeaderId}
+              onLeaderChange={setFormLeaderId}
               attendants={attendantsQuery.data || []}
               sectors={(sectorsQuery.data || []).filter((s) => s.is_active !== false)}
               primaryId={formPrimaryAttendantId}
@@ -1094,24 +1116,20 @@ export default function PharmaciesPage() {
           ) : null}
 
           <div className="flex items-center justify-end gap-2 pt-2">
-            <button
+            <Button
               type="button"
+              variant="outline"
               onClick={() => {
                 clearEditQueryParam();
                 setEditorOpen(false);
               }}
               disabled={saving}
-              className="rounded-md border border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground disabled:opacity-60"
             >
               Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary-glow disabled:opacity-60"
-            >
+            </Button>
+            <Button type="submit" disabled={saving}>
               {saving ? 'Salvando…' : 'Salvar'}
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>
@@ -1127,7 +1145,7 @@ export default function PharmaciesPage() {
                 setDetailOpen(false);
                 setActiveDetailId(null);
               }}
-              className={revivePrimarySmActionClass}
+              className={buttonVariants()}
             >
               <Edit3 className="h-3.5 w-3.5" /> Editar
             </Link>
@@ -1144,7 +1162,7 @@ export default function PharmaciesPage() {
           <div className="text-sm text-muted-foreground">Falha ao carregar detalhes.</div>
         ) : (
           <div className="space-y-4">
-            <div className="rounded-xl border border-border bg-background/40 p-4">
+            <div className="rounded-xl border border-border bg-muted/30 p-4">
               <div className="text-sm font-semibold">{detailQuery.data.trade_name}</div>
               <div className="mt-1 text-xs text-muted-foreground">{detailQuery.data.legal_name}</div>
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
@@ -1189,7 +1207,7 @@ export default function PharmaciesPage() {
             </div>
 
             {(detailQuery.data.pharmacy_sector_attendants || []).filter((r) => r.attendant_id).length > 0 ? (
-              <div className="rounded-xl border border-border bg-background/40 p-4">
+              <div className="rounded-xl border border-border bg-muted/30 p-4">
                 <div className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground">Atendentes por setor</div>
                 <div className="mt-2 space-y-1 text-xs">
                   {(detailQuery.data.pharmacy_sector_attendants || [])
@@ -1204,7 +1222,7 @@ export default function PharmaciesPage() {
               </div>
             ) : null}
 
-            <div className="rounded-xl border border-border bg-background/40 p-4">
+            <div className="rounded-xl border border-border bg-muted/30 p-4">
               <div className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground">Contatos por perfil</div>
               <div className="mt-3 grid grid-cols-1 gap-3 text-xs">
                 {[
@@ -1212,7 +1230,7 @@ export default function PharmaciesPage() {
                   { label: 'Financeiro', name: detailQuery.data.contact_financial_name, phone: detailQuery.data.contact_financial_phone, email: detailQuery.data.contact_financial_email },
                   { label: 'Gestor', name: detailQuery.data.contact_manager_name, phone: detailQuery.data.contact_manager_phone, email: detailQuery.data.contact_manager_email },
                 ].map((c) => (
-                  <div key={c.label} className="rounded-lg border border-border bg-surface px-3 py-2">
+                  <div key={c.label} className="rounded-lg border border-border bg-card px-3 py-2">
                     <div className="text-[11px] font-semibold text-foreground">{c.label}</div>
                     <div className="mt-1 text-muted-foreground">
                       {c.name ? <span className="text-foreground">{c.name}</span> : '—'}

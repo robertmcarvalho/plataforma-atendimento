@@ -13,11 +13,13 @@ import { offboardPharmacy } from '../lib/pharmacyOffboarding';
 import { writeAuditLog } from '../lib/auditLog';
 import { normalizeNameLike } from '../lib/textNormalization';
 import { requireWorkspace } from '../lib/workspaceContext';
+import { buildCadastroSearchOrFilter, PHARMACY_SEARCH_CONFIG } from '../lib/cadastroSearch';
 import {
   buildPharmacyImportTemplate,
   parsePharmacyImportWorkbook,
   IMPORT_MAX_BYTES,
 } from '../lib/excelCadastroImport';
+import { omitPharmacyNfseWriteColumns } from '../lib/pharmacyNfseWrite';
 
 const sectorAttendantRowSchema = z.object({
   sector_id: z.string().uuid(),
@@ -121,6 +123,8 @@ const pharmacySchema = z.object({
   contact_manager_email: z.string().email().optional().nullable(),
   city: z.string().optional(),
   state: z.string().optional(),
+  municipal_registration: z.string().max(64).optional().nullable(),
+  ibge_city_code: z.string().max(16).optional().nullable(),
   phone: z.string().optional(),
   email: z.string().email().optional(),
   status: z.enum(['active', 'inactive']).default('active'),
@@ -135,7 +139,63 @@ const pharmacySchema = z.object({
   minimum_guaranteed_cents: z.number().int().min(0).optional().nullable(),
   minimum_guaranteed_driver_payout_cents: z.number().int().min(0).optional().nullable(),
   delivery_schedule: z.record(z.unknown()).optional(),
+  billing_cost_center_id: z.string().uuid().optional().nullable(),
+  contract_scope: z.enum(['flux_only', 'coop_only', 'both']).optional(),
+  split_coop_pct: z.number().min(0).max(100).optional().nullable(),
+  split_flux_pct: z.number().min(0).max(100).optional().nullable(),
+  mg_enabled: z.boolean().optional(),
+  mg_mode: z.enum(['per_driver', 'shared_pool']).optional(),
+  mg_pool_split_rule: z.enum(['equal', 'by_deliveries']).optional(),
+  minimum_deliveries_count: z.number().int().min(0).optional().nullable(),
+  billing_email: z.string().email().optional().nullable(),
+  flux_codpes: z.number().int().optional().nullable(),
+  flux_codloc: z.number().int().optional().nullable(),
+  daily_billing_enabled: z.boolean().optional(),
+  daily_billing_rule: z.enum(['per_driver_delivery_day', 'fixed_per_driver_cycle']).optional(),
+  daily_billing_quantity: z.number().int().min(0).optional().nullable(),
+  daily_billing_pharmacy_amount_cents: z.number().int().min(0).optional().nullable(),
+  daily_billing_driver_payout_cents: z.number().int().min(0).optional().nullable(),
+  driver_day_base_enabled: z.boolean().optional(),
+  driver_day_base_cents: z.number().int().min(0).optional(),
 });
+
+function applyPharmacyBillingFields(row: Record<string, unknown>): { row: Record<string, unknown>; error?: string } {
+  const next: Record<string, unknown> = omitPharmacyNfseWriteColumns(row);
+  if ('ibge_city_code' in next) {
+    const raw = next.ibge_city_code;
+    if (raw == null || String(raw).trim() === '') {
+      next.ibge_city_code = null;
+    } else {
+      const digits = String(raw).replace(/\D/g, '').slice(0, 7);
+      if (digits.length !== 7) {
+        return { row, error: 'Código IBGE do município deve ter 7 dígitos.' };
+      }
+      next.ibge_city_code = digits;
+    }
+  }
+  if ('municipal_registration' in next) {
+    const v = next.municipal_registration == null ? null : String(next.municipal_registration).trim();
+    next.municipal_registration = v || null;
+  }
+  if ('split_coop_pct' in row || 'split_flux_pct' in row) {
+    const coop = row.split_coop_pct != null ? Number(row.split_coop_pct) : null;
+    const flux = row.split_flux_pct != null ? Number(row.split_flux_pct) : null;
+    if (coop != null && flux != null && Math.abs(coop + flux - 100) > 0.001) {
+      return { row, error: 'Split Coop + Flux da farmácia deve somar 100%.' };
+    }
+  }
+  if (row.daily_billing_enabled === true) {
+    const pharmacyAmount = Number(row.daily_billing_pharmacy_amount_cents ?? 0);
+    const driverAmount = Number(row.daily_billing_driver_payout_cents ?? 0);
+    if (pharmacyAmount <= 0 && driverAmount <= 0) {
+      return { row, error: 'Informe ao menos um valor de diária para cobrar da farmácia ou repassar ao entregador.' };
+    }
+    if (row.daily_billing_rule === 'fixed_per_driver_cycle' && Number(row.daily_billing_quantity ?? 0) <= 0) {
+      return { row, error: 'Informe a quantidade fixa de diárias por entregador/ciclo.' };
+    }
+  }
+  return { row: next };
+}
 
 function applyPharmacyCommercialFields(row: Record<string, unknown>): { row: Record<string, unknown>; error?: string } {
   const hasCommercial = PHARMACY_COMMERCIAL_KEYS.some((k) => k in row);
@@ -286,7 +346,10 @@ export async function pharmacyRoutes(app: FastifyInstance) {
       .order('trade_name');
 
     if (status) pharmacyQuery = pharmacyQuery.eq('status', status);
-    if (search) pharmacyQuery = pharmacyQuery.or(`trade_name.ilike.%${search}%,legal_name.ilike.%${search}%,cnpj.ilike.%${search}%`);
+    if (search) {
+      const orFilter = buildCadastroSearchOrFilter(search, PHARMACY_SEARCH_CONFIG);
+      if (orFilter) pharmacyQuery = pharmacyQuery.or(orFilter);
+    }
 
     const { data: pharmacies, error } = await pharmacyQuery;
     if (error) return reply.status(500).send({ error: error.message });
@@ -380,7 +443,10 @@ export async function pharmacyRoutes(app: FastifyInstance) {
       .order('trade_name');
 
     if (status) query = query.eq('status', status);
-    if (search) query = query.or(`trade_name.ilike.%${search}%,legal_name.ilike.%${search}%,cnpj.ilike.%${search}%`);
+    if (search) {
+      const orFilter = buildCadastroSearchOrFilter(search, PHARMACY_SEARCH_CONFIG);
+      if (orFilter) query = query.or(orFilter);
+    }
 
     const { data, error } = await query;
     if (error) return reply.status(500).send({ error: error.message });
@@ -456,11 +522,13 @@ export async function pharmacyRoutes(app: FastifyInstance) {
     const { sector_attendants, ...row } = body.data;
     const commercialApplied = applyPharmacyCommercialFields(row as Record<string, unknown>);
     if (commercialApplied.error) return reply.status(400).send({ error: commercialApplied.error });
-    const normalizedRow: Record<string, unknown> = {
-      ...commercialApplied.row,
+    const billingApplied = applyPharmacyBillingFields(commercialApplied.row);
+    if (billingApplied.error) return reply.status(400).send({ error: billingApplied.error });
+    const normalizedRow: Record<string, unknown> = omitPharmacyNfseWriteColumns({
+      ...billingApplied.row,
       trade_name: normalizeNameLike(row.trade_name) || row.trade_name,
       legal_name: normalizeNameLike(row.legal_name) || row.legal_name,
-    };
+    });
     const { data, error } = await supabase.from('pharmacies').insert({ workspace_id: workspaceId, ...normalizedRow }).select().single();
     if (error) return reply.status(500).send({ error: error.message });
     try {
@@ -485,11 +553,13 @@ export async function pharmacyRoutes(app: FastifyInstance) {
     const { sector_attendants, ...updates } = body.data;
     const commercialApplied = applyPharmacyCommercialFields(updates as Record<string, unknown>);
     if (commercialApplied.error) return reply.status(400).send({ error: commercialApplied.error });
-    const normalizedUpdates: Record<string, unknown> = {
-      ...commercialApplied.row,
+    const billingApplied = applyPharmacyBillingFields(commercialApplied.row);
+    if (billingApplied.error) return reply.status(400).send({ error: billingApplied.error });
+    const normalizedUpdates: Record<string, unknown> = omitPharmacyNfseWriteColumns({
+      ...billingApplied.row,
       trade_name: updates.trade_name !== undefined ? normalizeNameLike(updates.trade_name) : undefined,
       legal_name: updates.legal_name !== undefined ? normalizeNameLike(updates.legal_name) : undefined,
-    };
+    });
     const { data: currentPharmacy, error: currentErr } = await supabase
       .from('pharmacies')
       .select('leader_id, status')

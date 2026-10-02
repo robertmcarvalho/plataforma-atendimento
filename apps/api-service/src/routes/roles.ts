@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { authenticate, requireRole } from '../middleware/authenticate';
 import { writeAuditLog } from '../lib/auditLog';
 import { requireWorkspace } from '../lib/workspaceContext';
+import { ensureCommercialRoles } from '../lib/commercial/commercialRoles';
 
 const patchRoleSchema = z.object({
   permissions: z.record(z.unknown()),
@@ -14,6 +15,7 @@ export async function roleRoutes(app: FastifyInstance) {
   app.get('/', { preHandler: [authenticate, requireRole('admin')] }, async (request, reply) => {
     const workspaceId = await requireWorkspace(request, reply);
     if (!workspaceId) return;
+    await ensureCommercialRoles(workspaceId);
     const { data, error } = await supabase.from('roles').select('id, name, permissions').eq('workspace_id', workspaceId).order('name');
     if (error) return reply.status(500).send({ error: error.message });
     return reply.send(data || []);

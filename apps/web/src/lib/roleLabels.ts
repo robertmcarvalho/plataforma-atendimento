@@ -1,11 +1,15 @@
 /** Rótulos em português para nomes de perfil (roles.name no backend). */
 export const ROLE_DISPLAY_NAME_PT: Record<string, string> = {
   admin: 'Administrador',
-  supervisor: 'Supervisor',
+  supervisor: 'Gestor Operacional',
   attendant: 'Atendente',
-  operational: 'Operacional',
-  financial: 'Financeiro',
+  attendant_financeiro: 'Atendente Financeiro',
+  operational: 'Analista Operacional',
+  financial: 'Gestor Financeiro',
+  financial_auditor: 'Auditor financeiro',
   leader: 'Líder',
+  commercial: 'Comercial',
+  sales: 'Vendas',
 };
 
 export function roleDisplayNamePt(name: string | undefined | null): string {
@@ -27,6 +31,7 @@ export const PERMISSION_MODULE_LABELS_PT: Record<string, string> = {
   drivers: 'Motoristas',
   leaders: 'Líderes',
   financial: 'Financeiro',
+  billing: 'Faturamento',
   leader_panel: 'Portal do líder',
 };
 
@@ -53,8 +58,14 @@ export const PERMISSION_ACTION_LABELS_PT: Record<string, Record<string, string>>
     manage: 'Gerenciar',
     approve: 'Aprovar',
     export: 'Exportar',
+    reconcile: 'Conciliar',
+  },
+  billing: {
+    view: 'Visualizar',
+    manage: 'Gerenciar',
   },
   leader_panel: { view: 'Visualizar', manage: 'Gerenciar' },
+  commercial: { view: 'Visualizar', manage: 'Gerenciar' },
 };
 
 export function permissionModuleLabelPt(key: string): string {

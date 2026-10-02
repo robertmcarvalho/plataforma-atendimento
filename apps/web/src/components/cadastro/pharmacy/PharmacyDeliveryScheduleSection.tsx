@@ -9,12 +9,5 @@ type Props = {
 };
 
 export function PharmacyDeliveryScheduleSection({ value, onChange, disabled }: Props) {
-  if (disabled) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Horário de delivery não editável neste modo.
-      </p>
-    );
-  }
   return <PharmacyDeliveryScheduleEditor value={value} onChange={onChange} disabled={disabled} />;
 }

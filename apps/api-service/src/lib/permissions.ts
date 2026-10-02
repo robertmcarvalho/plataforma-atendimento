@@ -1,5 +1,12 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { getWorkspaceMembership, hasPlatformAccess, type JwtUser } from './workspaceContext';
+import { supabase } from './supabase';
+import { getWorkspaceMembership, hasPlatformAccess, requireWorkspace, type JwtUser } from './workspaceContext';
+import { isOperationalAnalyst } from './operationalAnalyst';
+import { expandAttendantRoles } from './roleAliases';
+
+function normalizeRole(user: Pick<JwtUser, 'role' | 'workspace_role'>): string {
+  return String(user.role || user.workspace_role || '').trim().toLowerCase();
+}
 
 export function hasResourcePermission(
   user: Pick<JwtUser, 'role' | 'workspace_role' | 'platform_role' | 'permissions'>,
@@ -29,14 +36,55 @@ export async function effectivePermissions(user: JwtUser): Promise<Record<string
   return user.permissions || {};
 }
 
-/** Cadastro: admin, operational (legado) ou permissão `manage` do perfil (JWT ou DB atual). */
-export function requireCadastroManage(resource: 'pharmacies' | 'drivers' | 'leaders') {
+/** Papel legado ou toggle `permissions[resource][action]` no perfil. */
+export function requireRoleOrPermission(roles: string[], resource: string, action: string) {
+  const legacyRoles = new Set(expandAttendantRoles(roles.map((r) => r.toLowerCase())));
   return async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user as JwtUser;
-    const role = String(user.role || user.workspace_role || '').trim();
-    if (role === 'operational') return;
+    const role = normalizeRole(user);
+    if (role === 'admin' || hasPlatformAccess(user)) return;
+    if (legacyRoles.has(role)) return;
     const perms = await effectivePermissions(user);
-    if (hasResourcePermission({ ...user, permissions: perms }, resource, 'manage')) return;
+    if (hasResourcePermission({ ...user, permissions: perms }, resource, action)) return;
     return reply.status(403).send({ error: 'Acesso negado' });
   };
 }
+
+/** Cadastro: papéis com menu de cadastro, analista operacional ou permissão `manage` do perfil. */
+export function requireCadastroManage(resource: 'pharmacies' | 'drivers' | 'leaders') {
+  const base = requireRoleOrPermission(['supervisor', 'operational', 'financial'], resource, 'manage');
+  return async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user as JwtUser;
+    const role = normalizeRole(user);
+    if (role === 'admin' || hasPlatformAccess(user)) return;
+    if (role === 'operational') return;
+
+    const perms = await effectivePermissions(user);
+    if (hasResourcePermission({ ...user, permissions: perms }, resource, 'manage')) return;
+
+    if (resource === 'drivers') {
+      const workspaceId = await requireWorkspace(request, reply);
+      if (!workspaceId) return;
+      if (await isOperationalAnalyst(supabase, user)) return;
+    }
+
+    return base(request, reply);
+  };
+}
+
+/** Criar, editar e bloquear contatos. */
+export const requireContactsManage = requireRoleOrPermission(
+  ['attendant', 'supervisor', 'operational', 'financial'],
+  'contacts',
+  'manage'
+);
+
+/** Permissão de transferência de conversas entre setores/atendentes. */
+export const requireConversationsTransfer = requireRoleOrPermission(
+  ['attendant', 'supervisor', 'operational', 'financial', 'sales', 'commercial'],
+  'conversations',
+  'transfer',
+);
+
+/** Relatórios operacionais (GET /api/reports/* exceto financeiro). */
+export const requireReportsView = requireRoleOrPermission(['supervisor', 'financial'], 'reports', 'view');
