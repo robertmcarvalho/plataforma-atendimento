@@ -9,6 +9,9 @@ import { formatWorkScheduleSummary, hasConfiguredWorkSchedule } from '@/componen
 import { formatCentsBRL } from '@/lib/pharmacyCommercial';
 import type { ContactDetail } from '@/types/contact';
 import { ProfileTypeBadge } from '@/components/ui/ProfileTypeBadge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { SectionTitle } from '@/components/ui/SectionTitle';
 
 function initials(input: string) {
   const p = input.trim();
@@ -66,7 +69,8 @@ export function ContactProfileModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-surface p-4 shadow-glow">
+      <Card className="max-h-[90vh] w-full max-w-lg overflow-y-auto gap-0 py-4 shadow-md ring-0">
+        <CardContent className="px-4 pt-0">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-channel-whatsapp to-success text-sm font-semibold">
@@ -79,18 +83,20 @@ export function ContactProfileModal({
               </div>
             </div>
           </div>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-sm"
             onClick={onClose}
-            className="rounded p-1 text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+            className="text-muted-foreground"
             title="Fechar"
           >
             <X className="h-4 w-4" />
-          </button>
+          </Button>
         </div>
 
         <div className="mt-4 space-y-3">
-          <div className="rounded-lg border border-border bg-background/40 p-3">
+          <div className="rounded-lg border border-border bg-surface p-3">
             <div className="text-xs text-muted-foreground">Telefone</div>
             <div className="mt-0.5 font-mono text-sm text-foreground">{phoneFmt}</div>
           </div>
@@ -102,7 +108,7 @@ export function ContactProfileModal({
           ) : c ? (
             <>
               {pt === 'driver' && c.driver ? (
-                <div className="rounded-lg border border-border bg-background/40 p-3">
+                <div className="rounded-lg border border-border bg-surface p-3">
                   <div className="text-xs font-semibold text-foreground">Entregador</div>
                   <div className="mt-2 grid gap-1 text-sm text-foreground">
                     <div>
@@ -149,8 +155,8 @@ export function ContactProfileModal({
                       <span className="text-muted-foreground">Líder responsável (vínculo direto): </span>
                       {String((driverDetailQ.data?.override_leader as Record<string, unknown> | undefined)?.name || '—')}
                     </div>
-                    <div className="rounded border border-border/70 bg-surface/40 p-2 text-xs">
-                      <div className="text-[10px] uppercase tracking-wider text-subtle-foreground">Vínculos com farmácias</div>
+                    <div className="rounded border border-border/70 bg-background/40 p-2 text-xs">
+                      <SectionTitle>Vínculos com farmácias</SectionTitle>
                       <div className="mt-1 space-y-1">
                         {Array.isArray(driverDetailQ.data?.driver_pharmacy_links) &&
                         (driverDetailQ.data!.driver_pharmacy_links as Array<Record<string, unknown>>).filter((link) => Boolean(link.is_active)).length > 0 ? (
@@ -180,7 +186,7 @@ export function ContactProfileModal({
               ) : null}
 
               {pt === 'pharmacy' && c.pharmacy ? (
-                <div className="rounded-lg border border-border bg-background/40 p-3">
+                <div className="rounded-lg border border-border bg-surface p-3">
                   <div className="text-xs font-semibold text-foreground">Farmácia</div>
                   <div className="mt-2 grid gap-1 text-sm text-foreground">
                     <div>
@@ -243,7 +249,7 @@ export function ContactProfileModal({
                         {formatCentsBRL(pharmacyDetailQ.data.minimum_guaranteed_cents as number)}
                       </div>
                     ) : null}
-                    {hasConfiguredWorkSchedule(pharmacyDetailQ.data?.delivery_schedule) ? (
+                    {hasConfiguredWorkSchedule(pharmacyDetailQ.data?.delivery_schedule) && pharmacyDetailQ.data ? (
                       <>
                         <div>
                           <span className="text-muted-foreground">Horário delivery: </span>
@@ -276,8 +282,8 @@ export function ContactProfileModal({
                       <span className="text-muted-foreground font-sans">Tel. gerente: </span>
                       {formatBrazilPhone(String(pharmacyDetailQ.data?.contact_manager_phone || '')) || '—'}
                     </div>
-                    <div className="rounded border border-border/70 bg-surface/40 p-2 text-xs">
-                      <div className="text-[10px] uppercase tracking-wider text-subtle-foreground">Entregadores vinculados</div>
+                    <div className="rounded border border-border/70 bg-background/40 p-2 text-xs">
+                      <SectionTitle>Entregadores vinculados</SectionTitle>
                       <div className="mt-1 space-y-1">
                         {Array.isArray(pharmacyDetailQ.data?.driver_pharmacy_links) &&
                         (pharmacyDetailQ.data!.driver_pharmacy_links as Array<Record<string, unknown>>).filter((link) => Boolean(link.is_active)).length > 0 ? (
@@ -305,7 +311,7 @@ export function ContactProfileModal({
               ) : null}
 
               {pt === 'leader' && c.leader ? (
-                <div className="rounded-lg border border-border bg-background/40 p-3">
+                <div className="rounded-lg border border-border bg-surface p-3">
                   <div className="text-xs font-semibold text-foreground">Líder</div>
                   <div className="mt-2 grid gap-1 text-sm text-foreground">
                     <div>
@@ -329,7 +335,7 @@ export function ContactProfileModal({
               ) : null}
 
               {(c.driver || c.pharmacy || c.leader) && pt === 'unknown' ? (
-                <div className="rounded-lg border border-border bg-background/40 p-3">
+                <div className="rounded-lg border border-border bg-surface p-3">
                   <div className="text-xs text-muted-foreground">Vínculos</div>
                   <div className="mt-1 space-y-1 text-sm text-foreground">
                     {c.driver ? <div>Entregador: {c.driver.name || '—'}</div> : null}
@@ -340,7 +346,7 @@ export function ContactProfileModal({
               ) : null}
 
               {pt !== 'unknown' && (c.driver || c.pharmacy || c.leader) ? (
-                <div className="rounded-lg border border-border bg-background/40 p-3">
+                <div className="rounded-lg border border-border bg-surface p-3">
                   <div className="text-xs text-muted-foreground">Outros vínculos</div>
                   <div className="mt-1 space-y-1 text-sm text-foreground">
                     {pt !== 'driver' && c.driver ? <div>Entregador: {c.driver.name || '—'}</div> : null}
@@ -358,28 +364,26 @@ export function ContactProfileModal({
             <button
               type="button"
               onClick={() => openAppRouteInNewTab(cadastroHref)}
-              className="rounded-md border border-border bg-background/60 px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-surface-hover hover:text-foreground transition-colors"
+              className="rounded-md border border-border bg-background/60 px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground transition-colors"
               title="Abrir ficha de cadastro (nova aba)"
             >
               Acessar cadastro
             </button>
           ) : null}
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={() => void navigator.clipboard?.writeText(phoneRaw).catch(() => undefined)}
-            className="rounded-md border border-border bg-background/60 px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-surface-hover hover:text-foreground transition-colors"
           >
             Copiar telefone
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary-glow transition-colors"
-          >
+          </Button>
+          <Button type="button" size="sm" onClick={onClose}>
             Fechar
-          </button>
+          </Button>
         </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

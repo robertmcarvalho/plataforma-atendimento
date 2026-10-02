@@ -2,19 +2,38 @@ import { createHash, randomInt, randomUUID } from 'crypto';
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { supabase } from '../lib/supabase';
+import { insertLeaderFinancialEntries } from '../lib/leaderFinancialEntries';
 import { generateInstallments } from '../lib/financialInstallments';
+import { splitSupplyDiscountAmount } from '../lib/supplyDiscountSplit';
 import { syncDriverLeaderContext } from '../lib/driverLeaderSync';
 import { normalizeNameLike } from '../lib/textNormalization';
 import { authenticate } from '../middleware/authenticate';
 import { getWorkspaceWhatsAppChannel } from '../lib/channelResolver';
 import { writeAuditLog } from '../lib/auditLog';
+import { normalizeWaPhoneForStorage, upsertContactByWaPhone } from '../lib/contactByPhone';
 import {
   assertPharmaciesInLeaderScope,
   getLeaderManagedPharmacyIds,
+  formatLeaderPharmacyAddressLine,
   getDriversForLeaderPortal,
   isDriverInLeaderScope,
 } from '../lib/leaderPortalScope';
 import { readWorkspaceSetting, upsertWorkspaceSetting } from '../lib/workspaceSettings';
+import { listIntakeDemandsForLeader, startLeaderPortalConversation } from '../lib/leaderConversationStart';
+import {
+  createPreCadastroBundle,
+  createTerminationRequestBundle,
+} from '../lib/driverLifecycleBundles';
+import { fetchLeaderPortalDashboard } from '../lib/leaderPortalDashboard';
+import { FinancialEntryStatus, OccurrenceKind } from '@plataforma/operational-notes';
+import {
+  cancelLeaderPortalFinancialEntry,
+  computeLeaderPortalStats,
+  findDuplicateOpenOccurrences,
+  getLeaderPortalFinancialEntryDetail,
+  listLeaderPortalFinancialEntries,
+} from '../lib/leaderPortalFinancialEntries';
+import { getLeaderId, getLeaderWorkspaceId } from '../lib/leaderPortalRequest';
 
 function resolveOtpSecret(): string {
   const dedicated = process.env.LEADER_WHATSAPP_OTP_SECRET?.trim();
@@ -101,17 +120,47 @@ async function sendMetaMessage(workspaceId: string, payload: Record<string, unkn
     },
     body: JSON.stringify(payload),
   });
+  const body = (await res.json().catch(() => ({}))) as {
+    error?: { message?: string; code?: number; error_subcode?: number };
+    messages?: Array<{ id?: string }>;
+  };
   if (!res.ok) {
-    const detail = await res.json().catch(() => null);
-    throw new Error(`Meta WhatsApp ${res.status}: ${JSON.stringify(detail || res.statusText)}`);
+    throw new Error(`Meta WhatsApp ${res.status}: ${JSON.stringify(body || res.statusText)}`);
   }
-  return res.json().catch(() => ({}));
+  if (body.error) {
+    const msg = body.error.message || JSON.stringify(body.error);
+    throw new Error(`Meta WhatsApp: ${msg}`);
+  }
+  if (!body.messages?.[0]?.id) {
+    throw new Error('Meta WhatsApp respondeu sem ID de mensagem (envio não confirmado).');
+  }
+  return body;
 }
 
 async function sendLeaderOtp(workspaceId: string, phoneE164: string, code: string) {
   const to = onlyDigits(phoneE164);
   const template = otpTemplateConfig();
+  if (!template.name && process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'OTP WhatsApp em produção exige template Meta aprovado. Configure LEADER_WHATSAPP_OTP_TEMPLATE_NAME no Cloud Run (categoria authentication/utility com variável para o código).'
+    );
+  }
   if (template.name) {
+    // Templates AUTHENTICATION (copy code) exigem body + botão com o mesmo OTP — ver Meta auth-otp docs.
+    const components: Array<Record<string, unknown>> = [
+      {
+        type: 'body',
+        parameters: [{ type: 'text', text: code }],
+      },
+    ];
+    if (process.env.LEADER_WHATSAPP_OTP_COPY_CODE_BUTTON !== 'false') {
+      components.push({
+        type: 'button',
+        sub_type: 'url',
+        index: '0',
+        parameters: [{ type: 'text', text: code }],
+      });
+    }
     return sendMetaMessage(workspaceId, {
       messaging_product: 'whatsapp',
       to,
@@ -119,12 +168,7 @@ async function sendLeaderOtp(workspaceId: string, phoneE164: string, code: strin
       template: {
         name: template.name,
         language: { code: template.language },
-        components: [
-          {
-            type: 'body',
-            parameters: [{ type: 'text', text: code }],
-          },
-        ],
+        components,
       },
     });
   }
@@ -199,8 +243,8 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
         return reply.status(403).send({ error: 'Acesso negado. Perfil de líder não encontrado para este usuário.' });
       }
 
-      (request as any).leaderId = leader.id;
-      (request as any).leaderWorkspaceId = leader.workspace_id;
+      request.leaderId = String(leader.id);
+      request.leaderWorkspaceId = String(leader.workspace_id);
     } catch (err) {
       return reply.status(401).send({ error: 'Não autenticado' });
     }
@@ -211,22 +255,22 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
     if (!devRoutesEnabled()) return reply.status(404).send({ error: 'Not found' });
     return reply.send({
       user: request.user,
-      leaderId: (request as any).leaderId
+      leaderId: getLeaderId(request)
     });
   });
 
   // GET /api/leader-portal/me — dados do líder + status de vínculo WhatsApp por OTP
   app.get('/me', async (request, reply) => {
-    const leaderId = (request as any).leaderId as string;
+    const leaderId = getLeaderId(request) as string;
     const { data: leader, error } = await supabase
       .from('leaders')
-      .select('id, name, phone, workspace_id')
+      .select('id, name, phone, workspace_id, whatsapp_verified_at, whatsapp_session_revoked_at')
       .eq('id', leaderId)
       .single();
 
     if (error || !leader) return reply.status(404).send({ error: 'Líder não encontrado' });
 
-    const workspaceId = String((request as any).leaderWorkspaceId || leader.workspace_id || '');
+    const workspaceId = getLeaderWorkspaceId(request, String(leader.workspace_id || ''));
     const settingVal = workspaceId
       ? await readWorkspaceSetting(workspaceId, 'workspace_whatsapp_business_e164').catch(() => null)
       : null;
@@ -244,9 +288,93 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
     });
   });
 
+  app.get('/intake/demands', async (request, reply) => {
+    const workspaceId = getLeaderWorkspaceId(request);
+    if (!workspaceId) return reply.status(403).send({ error: 'Workspace do líder não encontrado.' });
+
+    const q = request.query as { sector_id?: string; driver_id?: string };
+    const sectorId = String(q.sector_id || '').trim();
+    if (!sectorId) return reply.status(400).send({ error: 'Informe sector_id.' });
+
+    const driverId = q.driver_id?.trim() || null;
+    try {
+      const result = await listIntakeDemandsForLeader({
+        workspaceId,
+        sectorId,
+        driverId,
+      });
+      return reply.send(result);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao listar demandas.';
+      return reply.status(400).send({ error: msg });
+    }
+  });
+
+  app.post('/conversations/start', async (request, reply) => {
+    const leaderId = getLeaderId(request) as string;
+    const workspaceId = getLeaderWorkspaceId(request);
+    const user = request.user as { sub: string };
+    if (!workspaceId) return reply.status(403).send({ error: 'Workspace do líder não encontrado.' });
+
+    const parsed = z
+      .object({
+        pharmacy_id: z.string().uuid(),
+        driver_id: z.string().uuid().nullable().optional(),
+        sector_id: z.string().uuid(),
+        demand_key: z.string().min(1),
+        initial_message: z.string().min(1).optional(),
+      })
+      .safeParse(request.body);
+
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Dados inválidos', details: parsed.error.flatten() });
+    }
+
+    try {
+      const result = await startLeaderPortalConversation({
+        leaderId,
+        userId: user.sub,
+        workspaceId,
+        pharmacy_id: parsed.data.pharmacy_id,
+        driver_id: parsed.data.driver_id ?? null,
+        sector_id: parsed.data.sector_id,
+        demand_key: parsed.data.demand_key,
+        initial_message: parsed.data.initial_message,
+      });
+
+      await writeAuditLog({
+        actor_id: user.sub,
+        action: 'leader.conversation.start',
+        entity_type: 'conversation',
+        entity_id: result.conversation.id,
+        metadata: {
+          pharmacy_id: parsed.data.pharmacy_id,
+          driver_id: parsed.data.driver_id ?? null,
+          sector_id: parsed.data.sector_id,
+          demand_key: parsed.data.demand_key,
+        },
+      });
+
+      return reply.status(201).send({
+        id: result.conversation.id,
+        status: result.conversation.status,
+        sector_name: result.sector_name,
+        demand_key: parsed.data.demand_key,
+        demand_title: result.demand_title,
+        pharmacy_label: result.pharmacy_label,
+        driver_name: result.driver_name,
+        demand_profile: result.demand_profile,
+      });
+    } catch (e) {
+      const err = e as Error & { statusCode?: number };
+      const code = err.statusCode || 500;
+      return reply.status(code).send({ error: err.message || 'Falha ao iniciar conversa.' });
+    }
+  });
+
   app.post('/whatsapp/otp/start', async (request, reply) => {
-    const leaderId = (request as any).leaderId as string;
-    const workspaceId = String((request as any).leaderWorkspaceId || '');
+    const leaderId = getLeaderId(request) as string;
+    const workspaceId = getLeaderWorkspaceId(request);
     if (!workspaceId) return reply.status(403).send({ error: 'Workspace do líder não encontrado.' });
 
     const parsed = z.object({ phone_e164: z.string().min(8) }).safeParse(request.body);
@@ -315,8 +443,8 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
   });
 
   app.post('/whatsapp/otp/verify', async (request, reply) => {
-    const leaderId = (request as any).leaderId as string;
-    const workspaceId = String((request as any).leaderWorkspaceId || '');
+    const leaderId = getLeaderId(request) as string;
+    const workspaceId = getLeaderWorkspaceId(request);
     const parsed = z.object({ code: z.string().regex(/^\d{6}$/) }).safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ error: 'Código inválido.' });
 
@@ -378,23 +506,58 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
       .eq('id', row.id);
 
     const leader = updLeader.data;
-    const contactPayload = {
-      wa_phone: onlyDigits(phoneE164),
-      display_name: leader.name,
-      profile_type: 'leader',
-      leader_id: leaderId,
-      updated_at: now,
-    };
-    const { data: existingContact } = await supabase
+    const leaderWaPhone = normalizeWaPhoneForStorage(onlyDigits(phoneE164)) || onlyDigits(phoneE164);
+    const { data: existingByLeaderRows } = await supabase
       .from('contacts')
-      .select('id')
+      .select('id, wa_phone')
       .eq('workspace_id', workspaceId)
       .eq('leader_id', leaderId)
-      .maybeSingle();
-    if (existingContact?.id) {
-      await supabase.from('contacts').update({ ...contactPayload, workspace_id: workspaceId }).eq('id', existingContact.id);
-    } else {
-      await supabase.from('contacts').upsert({ ...contactPayload, workspace_id: workspaceId }, { onConflict: 'wa_phone' });
+      .order('updated_at', { ascending: false });
+    const existingByLeader = (existingByLeaderRows || [])[0] ?? null;
+    try {
+      if (existingByLeader?.id) {
+        const { error: updErr } = await supabase
+          .from('contacts')
+          .update({
+            wa_phone: leaderWaPhone,
+            display_name: leader.name,
+            profile_type: 'leader',
+            leader_id: leaderId,
+            updated_at: now,
+          })
+          .eq('id', existingByLeader.id);
+        if (updErr?.code === '23505') {
+          // Phone already owned by another contact — detach this row and attach leader to the phone row.
+          await supabase
+            .from('contacts')
+            .update({ leader_id: null, updated_at: now })
+            .eq('id', existingByLeader.id);
+          await upsertContactByWaPhone(supabase, workspaceId, leaderWaPhone, {
+            display_name: leader.name,
+            profile_type: 'leader',
+            leader_id: leaderId,
+          });
+        } else if (updErr) {
+          throw new Error(updErr.message);
+        }
+        // Detach duplicate +E.164 / digits twin rows for the same leader.
+        for (const twin of existingByLeaderRows || []) {
+          if (String(twin.id) === String(existingByLeader.id)) continue;
+          await supabase
+            .from('contacts')
+            .update({ leader_id: null, updated_at: now })
+            .eq('id', twin.id);
+        }
+      } else {
+        await upsertContactByWaPhone(supabase, workspaceId, leaderWaPhone, {
+          display_name: leader.name,
+          profile_type: 'leader',
+          leader_id: leaderId,
+        });
+      }
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Falha ao sincronizar contato do líder';
+      return reply.status(500).send({ error: message });
     }
 
     await writeAuditLog({
@@ -409,8 +572,8 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
   });
 
   app.post('/whatsapp/reconnect', async (request, reply) => {
-    const leaderId = (request as any).leaderId as string;
-    const workspaceId = String((request as any).leaderWorkspaceId || '');
+    const leaderId = getLeaderId(request) as string;
+    const workspaceId = getLeaderWorkspaceId(request);
     if (!workspaceId) return reply.status(403).send({ error: 'Workspace do líder não encontrado.' });
     const { data: leader } = await supabase.from('leaders').select('phone').eq('id', leaderId).single();
     const body = request.body as { phone_e164?: string } | null;
@@ -486,14 +649,15 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
   app.post('/whatsapp/dev-simulate-inbound', async (request, reply) => {
     if (!devRoutesEnabled()) return reply.status(404).send({ error: 'Not found' });
 
-    const leaderId = (request as any).leaderId as string;
-    const workspaceId = String((request as any).leaderWorkspaceId || '');
+    const leaderId = getLeaderId(request) as string;
+    const workspaceId = getLeaderWorkspaceId(request);
     if (!workspaceId) return reply.status(412).send({ error: 'Workspace do líder não resolvido.' });
 
     const leaderRow = await supabase.from('leaders').select('id, name, phone').eq('id', leaderId).single();
     if (leaderRow.error || !leaderRow.data) return reply.status(404).send({ error: 'Líder não encontrado' });
 
-    const content = String((request.body as any)?.content || 'Olá! (simulado)').trim();
+    const inboundBody = z.object({ content: z.string().optional() }).safeParse(request.body);
+    const content = String(inboundBody.success ? inboundBody.data.content : 'Olá! (simulado)').trim() || 'Olá! (simulado)';
     const now = new Date().toISOString();
 
     let { data: contact } = await supabase
@@ -503,21 +667,20 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
       .eq('leader_id', leaderId)
       .maybeSingle();
     if (!contact) {
-      const wa = String(leaderRow.data.phone || '').trim() || `leader_${leaderId.slice(0, 8)}`;
-      const ins = await supabase
-        .from('contacts')
-        .insert({
-          workspace_id: workspaceId,
-          wa_phone: wa,
+      const wa =
+        normalizeWaPhoneForStorage(String(leaderRow.data.phone || '')) ||
+        `leader_${leaderId.slice(0, 8)}`;
+      try {
+        const upserted = await upsertContactByWaPhone(supabase, workspaceId, wa, {
           display_name: leaderRow.data.name,
           profile_type: 'leader',
           leader_id: leaderId,
-          updated_at: now,
-        })
-        .select()
-        .single();
-      if (ins.error) return reply.status(500).send({ error: ins.error.message });
-      contact = ins.data;
+        });
+        contact = upserted.contact;
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : 'Falha ao resolver contato';
+        return reply.status(500).send({ error: message });
+      }
     }
 
     let { data: conv } = await supabase
@@ -575,17 +738,31 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
     const digits = onlyDigits(parsed.data.business_e164);
     if (!digits || digits.length < 10) return reply.status(400).send({ error: 'Número inválido' });
 
-    const workspaceId = String((request as any).leaderWorkspaceId || '');
+    const workspaceId = getLeaderWorkspaceId(request);
     if (!workspaceId) return reply.status(412).send({ error: 'Workspace do líder não resolvido.' });
     await upsertWorkspaceSetting(workspaceId, 'workspace_whatsapp_business_e164', `+${digits}`);
     return reply.send({ ok: true, business_e164: `+${digits}` });
   });
 
+  // GET /api/leader-portal/dashboard — tarefas e assinaturas pendentes da equipe
+  app.get('/dashboard', async (request, reply) => {
+    const leaderId = getLeaderId(request) as string;
+    const workspaceId = getLeaderWorkspaceId(request);
+    if (!workspaceId) return reply.status(412).send({ error: 'Workspace do líder não resolvido.' });
+
+    try {
+      const payload = await fetchLeaderPortalDashboard(supabase, leaderId, workspaceId);
+      return reply.send(payload);
+    } catch (e) {
+      return reply.status(500).send({ error: e instanceof Error ? e.message : 'Erro ao carregar painel' });
+    }
+  });
+
   // GET /api/leader-portal/stats
   app.get('/stats', async (request, reply) => {
-    const leaderId = (request as any).leaderId;
+    const leaderId = getLeaderId(request);
 
-    const workspaceId = String((request as any).leaderWorkspaceId || '');
+    const workspaceId = getLeaderWorkspaceId(request);
     const pharmacyIds = await getLeaderManagedPharmacyIds(supabase, leaderId, workspaceId);
 
     let driverIds: string[] = [];
@@ -604,6 +781,7 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
         drivers_count: 0,
         pending_absences: 0,
         pending_dailies: 0,
+        open_entries: 0,
         base_revenue: 0,
         bonuses: 0,
         discounts: 0,
@@ -611,22 +789,11 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
       });
     }
 
-    // 3. Search for pending financial entries (dummy for now)
-    const { count: pendingAbsences } = await supabase
-      .from('financial_entries')
-      .select('id', { count: 'exact', head: true })
-      .eq('workspace_id', workspaceId)
-      .in('pharmacy_id', pharmacyIds)
-      .eq('type', 'absence')
-      .eq('status', 'pending_approval');
-
-    const { count: pendingDailies } = await supabase
-      .from('financial_entries')
-      .select('id', { count: 'exact', head: true })
-      .eq('workspace_id', workspaceId)
-      .in('pharmacy_id', pharmacyIds)
-      .eq('type', 'daily')
-      .eq('status', 'pending_approval');
+    const portalStats = await computeLeaderPortalStats(supabase, {
+      workspaceId,
+      pharmacyIds,
+      driversCount: driverIds.length,
+    });
 
     // 4. Financial Sums
     const { data: revenueData } = driverIds.length
@@ -652,10 +819,7 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
     const discounts = entriesData?.filter(e => ['absence', 'uniform', 'bag'].includes(e.type)).reduce((acc, curr) => acc + Number(curr.total_amount), 0) || 0;
 
     return reply.send({
-      pharmacies_count: pharmacyIds.length,
-      drivers_count: driverIds.length,
-      pending_absences: pendingAbsences || 0,
-      pending_dailies: pendingDailies || 0,
+      ...portalStats,
       base_revenue: baseRevenue,
       bonuses: bonuses,
       discounts: discounts,
@@ -665,8 +829,8 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
 
   // GET /api/leader-portal/pharmacies
   app.get('/pharmacies', async (request, reply) => {
-    const leaderId = (request as any).leaderId;
-    const workspaceId = String((request as any).leaderWorkspaceId || '');
+    const leaderId = getLeaderId(request);
+    const workspaceId = getLeaderWorkspaceId(request);
     const pharmacyIds = await getLeaderManagedPharmacyIds(supabase, leaderId, workspaceId);
     if (!pharmacyIds.length) return reply.send([]);
 
@@ -678,13 +842,21 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
       .order('trade_name');
 
     if (error) return reply.status(500).send({ error: error.message });
-    return reply.send(data || []);
+    return reply.send(
+      (data || []).map((row) => {
+        const r = row as Record<string, unknown>;
+        return {
+          ...r,
+          address_line: formatLeaderPharmacyAddressLine(r),
+        };
+      })
+    );
   });
 
   // PATCH /api/leader-portal/drivers/:id/schedule — apenas escala (work_schedule)
   app.patch('/drivers/:id/schedule', async (request, reply) => {
-    const leaderId = (request as any).leaderId as string;
-    const workspaceId = String((request as any).leaderWorkspaceId || '');
+    const leaderId = getLeaderId(request) as string;
+    const workspaceId = getLeaderWorkspaceId(request);
     if (!workspaceId) return reply.status(403).send({ error: 'Workspace do líder não encontrado.' });
     const { id } = request.params as { id: string };
 
@@ -714,8 +886,8 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
 
   // GET /api/leader-portal/drivers/:id — ficha completa (somente leitura na UI; escala via PATCH acima)
   app.get('/drivers/:id', async (request, reply) => {
-    const leaderId = (request as any).leaderId as string;
-    const workspaceId = String((request as any).leaderWorkspaceId || '');
+    const leaderId = getLeaderId(request) as string;
+    const workspaceId = getLeaderWorkspaceId(request);
     if (!workspaceId) return reply.status(403).send({ error: 'Workspace do líder não encontrado.' });
     const { id } = request.params as { id: string };
 
@@ -741,7 +913,7 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
 
   // GET /api/leader-portal/drivers
   app.get('/drivers', async (request, reply) => {
-    const leaderId = (request as any).leaderId;
+    const leaderId = getLeaderId(request);
 
     try {
       const rows = await getDriversForLeaderPortal(supabase, leaderId);
@@ -751,9 +923,27 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
     }
   });
 
+  // GET /api/leader-portal/document-alerts — alertas de vencimento CNH/certificado
+  app.get('/document-alerts', async (request, reply) => {
+    const leaderId = getLeaderId(request) as string;
+    const leaderUserId = (request.user as { sub: string }).sub;
+
+    const { data, error } = await supabase
+      .from('pending_tasks')
+      .select('*, driver:drivers(id, name, phone, status, cnh_expires_at, has_digital_certificate, digital_certificate_expires_at)')
+      .in('task_type', ['driver_doc_expiry_warning', 'driver_doc_expired'])
+      .in('status', ['open', 'in_progress'])
+      .or(`assignee_id.eq.${leaderUserId},metadata->>leader_id.eq.${leaderId}`)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) return reply.status(500).send({ error: error.message });
+    return reply.send(data || []);
+  });
+
   // GET /api/leader-portal/termination-requests — solicitações recentes de desligamento do líder
   app.get('/termination-requests', async (request, reply) => {
-    const leaderId = (request as any).leaderId as string;
+    const leaderId = getLeaderId(request) as string;
     const { data, error } = await supabase
       .from('pending_tasks')
       .select('*, driver:drivers(id, name, phone, status)')
@@ -768,8 +958,8 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
 
   // POST /api/leader-portal/termination-requests — cria demanda de Desligamento para Operacional e Financeiro
   app.post('/termination-requests', async (request, reply) => {
-    const leaderId = (request as any).leaderId as string;
-    const workspaceId = String((request as any).leaderWorkspaceId || '');
+    const leaderId = getLeaderId(request) as string;
+    const workspaceId = getLeaderWorkspaceId(request);
     const schema = z.object({
       driver_id: z.string().uuid(),
       last_worked_at: z.string().min(8),
@@ -782,104 +972,39 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
     const ok = await isDriverInLeaderScope(supabase, leaderId, body.data.driver_id);
     if (!ok) return reply.status(403).send({ error: 'Entregador fora da sua rede' });
 
-    const { data: driver, error: driverErr } = await supabase
-      .from('drivers')
-      .select('id, name, phone, status')
-      .eq('id', body.data.driver_id)
-      .single();
-    if (driverErr || !driver) return reply.status(404).send({ error: 'Entregador não encontrado' });
-    if (String(driver.status || '') !== 'active') {
-      return reply.status(409).send({ error: 'Entregador já está inativo ou bloqueado.' });
-    }
-
-    const { data: existing, error: existingErr } = await supabase
-      .from('pending_tasks')
-      .select('id')
-      .eq('task_type', 'driver_termination_request')
-      .eq('driver_id', body.data.driver_id)
-      .in('status', ['open', 'in_progress'])
-      .limit(1)
-      .maybeSingle();
-    if (existingErr) return reply.status(500).send({ error: existingErr.message });
-    if (existing?.id) return reply.status(409).send({ error: 'Já existe uma solicitação de desligamento aberta para este entregador.' });
-
-    const { data: links, error: linksErr } = await supabase
-      .from('driver_pharmacy_links')
-      .select('pharmacy_id, is_primary, pharmacies(id, trade_name, city)')
-      .eq('driver_id', body.data.driver_id)
-      .eq('is_active', true);
-    if (linksErr) return reply.status(500).send({ error: linksErr.message });
-
-    const activePharmacyIds = Array.from(new Set((links || []).map((l: any) => String(l.pharmacy_id)).filter(Boolean)));
-    if (!activePharmacyIds.length) return reply.status(409).send({ error: 'Entregador não possui vínculos ativos.' });
-
-    const sectors = await resolveSectorIdsByName(workspaceId, ['Operacional', 'Financeiro']);
-    const requestId = randomUUID();
-    const nowIso = new Date().toISOString();
-    const baseMetadata = {
-      request_id: requestId,
-      leader_id: leaderId,
-      workspace_id: workspaceId || null,
-      driver_id: body.data.driver_id,
-      driver_name: driver.name,
-      pharmacy_ids: activePharmacyIds,
-      pharmacies: (links || []).map((l: any) => ({
-        id: l.pharmacy_id,
-        is_primary: Boolean(l.is_primary),
-        trade_name: l.pharmacies?.trade_name || null,
-        city: l.pharmacies?.city || null,
-      })),
+    try {
+      const result = await createTerminationRequestBundle(supabase, {
+        workspaceId,
+        driverId: body.data.driver_id,
+        leaderId,
+        initiatedBy: (request.user as { sub?: string }).sub || null,
+        source: 'leader_portal',
       last_worked_at: body.data.last_worked_at,
       reason: body.data.reason,
       notes: body.data.notes || null,
-      requested_at: nowIso,
-    };
-
-    const rows = [
-      {
-        workspace_id: workspaceId,
-        task_type: 'driver_termination_request',
-        title: `Desligamento: ${driver.name}`,
-        description: 'Solicitação enviada pelo líder. Aprovar para inativar o entregador e encerrar vínculos automaticamente.',
-        status: 'open',
-        priority: 'high',
-        driver_id: body.data.driver_id,
-        sector_id: sectors.Operacional,
-        source: 'leader_portal',
-        metadata: { ...baseMetadata, sector_action: 'operational_approval' },
-      },
-      {
-        workspace_id: workspaceId,
-        task_type: 'driver_termination_financial_review',
-        title: `Revisar financeiro: ${driver.name}`,
-        description: 'Verificar pendências, acertos e descontos após solicitação de desligamento.',
-        status: 'open',
-        priority: 'normal',
-        driver_id: body.data.driver_id,
-        sector_id: sectors.Financeiro,
-        source: 'leader_portal',
-        metadata: { ...baseMetadata, sector_action: 'financial_review' },
-      },
-    ];
-
-    const { data: inserted, error: insertErr } = await supabase.from('pending_tasks').insert(rows).select('*');
-    if (insertErr) return reply.status(500).send({ error: insertErr.message });
+      });
 
     await writeAuditLog({
       actor_id: (request.user as { sub?: string }).sub || null,
       action: 'leader.driver_termination.request',
       entity_type: 'driver',
       entity_id: body.data.driver_id,
-      metadata: baseMetadata,
-    });
+        metadata: { request_id: result.request_id, leader_id: leaderId },
+      });
 
-    return reply.status(201).send({ ok: true, request_id: requestId, tasks: inserted || [], pharmacies: baseMetadata.pharmacies });
+      return reply.status(201).send(result);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao criar solicitação';
+      const status =
+        msg.includes('Já existe') || msg.includes('inativo') ? 409 : msg.includes('não encontrado') ? 404 : 500;
+      return reply.status(status).send({ error: msg });
+    }
   });
 
   // GET /api/leader-portal/pre-registrations — entregadores em pré-cadastro (tag cadastro-pendente)
   app.get('/pre-registrations', async (request, reply) => {
-    const leaderId = (request as any).leaderId as string;
-    const workspaceId = String((request as any).leaderWorkspaceId || '');
+    const leaderId = getLeaderId(request) as string;
+    const workspaceId = getLeaderWorkspaceId(request);
     const pharmacyIds = await getLeaderManagedPharmacyIds(supabase, leaderId, workspaceId);
     if (!pharmacyIds.length) return reply.send([]);
 
@@ -907,8 +1032,8 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
 
   // POST /api/leader-portal/pre-registrations — cria entregador "inativo/pending" + vínculos + tarefa
   app.post('/pre-registrations', async (request, reply) => {
-    const leaderId = (request as any).leaderId as string;
-    const workspaceId = String((request as any).leaderWorkspaceId || '');
+    const leaderId = getLeaderId(request) as string;
+    const workspaceId = getLeaderWorkspaceId(request);
     if (!workspaceId) return reply.status(403).send({ error: 'Workspace do líder não encontrado.' });
     const schema = z.object({
       name: z.string().min(2),
@@ -939,224 +1064,263 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
     }
     if (!managed.has(primaryPharmacyId)) return reply.status(403).send({ error: 'Farmácia primária fora da sua rede' });
 
-    let sync: Awaited<ReturnType<typeof syncDriverLeaderContext>>;
     try {
-      sync = await syncDriverLeaderContext(supabase, {
-        workspace_id: workspaceId,
-        phone: body.data.phone,
+      const result = await createPreCadastroBundle(supabase, {
+        workspaceId,
+        leaderId,
+        initiatedBy: (request.user as { sub?: string }).sub || null,
+        source: 'leader_portal',
         name: body.data.name,
-        email: body.data.email || null,
-        is_leader: false,
-        primary_pharmacy_id: primaryPharmacyId,
-      });
-    } catch (e) {
-      return reply.status(500).send({ error: e instanceof Error ? e.message : 'Falha ao sincronizar contexto' });
-    }
-
-    const insertRow = {
-      workspace_id: workspaceId,
-      name: normalizeNameLike(body.data.name),
       cpf: body.data.cpf || null,
       phone: body.data.phone,
       email: body.data.email || null,
       city: body.data.city || null,
       state: body.data.state || null,
-      status: 'inactive',
-      doc_status: 'pending',
       driver_type: body.data.driver_type,
+        work_schedule: body.data.work_schedule as Record<string, unknown> | undefined,
+        pharmacy_ids: uniquePharmacyIds,
       primary_pharmacy_id: primaryPharmacyId,
-      inherit_from_primary: true,
-      override_leader_id: sync.override_leader_id,
-      tags: ['cadastro-pendente'],
       notes: body.data.notes || null,
-      work_schedule: (body.data.work_schedule as Record<string, unknown> | undefined) || {},
-      updated_at: new Date().toISOString(),
-    } as Record<string, unknown>;
-
-    const { data: driver, error } = await supabase.from('drivers').insert(insertRow).select().single();
-    if (error) {
-      const msg = error.message || '';
-      if (error.code === '23505' || msg.toLowerCase().includes('unique')) {
-        return reply.status(409).send({ error: 'Já existe um entregador com este telefone/CPF' });
-      }
-      return reply.status(500).send({ error: msg });
-    }
-
-    const nowIso = new Date().toISOString();
-    const linkRows = uniquePharmacyIds.map((pharmacy_id) => ({
-      workspace_id: workspaceId,
-      driver_id: driver.id,
-      pharmacy_id,
-      is_primary: pharmacy_id === primaryPharmacyId,
-      is_active: true,
-      started_at: nowIso,
-      notes: 'Pré-cadastro (portal do líder)',
-    }));
-
-    const { error: linkErr } = await supabase.from('driver_pharmacy_links').insert(linkRows);
-    if (linkErr) return reply.status(500).send({ error: linkErr.message });
-
-    try {
-      await supabase.from('pending_tasks').insert({
-        workspace_id: workspaceId,
-        task_type: 'driver_registration_completion',
-        title: `Finalizar cadastro: ${driver.name}`,
-        description: 'Pré-cadastro enviado pelo líder. Validar documentos e ativar cadastro.',
-        status: 'open',
-        priority: 'normal',
-        driver_id: driver.id,
-        source: 'leader_portal',
-        metadata: {
-          leader_id: leaderId,
-          pharmacy_ids: uniquePharmacyIds,
-          driver_type: body.data.driver_type,
-        },
       });
-    } catch {
-      // sem bloquear o pré-cadastro se a tarefa falhar
+      return reply.status(201).send({
+        driver: result.driver,
+        pharmacy_ids: result.pharmacy_ids,
+        tasks: result.tasks,
+        request_id: result.request_id,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha no pré-cadastro';
+      const status = msg.includes('Já existe') ? 409 : 500;
+      return reply.status(status).send({ error: msg });
     }
-
-    return reply.status(201).send({ driver, pharmacy_ids: uniquePharmacyIds });
   });
 
-  // POST /api/leader-portal/absences
-  app.post('/absences', async (request, reply) => {
-    const leaderId = (request as any).leaderId as string;
-    const workspaceId = String((request as any).leaderWorkspaceId || '');
+  const leaderFinancialListQuerySchema = z.object({
+    page: z.coerce.number().int().min(1).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    status_group: z.enum(['open', 'all', 'done', 'cancelled']).optional(),
+    occurrence_type: z
+      .enum(['all', 'contracted_daily', 'coverage_daily', 'unexcused', 'day_off'])
+      .optional(),
+    date_field: z.enum(['event', 'created']).optional(),
+    date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    date_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    pharmacy_id: z.string().uuid().optional(),
+    driver_id: z.string().uuid().optional(),
+  });
+
+  // GET /api/leader-portal/financial-entries/duplicate-check
+  app.get('/financial-entries/duplicate-check', async (request, reply) => {
+    const leaderId = getLeaderId(request) as string;
+    const workspaceId = getLeaderWorkspaceId(request);
+    if (!workspaceId) return reply.status(403).send({ error: 'Workspace do líder não encontrado.' });
+
+    const parsed = z
+      .object({
+        driver_id: z.string().uuid(),
+        event_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        pharmacy_id: z.string().uuid(),
+      })
+      .safeParse(request.query);
+    if (!parsed.success) return reply.status(400).send({ error: 'Parâmetros inválidos', details: parsed.error.flatten() });
+
+    const pharmacyIds = await getLeaderManagedPharmacyIds(supabase, leaderId, workspaceId);
+    try {
+      const duplicates = await findDuplicateOpenOccurrences(supabase, {
+        workspaceId,
+        pharmacyIds,
+        driverId: parsed.data.driver_id,
+        eventDate: parsed.data.event_date,
+        pharmacyId: parsed.data.pharmacy_id,
+      });
+      return reply.send({ duplicates });
+    } catch (e) {
+      return reply.status(500).send({ error: e instanceof Error ? e.message : 'Erro ao verificar duplicatas' });
+    }
+  });
+
+  // GET /api/leader-portal/financial-entries — acompanhamento de ocorrências / diárias
+  app.get('/financial-entries', async (request, reply) => {
+    const leaderId = getLeaderId(request) as string;
+    const workspaceId = getLeaderWorkspaceId(request);
+    if (!workspaceId) return reply.status(403).send({ error: 'Workspace do líder não encontrado.' });
+
+    const parsed = leaderFinancialListQuerySchema.safeParse(request.query);
+    if (!parsed.success) return reply.status(400).send({ error: 'Parâmetros inválidos', details: parsed.error.flatten() });
+
+    const pharmacyIds = await getLeaderManagedPharmacyIds(supabase, leaderId, workspaceId);
+    try {
+      const result = await listLeaderPortalFinancialEntries(supabase, {
+        workspaceId,
+        pharmacyIds,
+        page: parsed.data.page,
+        limit: parsed.data.limit,
+        status_group: parsed.data.status_group ?? 'open',
+        occurrence_type: parsed.data.occurrence_type,
+        date_field: parsed.data.date_field ?? 'event',
+        date_from: parsed.data.date_from,
+        date_to: parsed.data.date_to,
+        pharmacy_id: parsed.data.pharmacy_id,
+        driver_id: parsed.data.driver_id,
+      });
+      return reply.send(result);
+    } catch (e) {
+      return reply.status(500).send({ error: e instanceof Error ? e.message : 'Erro ao listar lançamentos' });
+    }
+  });
+
+  // GET /api/leader-portal/financial-entries/:id — detalhe read-only
+  app.get('/financial-entries/:id', async (request, reply) => {
+    const leaderId = getLeaderId(request) as string;
+    const workspaceId = getLeaderWorkspaceId(request);
+    if (!workspaceId) return reply.status(403).send({ error: 'Workspace do líder não encontrado.' });
+
+    const { id } = request.params as { id: string };
+    const pharmacyIds = await getLeaderManagedPharmacyIds(supabase, leaderId, workspaceId);
+    const user = request.user as { sub: string };
+
+    try {
+      const detail = await getLeaderPortalFinancialEntryDetail(supabase, {
+        workspaceId,
+        pharmacyIds,
+        entryId: id,
+        actorUserId: user.sub,
+      });
+      if (!detail) return reply.status(404).send({ error: 'Lançamento não encontrado' });
+      return reply.send(detail);
+    } catch (e) {
+      return reply.status(500).send({ error: e instanceof Error ? e.message : 'Erro ao carregar detalhe' });
+    }
+  });
+
+  // POST /api/leader-portal/financial-entries/:id/cancel
+  app.post('/financial-entries/:id/cancel', async (request, reply) => {
+    const leaderId = getLeaderId(request) as string;
+    const workspaceId = getLeaderWorkspaceId(request);
+    if (!workspaceId) return reply.status(403).send({ error: 'Workspace do líder não encontrado.' });
+
+    const { id } = request.params as { id: string };
+    const body = z
+      .object({
+        cancel_reason: z.string().trim().min(10, 'Informe o motivo do cancelamento (mínimo 10 caracteres).'),
+      })
+      .safeParse(request.body);
+    if (!body.success) return reply.status(400).send({ error: 'Dados inválidos', details: body.error.flatten() });
+
+    const pharmacyIds = await getLeaderManagedPharmacyIds(supabase, leaderId, workspaceId);
+    const user = request.user as { sub: string };
+
+    try {
+      const result = await cancelLeaderPortalFinancialEntry(supabase, {
+        workspaceId,
+        pharmacyIds,
+        entryId: id,
+        cancelReason: body.data.cancel_reason,
+        actorId: user.sub,
+        leaderId,
+      });
+      return reply.send(result);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao cancelar lançamento';
+      const status =
+        msg.includes('não encontrado') || msg.includes('fora da sua rede') ? 404 : msg.includes('Só é possível') ? 400 : 500;
+      return reply.status(status).send({ error: msg });
+    }
+  });
+
+  // POST /api/leader-portal/occurrences — falta/folga + cobertura (Parte A)
+  app.post('/occurrences', async (request, reply) => {
+    const leaderId = getLeaderId(request) as string;
+    const workspaceId = getLeaderWorkspaceId(request);
     if (!workspaceId) return reply.status(403).send({ error: 'Workspace do líder não encontrado.' });
 
     const schema = z.object({
       driver_id: z.string().uuid(),
-      pharmacy_id: z.string().uuid().optional(),
-      pharmacy_ids: z.array(z.string().uuid()).optional(),
-      date: z.string(),
+      pharmacy_ids: z.array(z.string().uuid()).min(1),
+      event_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      shift: z.enum(['full', 'morning', 'afternoon', 'night']).optional(),
+      occurrence_kind: z.enum(['unexcused', 'day_off', 'contracted_daily']),
+      has_coverage: z.boolean(),
+      coverage: z
+        .object({
+          covering_driver_id: z.string().uuid(),
+          amount: z.number().positive(),
+          notes: z.string().optional(),
+        })
+        .optional(),
+      contracted_daily: z
+        .object({
+          amount: z.number().positive(),
+          notes: z.string().optional(),
+        })
+        .optional(),
       reason: z.string().optional(),
     });
 
     const body = schema.safeParse(request.body);
-    if (!body.success) return reply.status(400).send({ error: 'Dados inválidos' });
-
-    const pharmacyIds = (() => {
-      const ids = new Set<string>();
-      if (body.data.pharmacy_id) ids.add(body.data.pharmacy_id);
-      for (const id of body.data.pharmacy_ids || []) ids.add(id);
-      return Array.from(ids);
-    })();
-
-    if (!pharmacyIds.length) return reply.status(400).send({ error: 'Informe pharmacy_id ou pharmacy_ids' });
+    if (!body.success) return reply.status(400).send({ error: 'Dados inválidos', details: body.error.flatten() });
 
     const driverOk = await isDriverInLeaderScope(supabase, leaderId, body.data.driver_id);
     if (!driverOk) return reply.status(403).send({ error: 'Entregador fora da sua rede' });
-    const pharmaciesOk = await assertPharmaciesInLeaderScope(supabase, leaderId, pharmacyIds, workspaceId);
+    const pharmaciesOk = await assertPharmaciesInLeaderScope(supabase, leaderId, body.data.pharmacy_ids, workspaceId);
     if (!pharmaciesOk) return reply.status(403).send({ error: 'Farmácia fora da sua rede' });
-
-    const now = new Date();
-    const day = now.getDay();
-    const hour = now.getHours();
-
-    // Regra de corte de faltas: Segunda até as 11h
-    let cycleInfo = 'Ciclo atual';
-    if (day > 1 || (day === 1 && hour >= 11)) {
-      cycleInfo = 'Próximo ciclo (Atrasado)';
-    }
 
     const user = request.user as { sub: string; role: string };
-    const leaderUserId = user.sub;
 
-    const rowsToInsert = pharmacyIds.map((pharmacy_id) => ({
-      workspace_id: workspaceId,
-      driver_id: body.data.driver_id,
-      pharmacy_id,
-      type: 'absence',
-      description: `Falta em ${body.data.date}: ${body.data.reason || 'Sem observação'} (${cycleInfo})`,
-      total_amount: 0,
-      installments_count: 1,
-      installment_amount: 0,
-      status: 'pending_approval',
-      start_date: body.data.date,
-      created_by: leaderUserId,
-    }));
-
-    const { data, error } = await supabase.from('financial_entries').insert(rowsToInsert).select();
-    if (error) return reply.status(500).send({ error: error.message });
-    return reply.send({ inserted: data || [], count: (data || []).length });
-  });
-  
-  // POST /api/leader-portal/dailies
-  app.post('/dailies', async (request, reply) => {
-    const leaderId = (request as any).leaderId as string;
-    const workspaceId = String((request as any).leaderWorkspaceId || '');
-    if (!workspaceId) return reply.status(403).send({ error: 'Workspace do líder não encontrado.' });
-
-    const schema = z.object({
-      driver_id: z.string().uuid(),
-      pharmacy_id: z.string().uuid().optional(),
-      pharmacy_ids: z.array(z.string().uuid()).optional(),
-      amount: z.number().positive(),
-      date: z.string().optional(),
-      description: z.string().optional(),
-      notes: z.string().optional(),
-    });
-
-    const body = schema.safeParse(request.body);
-    if (!body.success) return reply.status(400).send({ error: 'Dados inválidos' });
-
-    const pharmacyIds = (() => {
-      const ids = new Set<string>();
-      if (body.data.pharmacy_id) ids.add(body.data.pharmacy_id);
-      for (const id of body.data.pharmacy_ids || []) ids.add(id);
-      return Array.from(ids);
-    })();
-
-    if (!pharmacyIds.length) return reply.status(400).send({ error: 'Informe pharmacy_id ou pharmacy_ids' });
-
-    const driverOk = await isDriverInLeaderScope(supabase, leaderId, body.data.driver_id);
-    if (!driverOk) return reply.status(403).send({ error: 'Entregador fora da sua rede' });
-    const pharmaciesOk = await assertPharmaciesInLeaderScope(supabase, leaderId, pharmacyIds, workspaceId);
-    if (!pharmaciesOk) return reply.status(403).send({ error: 'Farmácia fora da sua rede' });
-
-    const now = new Date();
-    const day = now.getDay();
-    const hour = now.getHours();
-    
-    // Regra de corte de diárias: Terça e Quinta até as 11h
-    let paymentDay = "Próximo ciclo";
-    if (day < 2 || (day === 2 && hour < 11)) {
-      paymentDay = "Pagamento Terça-feira";
-    } else if (day < 4 || (day === 4 && hour < 11)) {
-      paymentDay = "Pagamento Quinta-feira";
+    try {
+      const { insertOccurrence } = await import('../lib/leaderOccurrences.js');
+      const result = await insertOccurrence(supabase, {
+        workspace_id: workspaceId,
+        created_by: user.sub,
+        driver_id: body.data.driver_id,
+        pharmacy_ids: body.data.pharmacy_ids,
+        event_date: body.data.event_date,
+        shift: body.data.shift,
+        occurrence_kind: body.data.occurrence_kind,
+        has_coverage: body.data.has_coverage,
+        coverage: body.data.coverage,
+        contracted_daily: body.data.contracted_daily,
+        reason: body.data.reason,
+        source: 'leader',
+      });
+      return reply.send({
+        absence_entries: result.absence_entries,
+        coverage_daily_entries: result.coverage_daily_entries,
+        count: result.absence_entries.length + result.coverage_daily_entries.length,
+        installments_created: result.installments_created,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Falha ao registrar ocorrência';
+      const status =
+        msg.includes('Ciclo') ||
+        msg.includes('futuro') ||
+        msg.includes('cobridor') ||
+        msg.includes('Valor') ||
+        msg.includes('Diária contratada')
+          ? 400
+          : 500;
+      return reply.status(status).send({ error: msg });
     }
+  });
 
-    const user = request.user as { sub: string, role: string };
-    const leaderUserId = user.sub;
+  // POST /api/leader-portal/absences — descontinuado
+  app.post('/absences', async (_request, reply) => {
+    return reply.status(410).send({
+      error: 'Endpoint descontinuado. Use POST /api/leader-portal/occurrences.',
+    });
+  });
 
-    const startDate = body.data.date || new Date().toISOString().split('T')[0];
-    const baseDescription = body.data.description || 'Lançamento de diária';
-    const notes = body.data.notes ? ` — ${body.data.notes}` : '';
-
-    const rowsToInsert = pharmacyIds.map((pharmacy_id) => ({
-      workspace_id: workspaceId,
-      driver_id: body.data.driver_id,
-      pharmacy_id,
-      type: 'daily',
-      description: `${baseDescription}${notes} (${paymentDay})`,
-      total_amount: body.data.amount,
-      installments_count: 1,
-      installment_amount: body.data.amount,
-      status: 'pending_approval',
-      start_date: startDate,
-      created_by: leaderUserId,
-    }));
-
-    const { data, error } = await supabase.from('financial_entries').insert(rowsToInsert).select();
-    if (error) return reply.status(500).send({ error: error.message });
-    return reply.send({ inserted: data || [], count: (data || []).length });
+  // POST /api/leader-portal/dailies — descontinuado
+  app.post('/dailies', async (_request, reply) => {
+    return reply.status(410).send({
+      error: 'Endpoint descontinuado. Use POST /api/leader-portal/occurrences.',
+    });
   });
 
   // GET /api/leader-portal/supply-requests
   app.get('/supply-requests', async (request, reply) => {
-    const leaderId = (request as any).leaderId;
-    const workspaceId = String((request as any).leaderWorkspaceId || '');
+    const leaderId = getLeaderId(request);
+    const workspaceId = getLeaderWorkspaceId(request);
     if (!workspaceId) return reply.status(403).send({ error: 'Workspace do líder não encontrado.' });
     const { data, error } = await supabase
       .from('supply_requests')
@@ -1190,8 +1354,8 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
     const body = schema.safeParse(request.body);
     if (!body.success) return reply.status(400).send({ error: 'Dados inválidos' });
 
-    const leaderId = (request as any).leaderId;
-    const workspaceId = String((request as any).leaderWorkspaceId || '');
+    const leaderId = getLeaderId(request);
+    const workspaceId = getLeaderWorkspaceId(request);
     if (!workspaceId) return reply.status(403).send({ error: 'Workspace do líder não encontrado.' });
 
     const driverOk = await isDriverInLeaderScope(supabase, leaderId, body.data.driver_id);
@@ -1220,8 +1384,8 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
   // PATCH /api/leader-portal/supply-requests/:id — atualizar status/rastreio
   app.patch('/supply-requests/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const leaderId = (request as any).leaderId as string;
-    const workspaceId = String((request as any).leaderWorkspaceId || '');
+    const leaderId = getLeaderId(request) as string;
+    const workspaceId = getLeaderWorkspaceId(request);
     if (!workspaceId) return reply.status(403).send({ error: 'Workspace do líder não encontrado.' });
     const schema = z.object({
       status: z.enum(['pending', 'dispatched', 'delivered', 'canceled']),
@@ -1255,7 +1419,8 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
     // Se marcou como entregue, gera o lançamento financeiro automático para desconto
     if (body.data.status === 'delivered' && request_data.status !== 'delivered') {
       const itemPrice = request_data.item_type === 'uniform' ? 50 : 150; // Valores fictícios
-      const totalAmount = itemPrice * (request_data.quantity || 1);
+      const grossTotal = itemPrice * (request_data.quantity || 1);
+      const { grossAmount, driverAmount } = splitSupplyDiscountAmount(grossTotal);
 
       const user = request.user as { sub: string };
 
@@ -1266,10 +1431,11 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
           driver_id: request_data.driver_id,
           pharmacy_id: request_data.pharmacy_id,
           type: request_data.item_type === 'uniform' ? 'uniform' : 'bag',
-          description: `Desconto de ${request_data.item_type}: ${request_data.quantity}x (${request_data.size || 'N/A'})`,
-          total_amount: totalAmount,
+          description: `Desconto de ${request_data.item_type}: ${request_data.quantity}x (${request_data.size || 'N/A'}) — split 50% Coop / 50% entregador`,
+          gross_amount: grossAmount,
+          total_amount: driverAmount,
           installments_count: 1,
-          installment_amount: totalAmount,
+          installment_amount: driverAmount,
           frequency: 'weekly',
           status: 'pending_approval',
           start_date: new Date().toISOString().split('T')[0],
@@ -1279,12 +1445,14 @@ export async function leaderPortalRoutes(app: FastifyInstance) {
         .single();
 
       if (!finErr && finEntry) {
+        const finType = request_data.item_type === 'uniform' ? 'uniform' : 'bag';
         const instRows = generateInstallments(
           finEntry.id,
           finEntry.start_date,
           finEntry.installments_count ?? 1,
           Number(finEntry.installment_amount),
-          finEntry.frequency || 'weekly'
+          finEntry.frequency || 'weekly',
+          finType
         );
         await supabase.from('financial_installments').insert(instRows.map((row) => ({ ...row, workspace_id: workspaceId })));
         await supabase

@@ -1,16 +1,21 @@
-'use client';
+﻿'use client';
 
+import { cadastroPageApi } from '@/lib/cadastro/cadastroPageApi';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Building2, ChevronDown, Crown, Mail, MapPin, Phone, Save, User } from 'lucide-react';
-import api from '@/lib/api';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { BrPhoneInput } from '@/components/form/BrInputs';
+import {
+  FormControl,
+} from '@/components/form/FormControl';
+import { FormSelect } from '@/components/form/FormSelect';
 import { CadastroField, CadastroPageScroll, CadastroSection } from '@/components/cadastro/CadastroPrimitives';
 import { formatBrazilPhone, normalizeBrazilPhone } from '@/lib/brFormat';
 import { cn } from '@/lib/utils';
+import { buttonVariants } from '@/components/ui/button';
 import { useAuth } from '@/store/auth';
 import { canManageCadastro } from '@/lib/cadastroPermissions';
 
@@ -63,7 +68,7 @@ export default function LeaderNewPage() {
   const leaderQuery = useQuery<LeaderDetail>({
     queryKey: ['leaders', 'edit', editId],
     enabled: canFetch && canEdit && isEditing,
-    queryFn: async () => (await api.get(`/api/leaders/${editId}`)).data as LeaderDetail,
+    queryFn: async () => await cadastroPageApi.fetchLeader(editId) as LeaderDetail,
   });
 
   useEffect(() => {
@@ -110,8 +115,8 @@ export default function LeaderNewPage() {
       };
 
       return isEditing
-        ? ((await api.put(`/api/leaders/${editId}`, payload)).data as SavedLeader)
-        : ((await api.post('/api/leaders', payload)).data as SavedLeader);
+        ? (await cadastroPageApi.updateLeader(editId, payload) as SavedLeader)
+        : (await cadastroPageApi.createLeader(payload) as SavedLeader);
     },
     onSuccess: (saved) => {
       router.push(`/leaders/${saved.id}`);
@@ -128,7 +133,7 @@ export default function LeaderNewPage() {
     return (
       <CadastroPageScroll maxWidthClassName="max-w-5xl">
         <PageHeader eyebrow="Acesso" title="Líder" description="Você não tem permissão para editar líderes." compact />
-        <Link className="button-secondary" href="/leaders">
+        <Link className={buttonVariants({ variant: 'secondary' })} href="/leaders">
           Voltar
         </Link>
       </CadastroPageScroll>
@@ -142,12 +147,13 @@ export default function LeaderNewPage() {
       </Link>
 
       <PageHeader
+        icon={Crown}
         eyebrow="Operação · Cadastro"
         title={isEditing ? 'Editar líder' : 'Novo líder'}
         description={isEditing ? 'Atualize as informações e vínculos do líder.' : 'Preencha as informações para cadastrar o líder.'}
         actions={
           <div className="flex gap-2">
-            <Link href={backHref} className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-surface-hover hover:text-foreground">
+            <Link href={backHref} className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground">
               Cancelar
             </Link>
             <button
@@ -155,7 +161,7 @@ export default function LeaderNewPage() {
               onClick={() => void saveMutation.mutateAsync()}
               disabled={saveMutation.isPending}
               className={cn(
-                'flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary-glow',
+                'flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/80',
                 saveMutation.isPending && 'pointer-events-none opacity-50'
               )}
             >
@@ -176,31 +182,31 @@ export default function LeaderNewPage() {
         <CadastroSection title="Dados pessoais" desc="Informações básicas do líder.">
           <div className="grid gap-4 md:grid-cols-2">
             <CadastroField icon={User} label="Nome" required>
-              <input
+              <FormControl
+                inputSize="lg"
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
                 placeholder="Nome completo"
-                className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50"
               />
             </CadastroField>
             <CadastroField icon={Phone} label="Telefone" required>
               <BrPhoneInput value={formPhone} onChange={setFormPhone} className="w-full" placeholder="(11) 99999-9999" />
             </CadastroField>
             <CadastroField icon={Mail} label="E-mail">
-              <input
+              <FormControl
+                inputSize="lg"
+                type="email"
                 value={formEmail}
                 onChange={(e) => setFormEmail(e.target.value)}
-                type="email"
                 placeholder="lider@email.com"
-                className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50"
               />
             </CadastroField>
             <CadastroField icon={MapPin} label="Cidade">
-              <input
+              <FormControl
+                inputSize="lg"
                 value={formCity}
                 onChange={(e) => setFormCity(e.target.value)}
                 placeholder="Cidade"
-                className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50"
               />
             </CadastroField>
           </div>
@@ -209,20 +215,21 @@ export default function LeaderNewPage() {
         <CadastroSection title="Status & vínculo" desc="Situação operacional e farmácias geridas.">
           <div className="grid gap-4 md:grid-cols-2">
             <CadastroField icon={Crown} label="Status">
-              <select
+              <FormSelect
                 value={formStatus}
-                onChange={(e) => setFormStatus(e.target.value as LeaderStatus)}
-                className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50"
-              >
-                <option value="active">Ativo</option>
-                <option value="inactive">Inativo</option>
-              </select>
+                onChange={(v) => setFormStatus(v as LeaderStatus)}
+                size="lg"
+                options={[
+                  { value: 'active', label: 'Ativo' },
+                  { value: 'inactive', label: 'Inativo' },
+                ]}
+              />
             </CadastroField>
             <CadastroField icon={Building2} label="Farmácias vinculadas">
               <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-md border border-border bg-background px-3 py-2">
                 {isEditing && activePharmacies.length ? (
                   activePharmacies.map((p) => (
-                    <span key={p.id} className="inline-flex items-center gap-1 rounded border border-border bg-surface px-2 py-0.5 text-[10px] text-foreground">
+                    <span key={p.id} className="inline-flex items-center gap-1 rounded border border-border bg-background/40 px-2 py-0.5 text-[10px] text-foreground">
                       <Building2 className="h-2.5 w-2.5 text-muted-foreground" />
                       {p.trade_name}
                     </span>

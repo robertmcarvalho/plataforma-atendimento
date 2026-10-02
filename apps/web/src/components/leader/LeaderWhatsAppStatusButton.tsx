@@ -28,7 +28,7 @@ export function LeaderWhatsAppStatusButton({
           ? 'border-success/40 bg-success/10 text-success'
           : pending
             ? 'border-primary/40 bg-primary/10 text-primary'
-            : 'border-border bg-surface text-muted-foreground'
+            : 'border-border bg-card text-muted-foreground'
       )}
       title={verified ? 'WhatsApp verificado' : 'Verificar WhatsApp via código'}
     >

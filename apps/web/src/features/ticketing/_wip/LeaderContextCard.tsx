@@ -1,6 +1,10 @@
+// WIP � feature paused. Flag: ticketingPanel in lib/features.ts
+// Do not delete. Context: codebase audit Phase A (ticketing panel soft-pause)
+
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { SectionTitle } from '@/components/ui/SectionTitle';
 import api from '@/lib/api';
 
 type LeaderRow = {
@@ -67,8 +71,8 @@ export function LeaderContextCard({
 
   if (!pharmacyId && !leaderEntityId && !driverId) {
     return (
-      <div className="rounded-xl border border-border bg-background/40 p-3">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-subtle-foreground">Líder responsável</div>
+      <div className="rounded-lg border border-border bg-transparent p-3">
+        <SectionTitle>Líder responsável</SectionTitle>
         <p className="mt-1 text-xs text-muted-foreground">Sem líder vinculado ao contexto atual.</p>
       </div>
     );
@@ -76,8 +80,8 @@ export function LeaderContextCard({
 
   if (loading) {
     return (
-      <div className="rounded-xl border border-border bg-background/40 p-3">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-subtle-foreground">Líder responsável</div>
+      <div className="rounded-lg border border-border bg-transparent p-3">
+        <SectionTitle>Líder responsável</SectionTitle>
         <p className="mt-1 text-xs text-muted-foreground">Carregando…</p>
       </div>
     );
@@ -85,8 +89,8 @@ export function LeaderContextCard({
 
   if (error) {
     return (
-      <div className="rounded-xl border border-border bg-background/40 p-3">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-subtle-foreground">Líder responsável</div>
+      <div className="rounded-lg border border-border bg-transparent p-3">
+        <SectionTitle>Líder responsável</SectionTitle>
         <p className="mt-1 text-xs text-destructive">Falha ao carregar dados de líder.</p>
       </div>
     );
@@ -94,16 +98,16 @@ export function LeaderContextCard({
 
   if (!leader?.name) {
     return (
-      <div className="rounded-xl border border-border bg-background/40 p-3">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-subtle-foreground">Líder responsável</div>
+      <div className="rounded-lg border border-border bg-transparent p-3">
+        <SectionTitle>Líder responsável</SectionTitle>
         <p className="mt-1 text-xs text-muted-foreground">Sem dados de líder disponíveis.</p>
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl border border-border bg-background/40 p-3">
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-subtle-foreground">Líder responsável</div>
+    <div className="rounded-lg border border-border bg-transparent p-3">
+      <SectionTitle>Líder responsável</SectionTitle>
       <div className="mt-1 text-sm font-semibold text-foreground">{leader.name}</div>
     </div>
   );

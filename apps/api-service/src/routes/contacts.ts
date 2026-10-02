@@ -1,10 +1,12 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { supabase } from '../lib/supabase';
-import { authenticate, requireRole } from '../middleware/authenticate';
+import { authenticate } from '../middleware/authenticate';
+import { requireContactsManage } from '../lib/permissions';
 import { requireWorkspace } from '../lib/workspaceContext';
+import { runSignatureSyncForWorkspace } from '../lib/signatureStatusSync';
 
-const profileSchema = z.enum(['driver', 'pharmacy', 'leader', 'unknown']);
+const profileSchema = z.enum(['driver', 'pharmacy', 'leader', 'partner', 'unknown']);
 
 const contactSchema = z.object({
   wa_phone: z.string().min(8),
@@ -111,7 +113,7 @@ export async function contactRoutes(app: FastifyInstance) {
     return reply.send(data);
   });
 
-  app.post('/', { preHandler: [authenticate, requireRole('admin', 'supervisor', 'operational')] }, async (request, reply) => {
+  app.post('/', { preHandler: [authenticate, requireContactsManage] }, async (request, reply) => {
     const workspaceId = await requireWorkspace(request, reply);
     if (!workspaceId) return;
     const body = contactSchema.safeParse(request.body);
@@ -138,7 +140,7 @@ export async function contactRoutes(app: FastifyInstance) {
     return reply.status(201).send(data);
   });
 
-  app.put('/:id', { preHandler: [authenticate, requireRole('admin', 'supervisor', 'operational')] }, async (request, reply) => {
+  app.put('/:id', { preHandler: [authenticate, requireContactsManage] }, async (request, reply) => {
     const workspaceId = await requireWorkspace(request, reply);
     if (!workspaceId) return;
     const { id } = request.params as { id: string };
@@ -167,10 +169,17 @@ export async function contactRoutes(app: FastifyInstance) {
       .single();
 
     if (error) return reply.status(500).send({ error: error.message });
+
+    const prevDriverId = current.data.driver_id ? String(current.data.driver_id) : '';
+    const nextDriverId = payload.driver_id ? String(payload.driver_id) : '';
+    if (nextDriverId && nextDriverId !== prevDriverId) {
+      void runSignatureSyncForWorkspace(supabase, workspaceId).catch(() => undefined);
+    }
+
     return reply.send(data);
   });
 
-  app.patch('/:id/block', { preHandler: [authenticate, requireRole('admin', 'supervisor', 'operational')] }, async (request, reply) => {
+  app.patch('/:id/block', { preHandler: [authenticate, requireContactsManage] }, async (request, reply) => {
     const workspaceId = await requireWorkspace(request, reply);
     if (!workspaceId) return;
     const { id } = request.params as { id: string };

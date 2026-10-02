@@ -7,6 +7,7 @@ import { demoteLeaderStructural } from '../lib/leaderStructuralDemotion';
 import { buildPharmaciesWithDriversForLeader } from '../lib/leaderPortalScope';
 import { normalizeNameLike } from '../lib/textNormalization';
 import { requireWorkspace } from '../lib/workspaceContext';
+import { buildCadastroSearchOrFilter, LEADER_SEARCH_CONFIG } from '../lib/cadastroSearch';
 
 const leaderSchema = z.object({
   name: z.string().min(2),
@@ -40,7 +41,10 @@ export async function leaderRoutes(app: FastifyInstance) {
       .order('name');
 
     if (status) query = query.eq('status', status);
-    if (search) query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
+    if (search) {
+      const orFilter = buildCadastroSearchOrFilter(search, LEADER_SEARCH_CONFIG);
+      if (orFilter) query = query.or(orFilter);
+    }
 
     const { data: leaders, error } = await query;
     if (error) return reply.status(500).send({ error: error.message });
@@ -142,7 +146,10 @@ export async function leaderRoutes(app: FastifyInstance) {
       .eq('workspace_id', workspaceId)
       .order('name');
     if (status) query = query.eq('status', status);
-    if (search) query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
+    if (search) {
+      const orFilter = buildCadastroSearchOrFilter(search, LEADER_SEARCH_CONFIG);
+      if (orFilter) query = query.or(orFilter);
+    }
     const { data, error } = await query;
     if (error) return reply.status(500).send({ error: error.message });
     return reply.send(data);

@@ -1,19 +1,41 @@
 'use client';
 
+import { contactsPageApi } from '@/lib/contacts/contactsPageApi';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
-import { Download, Filter, MoreHorizontal, Plus, Search, Tag } from 'lucide-react';
+import { ContactRound, Download, Filter, MoreHorizontal, Plus, Tag } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { FilterSheet } from '@/components/ui/FilterSheet';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { ListToolbar } from '@/components/ui/ListToolbar';
 import { DEFAULT_LIST_PAGE_SIZE, PaginationControls } from '@/components/ui/PaginationControls';
+import {
+  interactiveRowMuted,
+  interactiveRowPrimary,
+  interactiveRowSecondary,
+  interactiveRowSurface,
+  semanticPillClass,
+} from '@/lib/interactiveRow';
 import { cn } from '@/lib/utils';
-import api from '@/lib/api';
+import {
+  reviveKpiCardClassName,
+  reviveTableHeadRowClassName,
+  reviveTableShellClassName,
+  reviveToolbarButtonClassName,
+} from '@/lib/reviveSurfaces';
 import { useAuth } from '@/store/auth';
+import { canManageContacts } from '@/lib/contactPermissions';
 import { BrPhoneInput } from '@/components/form/BrInputs';
+import { FormControl } from '@/components/form/FormControl';
+import { CadastroSearchCombobox } from '@/components/cadastro/CadastroSearchCombobox';
+import { FormSelect } from '@/components/form/FormSelect';
 import { normalizeBrazilPhone, formatBrazilPhone } from '@/lib/brFormat';
 import { formatDateTimeBr } from '@/lib/datetimeBr';
+import { pageContainerClassName } from '@/lib/pageLayout';
+import { useIsLgUp } from '@/hooks/useMediaQuery';
 
-type ContactProfile = 'driver' | 'pharmacy' | 'leader' | 'unknown';
+type ContactProfile = 'driver' | 'pharmacy' | 'leader' | 'partner' | 'unknown';
 type ContactProfileFilter = ContactProfile | 'all';
 type BlockedFilter = 'all' | 'true' | 'false';
 
@@ -87,6 +109,7 @@ function profileLabel(p: ContactProfile) {
   if (p === 'driver') return 'Entregador';
   if (p === 'pharmacy') return 'Farmácia';
   if (p === 'leader') return 'Líder';
+  if (p === 'partner') return 'Parceiro';
   return 'Desconhecido';
 }
 
@@ -94,6 +117,7 @@ function profileTone(p: ContactProfile) {
   if (p === 'driver') return 'bg-primary/15 text-primary border-primary/30';
   if (p === 'pharmacy') return 'bg-success/15 text-success border-success/30';
   if (p === 'leader') return 'bg-warning/15 text-warning border-warning/30';
+  if (p === 'partner') return 'bg-channel-whatsapp/15 text-channel-whatsapp border-channel-whatsapp/30';
   return 'bg-muted text-muted-foreground border-border';
 }
 
@@ -120,10 +144,10 @@ function Modal({
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-2xl border border-border bg-surface-elevated shadow-glow">
+      <div className="w-full max-w-lg rounded-2xl border border-border bg-surface shadow-md">
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div className="text-sm font-semibold tracking-tight">{title}</div>
-          <button onClick={onClose} className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground">
+          <button onClick={onClose} className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground">
             Fechar
           </button>
         </div>
@@ -134,9 +158,12 @@ function Modal({
 }
 
 export default function ContactsPage() {
+  const isLgUp = useIsLgUp();
   const isAuthenticated = useAuth((s) => s.isAuthenticated);
   const hasHydrated = useAuth((s) => s.hasHydrated);
+  const user = useAuth((s) => s.user);
   const canFetch = hasHydrated && isAuthenticated;
+  const canManage = canManageContacts(user?.role, user?.permissions);
 
   const [q, setQ] = useState('');
   const [profile, setProfile] = useState<ContactProfileFilter>('all');
@@ -169,7 +196,7 @@ export default function ContactsPage() {
       if (q.trim()) params.search = q.trim();
       if (profile !== 'all') params.profile_type = profile;
       if (blocked !== 'all') params.blocked = blocked;
-      const res = await api.get('/api/contacts', { params });
+      const res = await contactsPageApi.list(params);
       return res.data as ApiContact[];
     },
   });
@@ -177,19 +204,19 @@ export default function ContactsPage() {
   const driversQuery = useQuery({
     queryKey: ['contacts', 'drivers'],
     enabled: canFetch && editorOpen && formProfile === 'driver',
-    queryFn: async () => (await api.get('/api/drivers')).data as ApiDriver[],
+    queryFn: async () => await contactsPageApi.fetchDrivers() as ApiDriver[],
   });
 
   const pharmaciesQuery = useQuery({
     queryKey: ['contacts', 'pharmacies'],
     enabled: canFetch && editorOpen && formProfile === 'pharmacy',
-    queryFn: async () => (await api.get('/api/pharmacies')).data as ApiPharmacy[],
+    queryFn: async () => await contactsPageApi.fetchPharmacies() as ApiPharmacy[],
   });
 
   const leadersQuery = useQuery({
     queryKey: ['contacts', 'leaders'],
     enabled: canFetch && editorOpen && formProfile === 'leader',
-    queryFn: async () => (await api.get('/api/leaders')).data as ApiLeader[],
+    queryFn: async () => await contactsPageApi.fetchLeaders() as ApiLeader[],
   });
 
   const items = useMemo(() => contactsQuery.data ?? [], [contactsQuery.data]);
@@ -288,8 +315,8 @@ export default function ContactsPage() {
       if (formProfile === 'pharmacy') payload.pharmacy_id = formPharmacyId || null;
       if (formProfile === 'leader') payload.leader_id = formLeaderId || null;
 
-      if (editing) await api.put(`/api/contacts/${editing.id}`, payload);
-      else await api.post('/api/contacts', payload);
+      if (editing) await contactsPageApi.update(editing.id, payload);
+      else await contactsPageApi.create(payload);
 
       setEditorOpen(false);
       setEditing(null);
@@ -304,7 +331,7 @@ export default function ContactsPage() {
 
   const toggleBlock = async (c: ApiContact) => {
     try {
-      await api.patch(`/api/contacts/${c.id}/block`, { blocked: !c.is_blocked });
+      await contactsPageApi.toggleBlock(c.id, !c.is_blocked);
       await contactsQuery.refetch();
     } catch {
       // ignore
@@ -324,27 +351,76 @@ export default function ContactsPage() {
     downloadCsv(`contacts-${new Date().toISOString().slice(0, 10)}.csv`, rows);
   };
 
+  const filtersForm = (
+    <div className="space-y-3">
+      <div>
+        <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Perfil</label>
+        <FormSelect
+          value={profile}
+          onChange={(v) => setProfile(v as ContactProfileFilter)}
+          size="sm"
+          className="mt-1"
+          options={[
+            { value: 'all', label: 'Todos' },
+            { value: 'unknown', label: 'Desconhecido' },
+            { value: 'driver', label: 'Entregador' },
+            { value: 'pharmacy', label: 'Farmácia' },
+            { value: 'leader', label: 'Líder' },
+            { value: 'partner', label: 'Parceiro' },
+          ]}
+        />
+      </div>
+      <div>
+        <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Bloqueado</label>
+        <FormSelect
+          value={blocked}
+          onChange={(v) => setBlocked(v as BlockedFilter)}
+          size="sm"
+          className="mt-1"
+          options={[
+            { value: 'all', label: 'Todos' },
+            { value: 'false', label: 'Não bloqueado' },
+            { value: 'true', label: 'Bloqueado' },
+          ]}
+        />
+      </div>
+    </div>
+  );
+
+  const renderContactActions = (c: ApiContact) =>
+    canManage ? (
+      <button
+        onClick={(e) => {
+          const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+          setMenu((cur) => (cur?.id === c.id ? null : { id: c.id, x: rect.right, y: rect.bottom }));
+        }}
+        className="flex max-lg:min-h-11 max-lg:min-w-11 items-center justify-center rounded hover:bg-sidebar-accent/60"
+        title="Ações"
+      >
+        <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+      </button>
+    ) : null;
+
+  const menuContact = menu ? items.find((c) => c.id === menu.id) : null;
+
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-7xl px-8 py-8">
+      <div className={pageContainerClassName}>
         <PageHeader
+          icon={ContactRound}
           eyebrow="CRM"
           title="Contatos"
           description="Base unificada de contatos (WhatsApp)."
           actions={
             <>
-              <button
-                onClick={exportNow}
-                className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium hover:bg-surface-hover transition-colors"
-              >
+              <Button type="button" variant="outline" size="sm" onClick={exportNow}>
                 <Download className="h-3.5 w-3.5" /> Exportar
-              </button>
-              <button
-                onClick={openCreate}
-                className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-glow transition-colors"
-              >
-                <Plus className="h-3.5 w-3.5" /> Novo contato
-              </button>
+              </Button>
+              {canManage ? (
+                <Button type="button" size="sm" onClick={openCreate}>
+                  <Plus className="h-3.5 w-3.5" /> Novo contato
+                </Button>
+              ) : null}
             </>
           }
         />
@@ -357,73 +433,41 @@ export default function ContactsPage() {
             { label: 'Ativos (30d)', value: String(stats.active30d) },
             { label: 'Bloqueados', value: String(stats.blockedCount), accent: stats.blockedCount ? 'text-warning' : undefined },
           ].map((s) => (
-            <div key={s.label} className="rounded-xl border border-border bg-surface p-4">
+            <div key={s.label} className={reviveKpiCardClassName}>
               <div className={cn('text-xl font-semibold tracking-tight', s.accent)}>{s.value}</div>
               <div className="mt-0.5 text-xs text-muted-foreground">{s.label}</div>
             </div>
           ))}
         </div>
 
-        {/* Toolbar */}
-        <div className="mb-4 flex items-center gap-2">
-          <div className="flex flex-1 items-center gap-2 rounded-md border border-border bg-surface px-3 py-2">
-            <Search className="h-3.5 w-3.5 text-muted-foreground" />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Buscar por nome ou telefone..."
-              className="flex-1 bg-transparent text-sm outline-none placeholder:text-subtle-foreground"
-            />
-          </div>
-
+        <ListToolbar
+          searchValue={q}
+          onSearchChange={setQ}
+          searchPlaceholder="Buscar por nome ou telefone..."
+        >
           <div className="relative">
             <button
               onClick={() => setFiltersOpen((v) => !v)}
-              className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium hover:bg-surface-hover"
+              className={cn(reviveToolbarButtonClassName, 'flex max-lg:min-h-11 items-center gap-1.5')}
               aria-expanded={filtersOpen}
             >
               <Filter className="h-3.5 w-3.5" /> Filtros
             </button>
-            {filtersOpen ? (
-              <div className="absolute right-0 top-11 z-30 w-64 rounded-xl border border-border bg-surface-elevated p-3 shadow-glow">
+            {filtersOpen && isLgUp ? (
+              <div className="absolute right-0 top-11 z-30 w-64 rounded-xl border border-border bg-surface p-3 shadow-md">
                 <div className="text-xs font-semibold">Filtros</div>
-                <div className="mt-2 space-y-2">
-                  <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Perfil</label>
-                  <select
-                    value={profile}
-                    onChange={(e) => setProfile(e.target.value as ContactProfileFilter)}
-                    className="w-full rounded-md border border-border bg-surface px-2 py-2 text-xs outline-none"
+                <div className="mt-2">{filtersForm}</div>
+                <div className="pt-2">
+                  <button
+                    onClick={() => {
+                      setProfile('all');
+                      setBlocked('all');
+                      setFiltersOpen(false);
+                    }}
+                    className="w-full rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
                   >
-                    <option value="all">Todos</option>
-                    <option value="unknown">Desconhecido</option>
-                    <option value="driver">Entregador</option>
-                    <option value="pharmacy">Farmácia</option>
-                    <option value="leader">Líder</option>
-                  </select>
-
-                  <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Bloqueado</label>
-                  <select
-                    value={blocked}
-                    onChange={(e) => setBlocked(e.target.value as BlockedFilter)}
-                    className="w-full rounded-md border border-border bg-surface px-2 py-2 text-xs outline-none"
-                  >
-                    <option value="all">Todos</option>
-                    <option value="false">Não bloqueado</option>
-                    <option value="true">Bloqueado</option>
-                  </select>
-
-                  <div className="pt-1">
-                    <button
-                      onClick={() => {
-                        setProfile('all');
-                        setBlocked('all');
-                        setFiltersOpen(false);
-                      }}
-                      className="w-full rounded-md border border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground"
-                    >
-                      Limpar
-                    </button>
-                  </div>
+                    Limpar
+                  </button>
                 </div>
               </div>
             ) : null}
@@ -432,13 +476,13 @@ export default function ContactsPage() {
           <div className="relative">
             <button
               onClick={() => setProfileMenuOpen((v) => !v)}
-              className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium hover:bg-surface-hover"
+              className={cn(reviveToolbarButtonClassName, 'flex items-center gap-1.5')}
               aria-expanded={profileMenuOpen}
             >
               <Tag className="h-3.5 w-3.5" /> Tipos
             </button>
             {profileMenuOpen ? (
-              <div className="absolute right-0 top-11 z-30 w-44 rounded-xl border border-border bg-surface-elevated p-1 shadow-glow">
+              <div className="absolute right-0 top-11 z-30 w-44 rounded-xl border border-border bg-surface p-1 shadow-md">
                 {(['all', 'unknown', 'driver', 'pharmacy', 'leader'] as const).map((p) => (
                   <button
                     key={p}
@@ -447,7 +491,7 @@ export default function ContactsPage() {
                       setProfileMenuOpen(false);
                     }}
                     className={cn(
-                      'flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs hover:bg-surface-hover',
+                      'flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs hover:bg-sidebar-accent/60',
                       profile === p ? 'text-foreground' : 'text-muted-foreground'
                     )}
                   >
@@ -458,36 +502,102 @@ export default function ContactsPage() {
               </div>
             ) : null}
           </div>
-        </div>
+        </ListToolbar>
 
         {contactsQuery.isError ? <div className="mb-3 text-xs text-destructive">Falha ao carregar contatos.</div> : null}
 
-        {/* Table */}
-        <div className="overflow-hidden rounded-xl border border-border bg-surface">
-          <table className="w-full">
+        {!isLgUp ? (
+          <FilterSheet
+            open={filtersOpen}
+            onOpenChange={setFiltersOpen}
+            onClear={() => {
+              setProfile('all');
+              setBlocked('all');
+            }}
+          >
+            {filtersForm}
+          </FilterSheet>
+        ) : null}
+
+        {/* Mobile card list */}
+        <div className="space-y-2 lg:hidden">
+          {contactsQuery.isLoading ? (
+            <div className="rounded-xl border border-border bg-surface px-4 py-6 text-sm text-muted-foreground">Carregando…</div>
+          ) : items.length === 0 ? (
+            <div className="rounded-xl border border-border bg-surface px-4 py-6 text-sm text-muted-foreground">Nenhum contato encontrado.</div>
+          ) : (
+            pagedItems.map((c) => {
+              const displayName = c.display_name || '—';
+              const linkName =
+                c.profile_type === 'driver'
+                  ? c.driver?.name || '—'
+                  : c.profile_type === 'pharmacy'
+                    ? c.pharmacy?.trade_name || '—'
+                    : c.profile_type === 'leader'
+                      ? c.leader?.name || '—'
+                      : '—';
+              return (
+                <div
+                  key={c.id}
+                  className={cn('rounded-xl border border-border bg-surface px-4 py-3', interactiveRowSurface())}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary/40 to-channel-instagram/40 text-[11px] font-semibold">
+                      {initials(displayName)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className={cn('text-sm font-medium', interactiveRowPrimary())}>{displayName}</div>
+                      <div className={cn('font-mono text-xs', interactiveRowSecondary())}>
+                        {formatBrazilPhone(c.wa_phone) || c.wa_phone}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className={cn('rounded border px-1.5 py-0.5 text-[10px] font-medium', profileTone(c.profile_type))}>
+                          {profileLabel(c.profile_type)}
+                        </span>
+                        <span className={cn('text-[10px]', semanticPillClass(c.is_blocked ? 'warning' : 'neutral'))}>
+                          {c.is_blocked ? 'Bloqueado' : 'OK'}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">Vínculo: {linkName}</div>
+                      <div className={cn('mt-1 text-[11px] font-mono', interactiveRowMuted())}>
+                        {formatDateTimeBr(c.updated_at)}
+                      </div>
+                    </div>
+                    {renderContactActions(c)}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Desktop table */}
+        <div className={cn(reviveTableShellClassName, 'hidden lg:block')}>
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px]">
             <thead>
-              <tr className="border-b border-border text-left text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">
+              <tr className={reviveTableHeadRowClassName}>
                 <th className="px-4 py-3 w-8">
                   <input type="checkbox" className="rounded border-border bg-background" />
                 </th>
                 <th className="px-4 py-3">Contato</th>
                 <th className="px-4 py-3">Perfil</th>
-                <th className="px-4 py-3">Vínculo</th>
+                <th className="hidden px-4 py-3 xl:table-cell">Vínculo</th>
                 <th className="px-4 py-3">Bloqueio</th>
-                <th className="px-4 py-3">Atualizado</th>
-                <th className="px-4 py-3 w-8" />
+                <th className="hidden px-4 py-3 lg:table-cell">Atualizado</th>
+                {canManage ? <th className="px-4 py-3 w-8" /> : null}
               </tr>
             </thead>
             <tbody>
               {contactsQuery.isLoading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-sm text-muted-foreground">
+                  <td colSpan={canManage ? 7 : 6} className="px-4 py-6 text-sm text-muted-foreground">
                     Carregando…
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-sm text-muted-foreground">
+                  <td colSpan={canManage ? 7 : 6} className="px-4 py-6 text-sm text-muted-foreground">
                     Nenhum contato encontrado.
                   </td>
                 </tr>
@@ -503,7 +613,7 @@ export default function ContactsPage() {
                           ? c.leader?.name || '—'
                           : '—';
                   return (
-                    <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-surface-hover transition-colors">
+                    <tr key={c.id} className={cn('border-b border-border/50 last:border-0', interactiveRowSurface())}>
                       <td className="px-4 py-3">
                         <input type="checkbox" className="rounded border-border bg-background" />
                       </td>
@@ -513,8 +623,8 @@ export default function ContactsPage() {
                             {initials(displayName)}
                           </div>
                           <div>
-                            <div className="text-sm font-medium">{displayName}</div>
-                          <div className="font-mono text-[10px] text-muted-foreground">{formatBrazilPhone(c.wa_phone) || c.wa_phone}</div>
+                            <div className={cn('text-sm font-medium', interactiveRowPrimary())}>{displayName}</div>
+                          <div className={cn('font-mono text-[10px]', interactiveRowSecondary())}>{formatBrazilPhone(c.wa_phone) || c.wa_phone}</div>
                           </div>
                         </div>
                       </td>
@@ -523,79 +633,72 @@ export default function ContactsPage() {
                           {profileLabel(c.profile_type)}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">{linkName}</td>
+                      <td className={cn('hidden px-4 py-3 text-xs xl:table-cell', interactiveRowSecondary())}>{linkName}</td>
                       <td className="px-4 py-3">
                         <span
                           className={cn(
-                            'rounded px-2 py-0.5 text-[10px] font-medium',
-                            c.is_blocked ? 'bg-warning/15 text-warning' : 'bg-muted text-muted-foreground'
+                            'text-[10px]',
+                            semanticPillClass(c.is_blocked ? 'warning' : 'neutral')
                           )}
                         >
                           {c.is_blocked ? 'Bloqueado' : 'OK'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground font-mono">{formatDateTimeBr(c.updated_at)}</td>
+                      <td className={cn('hidden px-4 py-3 text-xs font-mono lg:table-cell', interactiveRowMuted())}>{formatDateTimeBr(c.updated_at)}</td>
+                      {canManage ? (
                       <td className="px-4 py-3">
-                        <div className="relative">
-                          <button
-                            onClick={(e) => {
-                              const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                              setMenu((cur) => (cur?.id === c.id ? null : { id: c.id, x: rect.right, y: rect.bottom }));
-                            }}
-                            className="flex h-7 w-7 items-center justify-center rounded hover:bg-surface-elevated"
-                            title="Ações"
-                          >
-                            <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
-                          </button>
-                          {menu?.id === c.id
-                            ? createPortal(
-                                <div
-                                  ref={menuRef}
-                                  style={{ position: 'fixed', top: menu.y + 6, left: menu.x, transform: 'translateX(-100%)' }}
-                                  className="z-[100] w-40 rounded-xl border border-border bg-surface-elevated p-1 shadow-glow"
-                                >
-                                  <button
-                                    onClick={() => {
-                                      setMenu(null);
-                                      openEdit(c);
-                                    }}
-                                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-surface-hover"
-                                  >
-                                    Editar
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setMenu(null);
-                                      void toggleBlock(c);
-                                    }}
-                                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-surface-hover"
-                                  >
-                                    {c.is_blocked ? 'Desbloquear' : 'Bloquear'}
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setMenu(null);
-                                      void navigator.clipboard?.writeText(c.wa_phone);
-                                    }}
-                                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-surface-hover"
-                                  >
-                                    Copiar telefone
-                                  </button>
-                                </div>,
-                                document.body
-                              )
-                            : null}
-                        </div>
+                        <div className="relative">{renderContactActions(c)}</div>
                       </td>
+                      ) : null}
                     </tr>
                   );
                 })
               )}
             </tbody>
           </table>
+          </div>
         </div>
         <PaginationControls page={currentPage} totalItems={items.length} onPageChange={setCurrentPage} itemLabel="contatos" />
       </div>
+
+      {menu && menuContact
+        ? createPortal(
+            <div
+              ref={menuRef}
+              style={{ position: 'fixed', top: menu.y + 6, left: menu.x, transform: 'translateX(-100%)' }}
+              className="z-[100] w-40 rounded-xl border border-border bg-surface p-1 shadow-md"
+            >
+              <button
+                onClick={() => {
+                  setMenu(null);
+                  openEdit(menuContact);
+                }}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-sidebar-accent/60"
+              >
+                Editar
+              </button>
+              <button
+                onClick={() => {
+                  setMenu(null);
+                  void toggleBlock(menuContact);
+                }}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-sidebar-accent/60"
+              >
+                {menuContact.is_blocked ? 'Desbloquear' : 'Bloquear'}
+              </button>
+              <button
+                onClick={() => {
+                  setMenu(null);
+                  void navigator.clipboard?.writeText(menuContact.wa_phone);
+                }}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-sidebar-accent/60"
+              >
+                Copiar telefone
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
 
       <Modal
         open={editorOpen}
@@ -610,88 +713,57 @@ export default function ContactsPage() {
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Nome</label>
-              <input
+              <FormControl
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
-                className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none"
+                className="mt-1"
                 placeholder="Opcional"
               />
             </div>
             <div className="col-span-2">
               <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Telefone</label>
-              <BrPhoneInput value={formPhone} onChange={setFormPhone} className="bg-surface font-mono" placeholder="(11) 99999-9999" required />
+              <BrPhoneInput value={formPhone} onChange={setFormPhone} className="font-mono" placeholder="(11) 99999-9999" required />
             </div>
             <div className="col-span-2">
               <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Perfil</label>
-              <select
+              <FormSelect
                 value={formProfile}
-                onChange={(e) => {
-                  const next = e.target.value as ContactProfile;
+                onChange={(v) => {
+                  const next = v as ContactProfile;
                   setFormProfile(next);
                   setFormDriverId('');
                   setFormPharmacyId('');
                   setFormLeaderId('');
                 }}
-                className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none"
-              >
-                <option value="unknown">Desconhecido</option>
-                <option value="driver">Entregador</option>
-                <option value="pharmacy">Farmácia</option>
-                <option value="leader">Líder</option>
-              </select>
+                className="mt-1"
+                options={[
+                  { value: 'unknown', label: 'Desconhecido' },
+                  { value: 'driver', label: 'Entregador' },
+                  { value: 'pharmacy', label: 'Farmácia' },
+                  { value: 'leader', label: 'Líder' },
+                  { value: 'partner', label: 'Parceiro' },
+                ]}
+              />
             </div>
 
             {formProfile === 'driver' ? (
               <div className="col-span-2">
                 <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Vincular entregador</label>
-                <select
-                  value={formDriverId}
-                  onChange={(e) => setFormDriverId(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none"
-                >
-                  <option value="">—</option>
-                  {(driversQuery.data || []).map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name} ({formatBrazilPhone(d.phone) || d.phone})
-                    </option>
-                  ))}
-                </select>
+                <CadastroSearchCombobox entity="driver" value={formDriverId} onChange={setFormDriverId} className="mt-1" />
               </div>
             ) : null}
 
             {formProfile === 'pharmacy' ? (
               <div className="col-span-2">
                 <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Vincular farmácia</label>
-                <select
-                  value={formPharmacyId}
-                  onChange={(e) => setFormPharmacyId(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none"
-                >
-                  <option value="">—</option>
-                  {(pharmaciesQuery.data || []).map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.trade_name}
-                    </option>
-                  ))}
-                </select>
+                <CadastroSearchCombobox entity="pharmacy" value={formPharmacyId} onChange={setFormPharmacyId} className="mt-1" />
               </div>
             ) : null}
 
             {formProfile === 'leader' ? (
               <div className="col-span-2">
                 <label className="block text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Vincular líder</label>
-                <select
-                  value={formLeaderId}
-                  onChange={(e) => setFormLeaderId(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none"
-                >
-                  <option value="">—</option>
-                  {(leadersQuery.data || []).map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name} ({formatBrazilPhone(l.phone) || l.phone})
-                    </option>
-                  ))}
-                </select>
+                <CadastroSearchCombobox entity="leader" value={formLeaderId} onChange={setFormLeaderId} className="mt-1" />
               </div>
             ) : null}
 
@@ -710,21 +782,12 @@ export default function ContactsPage() {
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={() => setEditorOpen(false)}
-              disabled={saving}
-              className="rounded-md border border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground disabled:opacity-60"
-            >
+            <Button type="button" variant="outline" onClick={() => setEditorOpen(false)} disabled={saving}>
               Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary-glow disabled:opacity-60"
-            >
+            </Button>
+            <Button type="submit" disabled={saving}>
               {saving ? 'Salvando…' : 'Salvar'}
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>

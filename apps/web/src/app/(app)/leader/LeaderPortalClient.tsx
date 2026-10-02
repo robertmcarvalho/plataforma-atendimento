@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, type ComponentType } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Building2,
@@ -8,17 +8,28 @@ import {
   AlertCircle,
   Calendar,
   Clock,
-  FileText,
   Package,
   ChevronRight,
-  CheckCircle2,
   Search,
-  XCircle,
+  ShieldCheck,
+  type LucideProps,
 } from 'lucide-react';
+import { FormControl } from '@/components/form/FormControl';
+import { FormSearchCombobox } from '@/components/form/FormSearchCombobox';
+import { FormSelect } from '@/components/form/FormSelect';
 import api from '@/lib/api';
 import { useAuth } from '@/store/auth';
+import {
+  interactiveRowPrimary,
+  interactiveRowSecondary,
+  interactiveRowSurface,
+} from '@/lib/interactiveRow';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { brFieldClassName } from '@/components/form/BrInputs';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { IconTile } from '@/components/ui/IconTile';
 import { formatDateBr } from '@/lib/datetimeBr';
 import { BusinessHoursEditor, serializeWorkScheduleForApi } from '@/components/settings/BusinessHoursEditor';
 import { formatBrazilPhone } from '@/lib/brFormat';
@@ -66,6 +77,46 @@ interface Driver {
   leader_linked_pharmacy_ids?: string[];
 }
 
+interface LeaderSupplyRequest {
+  id: string;
+  item_type: 'uniform' | 'bag';
+  status: string;
+  quantity: number;
+  size?: string | null;
+  created_at: string;
+  tracking_link?: string | null;
+  drivers?: { name: string } | null;
+  pharmacies?: { trade_name: string } | null;
+}
+
+interface AbsenceFormData {
+  pharmacy_id: string;
+  driver_id: string;
+  date: string;
+  reason: string;
+}
+
+interface DailyFormData {
+  pharmacy_id: string;
+  driver_id: string;
+  amount: string;
+  description: string;
+}
+
+interface DailyFormSubmit extends Omit<DailyFormData, 'amount'> {
+  amount: number;
+}
+
+interface SupplyFormPayload {
+  pharmacy_id: string;
+  driver_id: string;
+  item_type: 'uniform' | 'bag';
+  size: string;
+  quantity: number;
+}
+
+type LucideIcon = ComponentType<LucideProps>;
+
 export default function LeaderPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -83,7 +134,7 @@ export default function LeaderPage() {
     queryFn: () => api.get('/api/leader-portal/stats').then(r => r.data),
   });
 
-  const { data: supplies = [] } = useQuery<any[]>({
+  const { data: supplies = [] } = useQuery<LeaderSupplyRequest[]>({
     queryKey: ['leader-supplies'],
     queryFn: () => api.get('/api/leader-portal/supply-requests').then(r => r.data),
     enabled: tab === 'supplies' || tab === 'overview',
@@ -103,7 +154,7 @@ export default function LeaderPage() {
 
   // Mutações
   const absenceMutation = useMutation({
-    mutationFn: (data: any) => api.post('/api/leader-portal/absences', data),
+    mutationFn: (data: AbsenceFormData) => api.post('/api/leader-portal/absences', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['leader-stats'] });
       alert('Falta lançada com sucesso!');
@@ -111,7 +162,7 @@ export default function LeaderPage() {
   });
 
   const dailyMutation = useMutation({
-    mutationFn: (data: any) => api.post('/api/leader-portal/dailies', data),
+    mutationFn: (data: DailyFormSubmit) => api.post('/api/leader-portal/dailies', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['leader-stats'] });
       alert('Diária lançada com sucesso!');
@@ -119,7 +170,7 @@ export default function LeaderPage() {
   });
 
   const supplyMutation = useMutation({
-    mutationFn: (data: any) => api.post('/api/leader-portal/supply-requests', data),
+    mutationFn: (data: SupplyFormPayload) => api.post('/api/leader-portal/supply-requests', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['leader-supplies'] });
       alert('Solicitação enviada com sucesso!');
@@ -155,8 +206,9 @@ export default function LeaderPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <div className="shrink-0 border-b border-border bg-surface/40 px-6 py-6 backdrop-blur sm:px-8">
+      <div className="shrink-0 border-b border-border bg-muted/40 px-6 py-6 backdrop-blur sm:px-8">
         <PageHeader
+          icon={ShieldCheck}
           eyebrow="Painel do líder"
           title={`Olá, ${firstName}`}
           description="Acompanhe sua rede, lance faltas e diárias e cuide da operação do dia."
@@ -224,11 +276,12 @@ export default function LeaderPage() {
                 <div className="border-b border-border p-3">
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                    <input
+                    <FormControl
                       value={driverSearch}
                       onChange={(e) => setDriverSearch(e.target.value)}
                       placeholder="Buscar entregador…"
-                      className="w-full rounded-md border border-border bg-background/40 py-2 pl-8 pr-3 text-xs focus:border-primary/50 focus:outline-none"
+                      inputSize="sm"
+                      className="pl-8 pr-3 text-xs"
                     />
                   </div>
                 </div>
@@ -249,10 +302,7 @@ export default function LeaderPage() {
                           <button
                             type="button"
                             onClick={() => setDriverSheetId(d.id)}
-                            className={cn(
-                              'flex w-full items-center gap-3 p-3 text-left transition-colors hover:bg-surface-hover',
-                              active ? 'bg-surface-hover' : ''
-                            )}
+                            className={cn('flex w-full items-center gap-3 p-3 text-left', interactiveRowSurface(active))}
                           >
                             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary/30 to-channel-instagram/30 text-xs font-semibold text-primary-foreground">
                               {d.name
@@ -262,12 +312,12 @@ export default function LeaderPage() {
                                 .join('')}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <div className="truncate text-xs font-medium text-foreground">{d.name}</div>
-                              <div className="truncate text-[10px] text-muted-foreground">
+                              <div className={cn('truncate text-xs font-medium', interactiveRowPrimary(active))}>{d.name}</div>
+                              <div className={cn('truncate text-[10px]', interactiveRowSecondary(active))}>
                                 {d.primary_pharmacy?.trade_name || '—'}
                               </div>
                             </div>
-                            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <ChevronRight className={cn('h-3.5 w-3.5 shrink-0', interactiveRowSecondary(active))} />
                           </button>
                         </li>
                       );
@@ -312,12 +362,12 @@ export default function LeaderPage() {
                     <div className="flex flex-col items-center justify-center py-8 text-muted-foreground border-2 border-dashed border-border rounded-xl">
                       <Package size={48} className="mb-2 opacity-20" />
                       <p className="text-sm">Nenhuma solicitação ativa</p>
-                      <button onClick={() => setTab('supplies')} className="mt-4 button-secondary">Nova Solicitação</button>
+                      <Button onClick={() => setTab('supplies')} variant="secondary" className="mt-4">Nova Solicitação</Button>
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {supplies.slice(0, 3).map((s: any) => (
-                        <div key={s.id} className="flex items-center justify-between p-3 rounded-lg bg-surface-2">
+                      {supplies.slice(0, 3).map((s) => (
+                        <div key={s.id} className="flex items-center justify-between p-3 rounded-lg bg-muted">
                           <div className="flex items-center gap-3">
                             <Package size={16} className="text-muted-foreground" />
                             <div>
@@ -405,11 +455,12 @@ export default function LeaderPage() {
                 <div className="shrink-0 border-b border-border p-3">
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                    <input
+                    <FormControl
                       value={pharmacySearch}
                       onChange={(e) => setPharmacySearch(e.target.value)}
                       placeholder="Buscar farmácia…"
-                      className="w-full rounded-md border border-border bg-background/40 py-2 pl-8 pr-3 text-xs focus:border-primary/50 focus:outline-none"
+                      inputSize="sm"
+                      className="pl-8 pr-3 text-xs"
                     />
                   </div>
                 </div>
@@ -428,19 +479,14 @@ export default function LeaderPage() {
                           <button
                             type="button"
                             onClick={() => setSelectedPharmacyId(p.id)}
-                            className={cn(
-                              'flex w-full items-center gap-3 p-3 text-left transition-colors hover:bg-surface-hover',
-                              active ? 'bg-surface-hover' : ''
-                            )}
+                            className={cn('flex w-full items-center gap-3 p-3 text-left', interactiveRowSurface(active))}
                           >
-                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                              <Building2 className="h-4 w-4" />
-                            </div>
+                            <IconTile icon={Building2} tone="primary" size="md" />
                             <div className="min-w-0 flex-1">
-                              <div className="truncate text-xs font-medium text-foreground">{p.trade_name}</div>
-                              <div className="truncate text-[10px] text-muted-foreground">{p.city || '—'}</div>
+                              <div className={cn('truncate text-xs font-medium', interactiveRowPrimary(active))}>{p.trade_name}</div>
+                              <div className={cn('truncate text-[10px]', interactiveRowSecondary(active))}>{p.city || '—'}</div>
                             </div>
-                            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <ChevronRight className={cn('h-3.5 w-3.5 shrink-0', interactiveRowSecondary(active))} />
                           </button>
                         </li>
                       );
@@ -483,19 +529,19 @@ export default function LeaderPage() {
                           </div>
 
                           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            <div className="rounded-lg border border-border bg-background/40 p-3">
+                            <div className="rounded-lg border border-border bg-muted/30 p-3">
                               <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">CNPJ</div>
                               <div className="mt-1 text-sm font-medium text-foreground">{p.cnpj || '—'}</div>
                             </div>
-                            <div className="rounded-lg border border-border bg-background/40 p-3">
+                            <div className="rounded-lg border border-border bg-muted/30 p-3">
                               <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Telefone</div>
                               <div className="mt-1 text-sm font-medium text-foreground">{p.phone || '—'}</div>
                             </div>
-                            <div className="rounded-lg border border-border bg-background/40 p-3">
+                            <div className="rounded-lg border border-border bg-muted/30 p-3">
                               <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">E-mail</div>
                               <div className="mt-1 text-sm font-medium text-foreground">{p.email || '—'}</div>
                             </div>
-                            <div className="rounded-lg border border-border bg-background/40 p-3">
+                            <div className="rounded-lg border border-border bg-muted/30 p-3">
                               <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Cidade / UF</div>
                               <div className="mt-1 text-sm font-medium text-foreground">
                                 {p.city ?? '—'} {p.state ? ` / ${p.state}` : ''}
@@ -573,10 +619,10 @@ function DriverLeaderDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-sm p-4">
-      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl border border-border bg-surface-elevated shadow-glow">
+      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl border border-border bg-muted shadow-md">
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div className="text-sm font-semibold">Ficha do entregador</div>
-          <button type="button" onClick={onClose} className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-surface-hover">
+          <button type="button" onClick={onClose} className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-sidebar-accent/60">
             Fechar
           </button>
         </div>
@@ -598,7 +644,7 @@ function DriverLeaderDetailModal({
                 <InfoItem label="É líder (cadastro)" value={d?.is_leader ? 'Sim' : 'Não'} />
               </div>
 
-              <div className="rounded-xl border border-border bg-surface-2/40 p-4">
+              <div className="rounded-xl border border-border bg-muted/40 p-4">
                 <p className="text-[10px] font-bold uppercase text-muted-foreground mb-2">Vínculos com farmácias</p>
                 <ul className="space-y-1 text-sm">
                   {links.filter((l) => l.is_active !== false).map((l, i) => {
@@ -639,13 +685,25 @@ function DriverLeaderDetailModal({
   );
 }
 
-function StatCard({ icon: Icon, label, value, color, onClick }: any) {
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  color,
+  onClick,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string | number;
+  color: string;
+  onClick?: () => void;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        'rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-primary/30 hover:bg-surface-hover',
+        'rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-primary/30 hover:bg-sidebar-accent/60',
         onClick ? 'cursor-pointer' : 'cursor-default'
       )}
     >
@@ -658,14 +716,14 @@ function StatCard({ icon: Icon, label, value, color, onClick }: any) {
   );
 }
 
-function TabButton({ active, onClick, label }: any) {
+function TabButton({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
         'relative shrink-0 rounded-md px-3 py-2.5 text-sm font-medium transition-colors sm:px-4 sm:py-3',
-        active ? 'text-primary' : 'text-muted-foreground hover:bg-surface-hover hover:text-foreground'
+        active ? 'text-primary' : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground'
       )}
     >
       {label}
@@ -674,9 +732,19 @@ function TabButton({ active, onClick, label }: any) {
   );
 }
 
-function DeadlineItem({ title, deadline, status, description }: any) {
+function DeadlineItem({
+  title,
+  deadline,
+  status,
+  description,
+}: {
+  title: string;
+  deadline: string;
+  status: 'warning' | 'ok';
+  description: string;
+}) {
   return (
-    <div className="flex items-start gap-3 p-3 rounded-xl bg-surface-2">
+    <div className="flex items-start gap-3 p-3 rounded-xl bg-muted">
       <div className={cn(
         "mt-0.5 h-2 w-2 rounded-full shrink-0",
         status === 'warning' ? "bg-warning animate-pulse" : "bg-success"
@@ -695,7 +763,17 @@ function DeadlineItem({ title, deadline, status, description }: any) {
   );
 }
 
-function AbsenceForm({ pharmacies, drivers, onSave, isLoading }: any) {
+function AbsenceForm({
+  pharmacies,
+  drivers,
+  onSave,
+  isLoading,
+}: {
+  pharmacies: Pharmacy[];
+  drivers: Driver[];
+  onSave: (data: AbsenceFormData) => void;
+  isLoading: boolean;
+}) {
   const [form, setForm] = useState({
     pharmacy_id: '',
     driver_id: '',
@@ -717,21 +795,19 @@ function AbsenceForm({ pharmacies, drivers, onSave, isLoading }: any) {
         <div className="grid grid-cols-2 gap-4">
           <label className="flex flex-col gap-2">
             <span className="text-sm font-medium">Farmácia</span>
-            <select 
-              className="control-select"
+            <FormSearchCombobox
               value={form.pharmacy_id}
-              onChange={e => setForm({ ...form, pharmacy_id: e.target.value, driver_id: '' })}
-            >
-              <option value="">Selecione...</option>
-              {pharmacies.map((p: any) => <option key={p.id} value={p.id}>{p.trade_name}</option>)}
-            </select>
+              onChange={(v) => setForm({ ...form, pharmacy_id: v, driver_id: '' })}
+              placeholder="Buscar farmácia…"
+              options={pharmacies.map((p) => ({ value: p.id, label: p.trade_name }))}
+            />
           </label>
           <label className="flex flex-col gap-2">
             <span className="text-sm font-medium">Data da Falta</span>
             <input 
               type="date" 
               lang="pt-BR"
-              className="control-input"
+              className={brFieldClassName}
               value={form.date}
               onChange={e => setForm({ ...form, date: e.target.value })}
             />
@@ -740,21 +816,19 @@ function AbsenceForm({ pharmacies, drivers, onSave, isLoading }: any) {
 
         <label className="flex flex-col gap-2">
           <span className="text-sm font-medium">Entregador</span>
-          <select 
-            className="control-select"
+          <FormSearchCombobox
             value={form.driver_id}
-            onChange={e => setForm({ ...form, driver_id: e.target.value })}
+            onChange={(v) => setForm({ ...form, driver_id: v })}
             disabled={!form.pharmacy_id}
-          >
-            <option value="">{form.pharmacy_id ? "Selecione..." : "Selecione a farmácia primeiro"}</option>
-            {filteredDrivers.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
+            placeholder={form.pharmacy_id ? 'Buscar entregador…' : 'Selecione a farmácia primeiro'}
+            options={filteredDrivers.map((d) => ({ value: d.id, label: d.name }))}
+          />
         </label>
 
         <label className="flex flex-col gap-2">
           <span className="text-sm font-medium">Motivo / Observação</span>
-          <textarea 
-            className="control-textarea" 
+          <Textarea 
+            className={brFieldClassName}
             placeholder="Ex: Não compareceu, atestado, etc."
             rows={4}
             value={form.reason}
@@ -763,21 +837,31 @@ function AbsenceForm({ pharmacies, drivers, onSave, isLoading }: any) {
         </label>
 
         <div className="flex justify-end gap-3 pt-4">
-          <button className="button-secondary px-8">Cancelar</button>
-          <button 
-            className="button-primary px-8"
+          <Button variant="secondary" className="px-8">Cancelar</Button>
+          <Button 
+            className="px-8"
             disabled={!form.driver_id || isLoading}
             onClick={() => onSave(form)}
           >
             {isLoading ? "Salvando..." : "Registrar Falta"}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
   );
 }
 
-function DailyForm({ pharmacies, drivers, onSave, isLoading }: any) {
+function DailyForm({
+  pharmacies,
+  drivers,
+  onSave,
+  isLoading,
+}: {
+  pharmacies: Pharmacy[];
+  drivers: Driver[];
+  onSave: (data: DailyFormSubmit) => void;
+  isLoading: boolean;
+}) {
   const [form, setForm] = useState({
     pharmacy_id: '',
     driver_id: '',
@@ -798,34 +882,30 @@ function DailyForm({ pharmacies, drivers, onSave, isLoading }: any) {
       <div className="grid gap-6">
         <label className="flex flex-col gap-2">
           <span className="text-sm font-medium">Farmácia</span>
-          <select 
-            className="control-select"
+          <FormSearchCombobox
             value={form.pharmacy_id}
-            onChange={e => setForm({ ...form, pharmacy_id: e.target.value, driver_id: '' })}
-          >
-            <option value="">Selecione...</option>
-            {pharmacies.map((p: any) => <option key={p.id} value={p.id}>{p.trade_name}</option>)}
-          </select>
+            onChange={(v) => setForm({ ...form, pharmacy_id: v, driver_id: '' })}
+            placeholder="Buscar farmácia…"
+            options={pharmacies.map((p) => ({ value: p.id, label: p.trade_name }))}
+          />
         </label>
 
         <div className="grid grid-cols-2 gap-4">
           <label className="flex flex-col gap-2">
             <span className="text-sm font-medium">Entregador</span>
-            <select 
-              className="control-select"
+            <FormSearchCombobox
               value={form.driver_id}
-              onChange={e => setForm({ ...form, driver_id: e.target.value })}
+              onChange={(v) => setForm({ ...form, driver_id: v })}
               disabled={!form.pharmacy_id}
-            >
-              <option value="">{form.pharmacy_id ? "Selecione..." : "Selecione a farmácia primeiro"}</option>
-              {filteredDrivers.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
+              placeholder={form.pharmacy_id ? 'Buscar entregador…' : 'Selecione a farmácia primeiro'}
+              options={filteredDrivers.map((d) => ({ value: d.id, label: d.name }))}
+            />
           </label>
           <label className="flex flex-col gap-2">
             <span className="text-sm font-medium">Valor (R$)</span>
             <input 
               type="number" 
-              className="control-input mono" 
+              className={cn(brFieldClassName, 'mono')} 
               placeholder="0.00"
               value={form.amount}
               onChange={e => setForm({ ...form, amount: e.target.value })}
@@ -837,7 +917,7 @@ function DailyForm({ pharmacies, drivers, onSave, isLoading }: any) {
           <span className="text-sm font-medium">Descrição / Motivo</span>
           <input 
             type="text" 
-            className="control-input" 
+            className={brFieldClassName}
             placeholder="Ex: Apoio extra feriado, chuva, etc."
             value={form.description}
             onChange={e => setForm({ ...form, description: e.target.value })}
@@ -845,27 +925,39 @@ function DailyForm({ pharmacies, drivers, onSave, isLoading }: any) {
         </label>
 
         <div className="flex justify-end gap-3 pt-4">
-          <button className="button-secondary px-8">Cancelar</button>
-          <button 
-            className="button-primary px-8"
+          <Button variant="secondary" className="px-8">Cancelar</Button>
+          <Button 
+            className="px-8"
             disabled={!form.driver_id || !form.amount || isLoading}
             onClick={() => onSave({ ...form, amount: Number(form.amount) })}
           >
             {isLoading ? "Salvando..." : "Lançar Diária"}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
   );
 }
 
-function SupplyForm({ pharmacies, drivers, onSave, isLoading, history }: any) {
-  const [form, setForm] = useState({
+function SupplyForm({
+  pharmacies,
+  drivers,
+  onSave,
+  isLoading,
+  history,
+}: {
+  pharmacies: Pharmacy[];
+  drivers: Driver[];
+  onSave: (data: SupplyFormPayload) => void;
+  isLoading: boolean;
+  history: LeaderSupplyRequest[];
+}) {
+  const [form, setForm] = useState<SupplyFormPayload>({
     pharmacy_id: '',
     driver_id: '',
     item_type: 'uniform',
     size: 'M',
-    quantity: 1
+    quantity: 1,
   });
 
   const filteredDrivers = useMemo(() => {
@@ -882,62 +974,58 @@ function SupplyForm({ pharmacies, drivers, onSave, isLoading, history }: any) {
         <div className="grid gap-6">
           <label className="flex flex-col gap-2">
             <span className="text-sm font-medium">Farmácia</span>
-            <select 
-              className="control-select"
+            <FormSearchCombobox
               value={form.pharmacy_id}
-              onChange={e => setForm({ ...form, pharmacy_id: e.target.value, driver_id: '' })}
-            >
-              <option value="">Selecione...</option>
-              {pharmacies.map((p: any) => <option key={p.id} value={p.id}>{p.trade_name}</option>)}
-            </select>
+              onChange={(v) => setForm({ ...form, pharmacy_id: v, driver_id: '' })}
+              placeholder="Buscar farmácia…"
+              options={pharmacies.map((p) => ({ value: p.id, label: p.trade_name }))}
+            />
           </label>
 
           <label className="flex flex-col gap-2">
             <span className="text-sm font-medium">Entregador</span>
-            <select 
-              className="control-select"
+            <FormSearchCombobox
               value={form.driver_id}
-              onChange={e => setForm({ ...form, driver_id: e.target.value })}
+              onChange={(v) => setForm({ ...form, driver_id: v })}
               disabled={!form.pharmacy_id}
-            >
-              <option value="">{form.pharmacy_id ? "Selecione..." : "Selecione a farmácia primeiro"}</option>
-              {filteredDrivers.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
+              placeholder={form.pharmacy_id ? 'Buscar entregador…' : 'Selecione a farmácia primeiro'}
+              options={filteredDrivers.map((d) => ({ value: d.id, label: d.name }))}
+            />
           </label>
 
           <div className="grid grid-cols-2 gap-4">
             <label className="flex flex-col gap-2">
               <span className="text-sm font-medium">Item</span>
-              <select 
-                className="control-select"
+              <FormSelect
                 value={form.item_type}
-                onChange={e => setForm({ ...form, item_type: e.target.value })}
-              >
-                <option value="uniform">Uniforme (Camiseta)</option>
-                <option value="bag">Bag (Mochila)</option>
-              </select>
+                onChange={(v) => setForm({ ...form, item_type: v as SupplyFormPayload['item_type'] })}
+                options={[
+                  { value: 'uniform', label: 'Uniforme (Camiseta)' },
+                  { value: 'bag', label: 'Bag (Mochila)' },
+                ]}
+              />
             </label>
             {form.item_type === 'uniform' && (
               <label className="flex flex-col gap-2">
                 <span className="text-sm font-medium">Tamanho</span>
-                <select 
-                  className="control-select"
+                <FormSelect
                   value={form.size}
-                  onChange={e => setForm({ ...form, size: e.target.value })}
-                >
-                  <option value="P">P</option>
-                  <option value="M">M</option>
-                  <option value="G">G</option>
-                  <option value="GG">GG</option>
-                  <option value="XG">XG</option>
-                </select>
+                  onChange={(v) => setForm({ ...form, size: v })}
+                  options={[
+                    { value: 'P', label: 'P' },
+                    { value: 'M', label: 'M' },
+                    { value: 'G', label: 'G' },
+                    { value: 'GG', label: 'GG' },
+                    { value: 'XG', label: 'XG' },
+                  ]}
+                />
               </label>
             )}
             <label className="flex flex-col gap-2">
               <span className="text-sm font-medium">Quantidade</span>
               <input 
                 type="number" 
-                className="control-input" 
+                className={brFieldClassName} 
                 min={1} 
                 max={10}
                 value={form.quantity}
@@ -947,9 +1035,9 @@ function SupplyForm({ pharmacies, drivers, onSave, isLoading, history }: any) {
           </div>
 
           <div className="flex justify-end gap-3 pt-4">
-            <button className="button-primary px-8 w-full" disabled={!form.driver_id || isLoading} onClick={() => onSave(form)}>
+            <Button className="px-8 w-full" disabled={!form.driver_id || isLoading} onClick={() => onSave(form)}>
               {isLoading ? "Enviando..." : "Enviar Solicitação"}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -960,8 +1048,8 @@ function SupplyForm({ pharmacies, drivers, onSave, isLoading, history }: any) {
           {history.length === 0 ? (
             <p className="text-sm text-muted-foreground italic">Nenhuma solicitação encontrada.</p>
           ) : (
-            history.map((s: any) => (
-              <div key={s.id} className="p-4 rounded-xl border border-border bg-surface-2">
+            history.map((s) => (
+              <div key={s.id} className="p-4 rounded-xl border border-border bg-muted">
                 <div className="flex justify-between items-start mb-2">
                   <div>
                     <span className={cn(

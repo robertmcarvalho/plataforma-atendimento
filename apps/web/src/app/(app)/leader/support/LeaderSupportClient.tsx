@@ -6,7 +6,28 @@ import { MessageCircle, Send, User, ChevronRight } from 'lucide-react';
 import api from '@/lib/api';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { interactiveRowPrimary, interactiveRowSecondary, interactiveRowSurface } from '@/lib/interactiveRow';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+
+type SectorRow = { id: string; name: string; is_active?: boolean };
+type SupportConversation = {
+  id: string;
+  status: string;
+  last_message_at?: string | null;
+  sectors?: { name: string } | null;
+};
+type SupportMessage = {
+  id: string;
+  direction: 'inbound' | 'outbound' | string;
+  content: string;
+  created_at: string;
+};
+type ActiveConversation = {
+  id: string;
+  sectors?: { name: string } | null;
+  messages?: SupportMessage[];
+};
 
 export default function LeaderSupportReal() {
   const queryClient = useQueryClient();
@@ -15,20 +36,21 @@ export default function LeaderSupportReal() {
   const [showSectorModal, setShowSectorModal] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const { data: sectors = [] } = useQuery<any[]>({
+  const { data: sectors = [] } = useQuery<SectorRow[]>({
     queryKey: ['sectors-for-leader'],
-    queryFn: () => api.get('/api/sectors').then(r => r.data),
+    queryFn: () => api.get<SectorRow[]>('/api/sectors').then((r) => r.data),
   });
 
-  const { data: conversations = [], isLoading } = useQuery<any[]>({
+  const { data: conversations = [], isLoading } = useQuery<SupportConversation[]>({
     queryKey: ['leader-support-conversations'],
-    queryFn: () => api.get('/api/conversations').then(r => r.data.data),
+    queryFn: () => api.get<{ data: SupportConversation[] }>('/api/conversations').then((r) => r.data.data),
     refetchInterval: 10000,
   });
 
-  const { data: activeConv, isLoading: loadingConv } = useQuery<any>({
+  const { data: activeConv, isLoading: loadingConv } = useQuery<ActiveConversation | null>({
     queryKey: ['conversation', selectedId],
-    queryFn: () => selectedId ? api.get(`/api/conversations/${selectedId}`).then(r => r.data) : null,
+    queryFn: () =>
+      selectedId ? api.get<ActiveConversation>(`/api/conversations/${selectedId}`).then((r) => r.data) : null,
     enabled: !!selectedId,
     refetchInterval: 5000,
   });
@@ -67,16 +89,16 @@ export default function LeaderSupportReal() {
   return (
     <div className="flex h-full bg-background overflow-hidden">
       {/* Sidebar de Conversas */}
-      <div className="w-80 border-r border-border flex flex-col bg-surface/30">
+      <div className="w-80 border-r border-border flex flex-col bg-muted/30">
         <div className="p-4 border-b border-border">
           <h2 className="text-lg font-bold mb-4">Suporte Operacional</h2>
-          <button 
+          <Button 
             onClick={() => setShowSectorModal(true)}
-            className="w-full button-primary flex items-center justify-center gap-2 text-sm"
+            className="w-full flex items-center justify-center gap-2 text-sm"
           >
             <MessageCircle size={16} />
             Nova Conversa
-          </button>
+          </Button>
         </div>
         <div className="flex-1 overflow-y-auto">
           {isLoading ? (
@@ -91,14 +113,11 @@ export default function LeaderSupportReal() {
               <button
                 key={c.id}
                 onClick={() => setSelectedId(c.id)}
-                className={cn(
-                  "w-full p-4 text-left border-b border-border/50 hover:bg-surface-hover transition-colors",
-                  selectedId === c.id && "bg-accent-soft border-l-4 border-l-accent"
-                )}
+                className={cn('w-full border-b border-border/50 p-4 text-left', interactiveRowSurface(selectedId === c.id))}
               >
                 <div className="flex justify-between items-start mb-1">
-                  <span className="text-xs font-bold text-accent uppercase tracking-wider">#{c.id.slice(0, 8)}</span>
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className={cn('text-xs font-bold uppercase tracking-wider', interactiveRowPrimary(selectedId === c.id))}>#{c.id.slice(0, 8)}</span>
+                  <span className={cn('text-[10px]', interactiveRowSecondary(selectedId === c.id))}>
                     {c.last_message_at ? formatDistanceToNow(new Date(c.last_message_at), { addSuffix: true, locale: ptBR }) : ''}
                   </span>
                 </div>
@@ -124,7 +143,7 @@ export default function LeaderSupportReal() {
         {selectedId ? (
           <>
             {/* Chat Header */}
-            <div className="h-16 border-b border-border flex items-center justify-between px-6 bg-surface/50 backdrop-blur-sm sticky top-0 z-10">
+            <div className="h-16 border-b border-border flex items-center justify-between px-6 bg-muted/50 backdrop-blur-sm sticky top-0 z-10">
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-full bg-accent/10 flex items-center justify-center text-accent">
                   <User size={20} />
@@ -146,7 +165,7 @@ export default function LeaderSupportReal() {
               {loadingConv ? (
                 <div className="flex items-center justify-center h-full text-muted-foreground">Carregando conversa...</div>
               ) : (
-                activeConv?.messages?.map((msg: any) => (
+                activeConv?.messages?.map((msg) => (
                   <div 
                     key={msg.id} 
                     className={cn(
@@ -158,7 +177,7 @@ export default function LeaderSupportReal() {
                       "p-3 rounded-2xl text-sm shadow-sm",
                       msg.direction === 'outbound' 
                         ? "bg-accent text-white rounded-tr-none" 
-                        : "bg-surface border border-border rounded-tl-none"
+                        : "bg-card border border-border rounded-tl-none"
                     )}>
                       {msg.content}
                     </div>
@@ -171,7 +190,7 @@ export default function LeaderSupportReal() {
             </div>
 
             {/* Composer */}
-            <div className="p-4 border-t border-border bg-surface/80 backdrop-blur-md">
+            <div className="p-4 border-t border-border bg-card/80 backdrop-blur-md">
               <form 
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -199,7 +218,7 @@ export default function LeaderSupportReal() {
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-            <div className="h-20 w-20 rounded-3xl bg-surface-2 flex items-center justify-center text-muted-foreground mb-4">
+            <div className="h-20 w-20 rounded-3xl bg-muted flex items-center justify-center text-muted-foreground mb-4">
               <MessageCircle size={40} className="opacity-20" />
             </div>
             <h3 className="text-lg font-bold mb-2">Suporte Direto</h3>
@@ -213,7 +232,7 @@ export default function LeaderSupportReal() {
       {/* Modal de Seleção de Setor */}
       {showSectorModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-surface w-full max-w-md rounded-2xl shadow-2xl border border-border overflow-hidden animate-in fade-in zoom-in duration-200">
+          <div className="bg-card w-full max-w-md rounded-2xl shadow-2xl border border-border overflow-hidden animate-in fade-in zoom-in duration-200">
             <div className="p-6 border-b border-border">
               <h3 className="text-xl font-bold">Iniciar Atendimento</h3>
               <p className="text-sm text-muted-foreground mt-1">Com qual setor você deseja falar?</p>
@@ -224,20 +243,21 @@ export default function LeaderSupportReal() {
                   key={s.id}
                   onClick={() => createConvMutation.mutate(s.id)}
                   disabled={createConvMutation.isPending}
-                  className="flex items-center justify-between p-4 rounded-xl border border-border bg-surface-2 hover:bg-accent/5 hover:border-accent group transition-all text-left"
+                  className="flex items-center justify-between p-4 rounded-xl border border-border bg-muted hover:bg-accent/5 hover:border-accent group transition-all text-left"
                 >
                   <span className="font-semibold group-hover:text-accent transition-colors">{s.name}</span>
                   <ChevronRight size={16} className="text-muted-foreground group-hover:text-accent group-hover:translate-x-1 transition-all" />
                 </button>
               ))}
             </div>
-            <div className="p-4 bg-surface-2 border-t border-border">
-              <button 
+            <div className="p-4 bg-muted border-t border-border">
+              <Button 
                 onClick={() => setShowSectorModal(false)}
-                className="w-full button-secondary"
+                variant="secondary"
+                className="w-full"
               >
                 Cancelar
-              </button>
+              </Button>
             </div>
           </div>
         </div>

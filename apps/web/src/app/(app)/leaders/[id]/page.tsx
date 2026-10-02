@@ -1,15 +1,18 @@
 'use client';
 
+import { cadastroPageApi } from '@/lib/cadastro/cadastroPageApi';
+
 import { useMemo } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Building2, ChevronRight, Crown, Mail, MapPin, Phone } from 'lucide-react';
-import api from '@/lib/api';
+import { ArrowLeft, Building2, ChevronRight, Crown, Edit3, Mail, MapPin, Phone } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatusDot } from '@/components/ui/StatusDot';
+import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { formatBrazilPhone } from '@/lib/brFormat';
+import { cadastroStatusDot } from '@/lib/cadastroStatus';
 
 type LeaderStatus = 'active' | 'inactive';
 
@@ -24,13 +27,13 @@ type LeaderDetailResponse = {
   leader_pharmacy_links?: Array<{
     id: string;
     is_active: boolean;
-    pharmacies?: { id: string; trade_name: string; city: string | null } | null;
+    pharmacies?: { id: string; trade_name: string; city: string | null; state?: string | null } | null;
   }>;
   pharmacies_with_drivers?: Array<{
     pharmacy_id: string;
     trade_name: string;
     city: string | null;
-    drivers: Array<{ id: string; name: string; phone: string; is_primary: boolean }>;
+    drivers: Array<{ id: string; name: string; phone: string; is_primary: boolean; status?: string }>;
   }>;
 };
 
@@ -45,7 +48,19 @@ function initials(input: string) {
     .join('');
 }
 
-const STATUS_LABEL: Record<string, string> = { online: 'Disponível', busy: 'Em rota', idle: 'Pausa', offline: 'Offline' };
+const DRIVER_STATUS_LABEL: Record<string, string> = {
+  active: 'Disponível',
+  blocked: 'Em rota',
+  inactive: 'Pausa',
+};
+
+function driverStatusTone(status: string | undefined): 'success' | 'warning' | 'neutral' | 'muted' {
+  const s = String(status || 'active');
+  if (s === 'active') return 'success';
+  if (s === 'blocked') return 'warning';
+  if (s === 'inactive') return 'neutral';
+  return 'muted';
+}
 
 export default function LeaderFichaPage() {
   const params = useParams<{ id: string }>();
@@ -54,7 +69,7 @@ export default function LeaderFichaPage() {
   const leaderQuery = useQuery<LeaderDetailResponse>({
     queryKey: ['leader-ficha', id],
     enabled: Boolean(id),
-    queryFn: async () => (await api.get(`/api/leaders/${id}`)).data as LeaderDetailResponse,
+    queryFn: async () => await cadastroPageApi.fetchLeader(id) as LeaderDetailResponse,
   });
 
   const leader = leaderQuery.data;
@@ -74,8 +89,13 @@ export default function LeaderFichaPage() {
   }, [leader?.leader_pharmacy_links]);
 
   const pharmaciesWithDrivers = leader?.pharmacies_with_drivers || [];
+  const activeDriversTotal = pharmaciesWithDrivers.reduce((acc, p) => acc + (p.drivers?.length || 0), 0);
 
-  const presence = leader?.status === 'active' ? 'online' : 'offline';
+  const regiao = useMemo(() => {
+    if (!leader) return '—';
+    const parts = [leader.city, leader.state].filter(Boolean);
+    return parts.length ? parts.join(' / ') : '—';
+  }, [leader]);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -88,9 +108,17 @@ export default function LeaderFichaPage() {
         </Link>
 
         <PageHeader
+          icon={Crown}
           eyebrow="Pessoas · Ficha"
           title="Ficha do líder"
           description="Visão consolidada do líder, farmácias e equipe ativa."
+          actions={
+            leader ? (
+              <Link href={`/leaders/new?id=${encodeURIComponent(leader.id)}`} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                <Edit3 className="h-3.5 w-3.5" /> Editar
+              </Link>
+            ) : null
+          }
         />
 
         {leaderQuery.isLoading ? (
@@ -108,7 +136,7 @@ export default function LeaderFichaPage() {
                   <div className="absolute -top-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-warning text-warning-foreground">
                     <Crown className="h-3.5 w-3.5" />
                   </div>
-                  <StatusDot status={presence as any} pulse={presence === 'online'} className="absolute -bottom-0.5 -right-0.5" />
+                  <StatusDot status={cadastroStatusDot(leader.status)} pulse={leader.status === 'active'} className="absolute -bottom-0.5 -right-0.5" />
                 </div>
 
                 <div className="flex-1 min-w-0">
@@ -117,7 +145,7 @@ export default function LeaderFichaPage() {
                     <span
                       className={cn(
                         'rounded px-2 py-0.5 text-[10px] font-medium',
-                        leader.status === 'active' ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground'
+                        leader.status === 'active' ? 'bg-success/15 text-success' : 'bg-muted/50 text-subtle-foreground',
                       )}
                     >
                       {leader.status === 'active' ? 'Online' : 'Offline'}
@@ -134,7 +162,7 @@ export default function LeaderFichaPage() {
                       <Phone className="h-3 w-3" /> {formatBrazilPhone(leader.phone) || leader.phone}
                     </span>
                     <span className="inline-flex items-center gap-1.5">
-                      <MapPin className="h-3 w-3" /> {leader.city || 'Cidade não informada'}
+                      <MapPin className="h-3 w-3" /> {regiao}
                     </span>
                   </div>
                 </div>
@@ -145,9 +173,7 @@ export default function LeaderFichaPage() {
                     <div className="text-[10px] uppercase tracking-wider text-subtle-foreground">Farmácias</div>
                   </div>
                   <div>
-                    <div className="font-mono text-2xl font-semibold text-success">
-                      {pharmaciesWithDrivers.reduce((acc, p) => acc + (p.drivers?.length || 0), 0)}
-                    </div>
+                    <div className="font-mono text-2xl font-semibold text-success">{activeDriversTotal}</div>
                     <div className="text-[10px] uppercase tracking-wider text-subtle-foreground">Entregadores</div>
                   </div>
                 </div>
@@ -160,22 +186,31 @@ export default function LeaderFichaPage() {
                 <div className="text-xs text-muted-foreground">Nenhuma farmácia vinculada.</div>
               ) : (
                 <div className="grid gap-3 md:grid-cols-2">
-                  {pharmacies.map((p) => (
-                    <Link
-                      key={p.id}
-                      href={`/pharmacies/${p.id}`}
-                      className="group flex items-center gap-3 rounded-lg border border-border bg-background p-3 hover:border-primary/40 hover:bg-surface-elevated transition-colors"
-                    >
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-primary text-primary-foreground">
-                        <Building2 className="h-4.5 w-4.5" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">{p.trade_name}</div>
-                        <div className="font-mono text-[10px] text-subtle-foreground">{p.city || '—'}</div>
-                      </div>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground" />
-                    </Link>
-                  ))}
+                  {pharmacies.map((p) => {
+                    const driverCount =
+                      pharmaciesWithDrivers.find((row) => row.pharmacy_id === p.id)?.drivers.length ?? 0;
+                    const cityLine = [p.city, p.state].filter(Boolean).join(' / ') || '—';
+                    return (
+                      <Link
+                        key={p.id}
+                        href={`/pharmacies/${p.id}`}
+                        className="group flex items-center gap-3 rounded-lg border border-border bg-background p-3 transition-colors hover:border-primary/40 hover:bg-sidebar-accent/40"
+                      >
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-primary text-primary-foreground">
+                          <Building2 className="h-4.5 w-4.5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium">{p.trade_name}</div>
+                          <div className="font-mono text-[10px] text-subtle-foreground">{cityLine}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-mono text-sm font-semibold text-success">{driverCount}</div>
+                          <div className="text-[9px] uppercase text-subtle-foreground">ativos</div>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground" />
+                      </Link>
+                    );
+                  })}
                 </div>
               )}
             </section>
@@ -205,30 +240,38 @@ export default function LeaderFichaPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {p.drivers.map((d) => (
-                              <tr key={d.id} className="border-t border-border/60">
-                                <td className="px-3 py-2">
-                                  <div className="flex items-center gap-2">
-                                    <div className="relative">
-                                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-channel-whatsapp/40 to-primary/40 text-[10px] font-semibold">
-                                        {initials(d.name)}
+                            {p.drivers.map((d) => {
+                              const tone = driverStatusTone(d.status);
+                              return (
+                                <tr key={d.id} className="border-t border-border/60">
+                                  <td className="px-3 py-2">
+                                    <Link href={`/drivers/${d.id}`} className="flex items-center gap-2 hover:underline">
+                                      <div className="relative">
+                                        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-channel-whatsapp/40 to-primary/40 text-[10px] font-semibold">
+                                          {initials(d.name)}
+                                        </div>
+                                        <StatusDot status={cadastroStatusDot(d.status)} className="absolute -bottom-0.5 -right-0.5" />
                                       </div>
-                                      <StatusDot status="online" className="absolute -bottom-0.5 -right-0.5" />
-                                    </div>
-                                    <span className="font-medium">{d.name}</span>
-                                    {d.is_primary ? (
-                                      <span className="rounded bg-primary/15 px-1.5 py-0 text-[10px] text-primary">Primário</span>
-                                    ) : null}
-                                  </div>
-                                </td>
-                                <td className="px-3 py-2 font-mono text-muted-foreground">{formatBrazilPhone(d.phone) || d.phone}</td>
-                                <td className="px-3 py-2">
-                                  <span className="rounded px-2 py-0.5 text-[10px] font-medium bg-success/15 text-success">
-                                    {STATUS_LABEL.online}
-                                  </span>
-                                </td>
-                              </tr>
-                            ))}
+                                      <span className="font-medium">{d.name}</span>
+                                    </Link>
+                                  </td>
+                                  <td className="px-3 py-2 font-mono text-muted-foreground">{formatBrazilPhone(d.phone) || d.phone}</td>
+                                  <td className="px-3 py-2">
+                                    <span
+                                      className={cn(
+                                        'rounded px-2 py-0.5 text-[10px] font-medium',
+                                        tone === 'success' && 'bg-success/15 text-success',
+                                        tone === 'warning' && 'bg-warning/15 text-warning',
+                                        tone === 'neutral' && 'bg-muted text-muted-foreground',
+                                        tone === 'muted' && 'bg-muted/50 text-subtle-foreground',
+                                      )}
+                                    >
+                                      {DRIVER_STATUS_LABEL[d.status || 'active'] || 'Disponível'}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>

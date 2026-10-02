@@ -1,13 +1,25 @@
 'use client';
 
+import { leaderPortalPageApi } from '@/lib/leaderPortal/leaderPortalPageApi';
+
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { Building2, ChevronRight, Clock, Mail, MapPin, Phone, Search, User } from 'lucide-react';
-import api from '@/lib/api';
+import { LeaderPage } from '@/components/leader/LeaderPage';
+import { LeaderMasterDetailLayout } from '@/components/leader/LeaderMasterDetailLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { LeaderDetailField } from '@/components/leader/LeaderDetailField';
+import { useIsLgUp } from '@/hooks/useMediaQuery';
 import { formatWorkScheduleSummary, hasConfiguredWorkSchedule } from '@/components/settings/BusinessHoursEditor';
+import {
+  interactiveRowPrimary,
+  interactiveRowSecondary,
+  interactiveRowSurface,
+} from '@/lib/interactiveRow';
 import { cn } from '@/lib/utils';
+import { buttonVariants } from '@/components/ui/button';
+import { FormControl } from '@/components/form/FormControl';
 import { useAuth } from '@/store/auth';
 import { formatBrazilPhone } from '@/lib/brFormat';
 
@@ -31,21 +43,9 @@ type Driver = {
   name: string;
   phone?: string | null;
   driver_type?: 'fixed' | 'daily' | null;
-  work_schedule?: any | null;
+  work_schedule?: Record<string, unknown> | null;
   leader_linked_pharmacy_ids?: string[];
 };
-
-function Field({ icon: Icon, label, value }: { icon: any; label: string; value?: string | null }) {
-  const shown = value && String(value).trim() ? String(value) : '—';
-  return (
-    <div className="rounded-lg border border-border bg-background/40 p-3">
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-        <Icon className="h-3 w-3" /> {label}
-      </div>
-      <div className="mt-1 text-sm">{shown}</div>
-    </div>
-  );
-}
 
 function initials(name: string) {
   return (
@@ -61,18 +61,19 @@ function initials(name: string) {
 
 export default function LiderFarmaciasPage() {
   const user = useAuth((s) => s.user);
+  const isLgUp = useIsLgUp();
   const [q, setQ] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const pharmaciesQuery = useQuery<Pharmacy[]>({
     queryKey: ['leader-portal', 'pharmacies'],
-    queryFn: async () => (await api.get('/api/leader-portal/pharmacies')).data as Pharmacy[],
+    queryFn: async () => await leaderPortalPageApi.fetchPharmacies() as Pharmacy[],
     enabled: user?.role === 'leader',
   });
 
   const driversQuery = useQuery<Driver[]>({
     queryKey: ['leader-portal', 'drivers'],
-    queryFn: async () => (await api.get('/api/leader-portal/drivers')).data as Driver[],
+    queryFn: async () => await leaderPortalPageApi.fetchDrivers() as Driver[],
     enabled: user?.role === 'leader',
   });
 
@@ -85,45 +86,39 @@ export default function LiderFarmaciasPage() {
 
   const selected = useMemo(() => {
     const rows = pharmaciesQuery.data || [];
-    const id = selectedId || rows[0]?.id || null;
+    const id = selectedId ?? (isLgUp ? rows[0]?.id : null) ?? null;
     return rows.find((p) => p.id === id) || null;
-  }, [pharmaciesQuery.data, selectedId]);
+  }, [pharmaciesQuery.data, selectedId, isLgUp]);
 
   const team = useMemo(() => {
-    if (!selected?.id) return [];
+    const pharmacyId = selected?.id;
+    if (!pharmacyId) return [];
     const rows = driversQuery.data || [];
-    return rows.filter((d) => (d.leader_linked_pharmacy_ids || []).includes(selected.id));
+    return rows.filter((d) => (d.leader_linked_pharmacy_ids || []).includes(pharmacyId));
   }, [driversQuery.data, selected?.id]);
 
   if (user && user.role !== 'leader') {
     return (
       <div className="mx-auto max-w-3xl px-8 py-10">
         <PageHeader eyebrow="Acesso" title="Minhas farmácias" description="Esta área é exclusiva para perfis de líder." compact />
-        <Link className="button-secondary" href="/dashboard">
+        <Link className={buttonVariants({ variant: 'secondary' })} href="/dashboard">
           Voltar
         </Link>
       </div>
     );
   }
 
-  return (
-    <div className="p-8 max-w-7xl">
-      <PageHeader
-        eyebrow="Cadastros"
-        title="Minhas farmácias"
-        description="Farmácias vinculadas à sua zona. Abra a ficha para ver os dados completos."
-      />
-
-      <div className="grid lg:grid-cols-[360px_1fr] gap-4">
+  const listPanel = (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="border-b border-border p-3">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <input
+              <FormControl
+                inputSize="sm"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Buscar farmácia..."
-                className="w-full rounded-md border border-border bg-background/40 pl-8 pr-3 py-2 text-xs focus:outline-none focus:border-primary/50"
+                className="pl-8"
               />
             </div>
           </div>
@@ -140,24 +135,21 @@ export default function LiderFarmaciasPage() {
                   <li key={p.id}>
                     <button
                       onClick={() => setSelectedId(p.id)}
-                      className={cn(
-                        'w-full flex items-center gap-3 p-3 text-left hover:bg-surface-hover transition-colors',
-                        active && 'bg-surface-hover'
-                      )}
+                      className={cn('flex w-full items-center gap-3 p-3 text-left', interactiveRowSurface(active))}
                     >
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                         <Building2 className="h-4 w-4" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium truncate">{p.trade_name}</span>
+                          <span className={cn('truncate text-xs font-medium', interactiveRowPrimary(active))}>{p.trade_name}</span>
                           <span className={cn('h-1.5 w-1.5 rounded-full', status === 'ativa' ? 'bg-success' : 'bg-muted-foreground')} />
                         </div>
-                        <div className="text-[10px] text-muted-foreground truncate">
+                        <div className={cn('truncate text-[10px]', interactiveRowSecondary(active))}>
                           {(p.city || '—') + (p.state ? ` / ${p.state}` : '')}
                         </div>
                       </div>
-                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                      <ChevronRight className={cn('h-3.5 w-3.5 shrink-0', interactiveRowSecondary(active))} />
                     </button>
                   </li>
                 );
@@ -165,8 +157,10 @@ export default function LiderFarmaciasPage() {
             )}
           </ul>
         </div>
+  );
 
-        <div className="rounded-xl border border-border bg-card p-6">
+  const detailPanel = (
+        <div className="rounded-xl border border-border bg-card p-4 sm:p-6">
           {!selected ? (
             <div className="text-sm text-muted-foreground">Selecione uma farmácia…</div>
           ) : (
@@ -186,7 +180,7 @@ export default function LiderFarmaciasPage() {
                     'rounded-full border px-2 py-0.5 text-[10px]',
                     (selected.status || 'active') === 'active'
                       ? 'border-success/40 text-success bg-success/10'
-                      : 'border-muted text-muted-foreground bg-muted/30'
+                      : 'border-warning/40 text-warning bg-warning/10'
                   )}
                 >
                   {(selected.status || 'active') === 'active' ? 'Operando' : 'Inativa'}
@@ -194,59 +188,66 @@ export default function LiderFarmaciasPage() {
               </div>
 
               <div className="mt-6 grid sm:grid-cols-2 gap-4">
-                <Field
+                <LeaderDetailField
                   icon={MapPin}
                   label="Endereço"
                   value={[selected.address_street, selected.address_number, selected.address_neighborhood].filter(Boolean).join(', ') || null}
                 />
-                <Field icon={Phone} label="Telefone" value={formatBrazilPhone(selected.phone || '') || null} />
-                <Field icon={Mail} label="E-mail" value={selected.email || null} />
-                <Field icon={User} label="Razão social" value={selected.legal_name || null} />
-                <Field icon={Clock} label="Cidade" value={(selected.city || '—') + (selected.state ? ` / ${selected.state}` : '')} />
-                <Field icon={Building2} label="CNPJ" value={selected.cnpj || null} />
+                <LeaderDetailField icon={Phone} label="Telefone" value={formatBrazilPhone(selected.phone || '') || null} />
+                <LeaderDetailField icon={Mail} label="E-mail" value={selected.email || null} />
+                <LeaderDetailField icon={User} label="Razão social" value={selected.legal_name || null} />
+                <LeaderDetailField icon={Clock} label="Cidade" value={(selected.city || '—') + (selected.state ? ` / ${selected.state}` : '')} />
+                <LeaderDetailField icon={Building2} label="CNPJ" value={selected.cnpj || null} />
               </div>
 
               <div className="mt-6 border-t border-border pt-5">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Equipe vinculada</h4>
+                <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Equipe vinculada</h4>
                 {driversQuery.isLoading ? (
                   <div className="text-xs text-muted-foreground">Carregando entregadores…</div>
                 ) : team.length === 0 ? (
                   <div className="text-xs text-muted-foreground">Nenhum entregador ativo vinculado.</div>
                 ) : (
-                  <div className="space-y-2">
-                    {team.slice(0, 30).map((d) => {
-                      const scheduleSummary = formatWorkScheduleSummary(d.work_schedule);
-                      const hasSchedule = hasConfiguredWorkSchedule(d.work_schedule);
-                      const typeLabel = d.driver_type === 'daily' ? 'Diarista' : 'Fixo';
-                      return (
-                        <div key={d.id} className="flex items-start justify-between gap-3 rounded-xl border border-border bg-background/40 px-4 py-3">
-                          <div className="flex items-start gap-3 min-w-0">
-                            <div className="h-9 w-9 shrink-0 rounded-xl bg-gradient-to-br from-primary to-channel-instagram text-xs flex items-center justify-center text-primary-foreground">
-                              {initials(d.name)}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-sm font-medium truncate">{d.name}</span>
-                                <span className="rounded-full border border-border bg-muted/30 px-2 py-0.5 text-[10px] text-muted-foreground">
-                                  {typeLabel}
-                                </span>
-                              </div>
-                              <div className="mt-0.5 text-[11px] text-muted-foreground">
-                                <span className="font-medium text-subtle-foreground">Escala: </span>
-                                {hasSchedule ? scheduleSummary : 'Não configurada'}
-                              </div>
-                            </div>
-                          </div>
+                  <div className="flex flex-wrap gap-2">
+                    {team.slice(0, 30).map((d) => (
+                      <div
+                        key={d.id}
+                        className="flex items-center gap-2 rounded-full border border-border bg-background/40 px-3 py-1"
+                        title={
+                          hasConfiguredWorkSchedule(d.work_schedule)
+                            ? formatWorkScheduleSummary(d.work_schedule)
+                            : 'Escala não configurada'
+                        }
+                      >
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-primary to-channel-instagram text-[10px] text-primary-foreground">
+                          {initials(d.name)}
                         </div>
-                      );
-                    })}
+                        <span className="text-xs">{d.name}</span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
             </>
           )}
         </div>
-      </div>
-    </div>
+  );
+
+  return (
+    <LeaderPage fullHeight className="flex min-h-0 flex-1 flex-col">
+      <PageHeader
+        eyebrow="Cadastros"
+        title="Minhas farmácias"
+        description="Farmácias vinculadas à sua zona. Abra a ficha para ver os dados completos."
+      />
+
+      <LeaderMasterDetailLayout
+        className="min-h-0 flex-1"
+        list={listPanel}
+        detail={detailPanel}
+        hasSelection={Boolean(selectedId)}
+        onBack={() => setSelectedId(null)}
+        detailTitle={selected?.trade_name}
+      />
+    </LeaderPage>
   );
 }

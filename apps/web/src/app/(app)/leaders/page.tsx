@@ -1,20 +1,27 @@
-'use client';
+﻿'use client';
 
+import { cadastroPageApi } from '@/lib/cadastro/cadastroPageApi';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Building2, ChevronDown, Crown, Mail, MoreHorizontal, Phone, Plus, Search, User } from 'lucide-react';
+import { Building2, ChevronDown, Crown, Mail, MoreHorizontal, Phone, Plus, User } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { ListToolbar } from '@/components/ui/ListToolbar';
 import { DEFAULT_LIST_PAGE_SIZE, PaginationControls } from '@/components/ui/PaginationControls';
 import { StatusDot } from '@/components/ui/StatusDot';
-import api from '@/lib/api';
 import { useAuth } from '@/store/auth';
 import { canManageCadastro } from '@/lib/cadastroPermissions';
 import { cn } from '@/lib/utils';
 import { BrPhoneInput } from '@/components/form/BrInputs';
+import { FormControl } from '@/components/form/FormControl';
+import { FormSelect } from '@/components/form/FormSelect';
+import { ToolbarSelect } from '@/components/form/ToolbarSelect';
 import { formatBrazilPhone, normalizeBrazilPhone } from '@/lib/brFormat';
+import { cadastroStatusDot } from '@/lib/cadastroStatus';
 import { CadastroField, CadastroSection } from '@/components/cadastro/CadastroPrimitives';
+import { reviveKpiCardClassName, reviveListCardClassName } from '@/lib/reviveSurfaces';
 
 type ApiLeaderSummary = {
   id: string;
@@ -54,10 +61,6 @@ function initials(input: string) {
     .join('');
 }
 
-function statusToDot(status: 'active' | 'inactive') {
-  return status === 'active' ? 'online' : 'offline';
-}
-
 type PharmacyWithDrivers = {
   pharmacy_id: string;
   trade_name: string;
@@ -69,7 +72,7 @@ function LeaderPharmaciesDriversAccordion({ leaderId }: { leaderId: string }) {
   const detailQuery = useQuery({
     queryKey: ['leader-detail', leaderId],
     queryFn: async () =>
-      (await api.get(`/api/leaders/${leaderId}`)).data as {
+      await cadastroPageApi.fetchLeader(leaderId) as {
         pharmacies_with_drivers?: PharmacyWithDrivers[];
       },
   });
@@ -91,7 +94,7 @@ function LeaderPharmaciesDriversAccordion({ leaderId }: { leaderId: string }) {
       <div className="text-[10px] font-semibold uppercase tracking-wider text-subtle-foreground">Entregadores ativos por farmácia</div>
       <div className="max-h-64 space-y-2 overflow-y-auto">
         {rows.map((row) => (
-          <details key={row.pharmacy_id} className="group rounded-lg border border-border bg-background/40">
+          <details key={row.pharmacy_id} className="group rounded-lg border border-border bg-muted/30">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-xs font-medium">
               <span className="flex items-center gap-2">
                 <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -151,10 +154,10 @@ function Modal({
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-sm">
-      <div className={cn('w-full rounded-2xl border border-border bg-surface-elevated shadow-glow', wide ? 'max-w-2xl' : 'max-w-lg')}>
+      <div className={cn('w-full rounded-2xl border border-border bg-surface shadow-md', wide ? 'max-w-2xl' : 'max-w-lg')}>
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div className="text-sm font-semibold tracking-tight">{title}</div>
-          <button onClick={onClose} className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground">
+          <button onClick={onClose} className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground">
             Fechar
           </button>
         </div>
@@ -176,7 +179,7 @@ export default function LeadersPage() {
 
   const [menuId, setMenuId] = useState<string | null>(null);
   const [q, setQ] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [statusFilter, setStatusFilter] = useState<'active' | 'inactive'>('active');
   const [currentPage, setCurrentPage] = useState(1);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -196,8 +199,8 @@ export default function LeadersPage() {
     queryFn: async () => {
       const params: Record<string, string> = {};
       if (q.trim()) params.search = q.trim();
-      if (statusFilter !== 'all') params.status = statusFilter;
-      return (await api.get('/api/leaders/summary', { params })).data as ApiLeadersSummaryResponse;
+      params.status = statusFilter;
+      return await cadastroPageApi.fetchLeadersSummary(params) as ApiLeadersSummaryResponse;
     },
   });
 
@@ -241,8 +244,8 @@ export default function LeadersPage() {
         email: formEmail.trim() || undefined,
         status: formStatus,
       };
-      if (editing) await api.put(`/api/leaders/${editing.id}`, payload);
-      else await api.post('/api/leaders', payload);
+      if (editing) await cadastroPageApi.updateLeader(editing.id, payload);
+      else await cadastroPageApi.createLeader(payload);
       setEditorOpen(false);
       setEditing(null);
       await summaryQuery.refetch();
@@ -257,7 +260,7 @@ export default function LeadersPage() {
 
   const toggleStatus = async (l: ApiLeaderSummary) => {
     try {
-      await api.put(`/api/leaders/${l.id}`, { status: l.status === 'active' ? 'inactive' : 'active' });
+      await cadastroPageApi.patchLeaderStatus(l.id, l.status === 'active' ? 'inactive' : 'active');
       await summaryQuery.refetch();
     } catch {
       // ignore
@@ -303,17 +306,15 @@ export default function LeadersPage() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-7xl px-8 py-8">
         <PageHeader
+          icon={Crown}
           eyebrow="Pessoas"
           title="Líderes"
-          description="Gestores responsáveis por farmácias."
+          description="Gestores responsáveis por farmácias e equipes."
           actions={
             canManage ? (
-              <button
-                onClick={openCreate}
-                className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-glow transition-colors"
-              >
+              <Button type="button" size="sm" onClick={openCreate}>
                 <Plus className="h-3.5 w-3.5" /> Convidar líder
-              </button>
+              </Button>
             ) : null
           }
         />
@@ -325,33 +326,27 @@ export default function LeadersPage() {
             { label: 'Equipe total', value: String(totals.team_total ?? totals.attendants_total) },
             { label: 'SLA médio', value: `${totals.sla_avg_percent.toFixed(1)}%`, accent: totals.sla_avg_percent > 0 ? 'text-success' : undefined },
           ].map((s) => (
-            <div key={s.label} className="rounded-xl border border-border bg-surface p-4">
+            <div key={s.label} className={reviveKpiCardClassName}>
               <div className={cn('text-xl font-semibold tracking-tight', s.accent)}>{s.value}</div>
               <div className="mt-0.5 text-xs text-muted-foreground">{s.label}</div>
             </div>
           ))}
         </div>
 
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <div className="flex min-w-[240px] flex-1 items-center gap-2 rounded-md border border-border bg-surface px-3 py-2">
-            <Search className="h-3.5 w-3.5 text-muted-foreground" />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Buscar líder por nome ou telefone..."
-              className="flex-1 bg-transparent text-sm outline-none placeholder:text-subtle-foreground"
-            />
-          </div>
-          <select
+        <ListToolbar
+          searchValue={q}
+          onSearchChange={setQ}
+          searchPlaceholder="Buscar líder por nome ou telefone..."
+        >
+          <ToolbarSelect
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
-            className="rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground outline-none"
-          >
-            <option value="all">Status</option>
-            <option value="active">Ativo</option>
-            <option value="inactive">Inativo</option>
-          </select>
-        </div>
+            onChange={(v) => setStatusFilter(v as 'active' | 'inactive')}
+            options={[
+              { value: 'active', label: 'Ativo' },
+              { value: 'inactive', label: 'Inativo' },
+            ]}
+          />
+        </ListToolbar>
 
         {summaryQuery.isError ? <div className="mb-3 text-xs text-destructive">Falha ao carregar líderes.</div> : null}
 
@@ -362,37 +357,37 @@ export default function LeadersPage() {
             <div className="text-sm text-muted-foreground">Nenhum líder encontrado.</div>
           ) : (
             pagedCards.map((l) => (
-              <div key={l.id} data-leader-id={l.id} className="group rounded-xl border border-border bg-surface p-5 hover:bg-surface-elevated transition-colors">
+              <div key={l.id} data-leader-id={l.id} className={reviveListCardClassName}>
                 <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="relative">
+                  <Link href={`/leaders/${l.id}`} className="flex min-w-0 flex-1 items-center gap-3">
+                    <div className="relative shrink-0">
                       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-primary text-sm font-semibold text-primary-foreground">
                         {initials(l.name)}
                       </div>
                       <div className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-warning text-warning-foreground">
                         <Crown className="h-3 w-3" />
                       </div>
-                      <StatusDot status={statusToDot(l.status)} pulse={l.status === 'active'} className="absolute -bottom-0.5 -right-0.5" />
+                      <StatusDot status={cadastroStatusDot(l.status)} pulse={l.status === 'active'} className="absolute -bottom-0.5 -right-0.5" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <div className="text-sm font-semibold">{l.name}</div>
-                      <div className="text-[11px] text-muted-foreground">{l.email || '—'}</div>
+                      <div className="truncate text-[11px] text-muted-foreground">{l.email || '—'}</div>
                     </div>
-                  </div>
-                  <div className="relative">
+                  </Link>
+                  <div className="relative shrink-0">
                     <button
                       onClick={() => setMenuId((v) => (v === l.id ? null : l.id))}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity rounded p-1 hover:bg-surface-hover"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity rounded p-1 hover:bg-sidebar-accent/60"
                       title="Ações"
                     >
                       <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
                     </button>
                     {menuId === l.id ? (
-                      <div ref={menuRef} className="absolute right-0 top-8 z-30 w-40 rounded-xl border border-border bg-surface-elevated p-1 shadow-glow">
+                      <div ref={menuRef} className="absolute right-0 top-8 z-30 w-40 rounded-xl border border-border bg-surface p-1 shadow-md">
                         <Link
                           href={`/leaders/${l.id}`}
                           onClick={() => setMenuId(null)}
-                          className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-surface-hover"
+                          className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-sidebar-accent/60"
                         >
                           Abrir ficha
                         </Link>
@@ -403,7 +398,7 @@ export default function LeadersPage() {
                               setMenuId(null);
                               openEdit(l);
                             }}
-                            className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-surface-hover"
+                            className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-sidebar-accent/60"
                           >
                             Editar
                           </button>
@@ -414,7 +409,7 @@ export default function LeadersPage() {
                               setMenuId(null);
                               void toggleStatus(l);
                             }}
-                            className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-surface-hover"
+                            className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground hover:bg-sidebar-accent/60"
                           >
                             {l.status === 'active' ? 'Inativar' : 'Ativar'}
                           </button>
@@ -424,7 +419,7 @@ export default function LeadersPage() {
                   </div>
                 </div>
 
-                <div className="mt-4">
+                <Link href={`/leaders/${l.id}`} className="mt-4 block">
                   <div className="text-[10px] font-medium uppercase tracking-wider text-subtle-foreground">Farmácias</div>
                   <div className="mt-1.5 flex flex-wrap gap-1">
                     {(l.pharmacies_managed || []).slice(0, 6).map((p) => (
@@ -436,12 +431,12 @@ export default function LeadersPage() {
                       <span className="text-[10px] text-subtle-foreground">—</span>
                     ) : null}
                   </div>
-                </div>
+                </Link>
 
-                <div className="mt-4 grid grid-cols-3 gap-3 border-t border-border pt-3">
+                <Link href={`/leaders/${l.id}`} className="mt-4 grid grid-cols-3 gap-3 border-t border-border pt-3">
                   <div>
                     <div className="font-mono text-base font-semibold">{l.pharmacies_count}</div>
-                    <div className="text-[10px] text-subtle-foreground">Farmácias</div>
+                    <div className="text-[10px] text-subtle-foreground">Unidades</div>
                   </div>
                   <div>
                     <div className={cn('font-mono text-base font-semibold', l.sla_percent > 0 ? 'text-success' : 'text-muted-foreground')}>
@@ -456,7 +451,7 @@ export default function LeadersPage() {
                     </div>
                     <div className="text-[10px] text-subtle-foreground">CSAT</div>
                   </div>
-                </div>
+                </Link>
               </div>
             ))
           )}
@@ -481,7 +476,7 @@ export default function LeadersPage() {
               <div className="flex flex-wrap gap-1.5">
                 {(editing.pharmacies_managed || []).length > 0 ? (
                   editing.pharmacies_managed.map((p) => (
-                    <span key={p} className="inline-flex items-center gap-1 rounded border border-border bg-surface px-2 py-0.5 text-[10px] text-foreground">
+                    <span key={p} className="inline-flex items-center gap-1 rounded border border-border bg-background/40 px-2 py-0.5 text-[10px] text-foreground">
                       <Building2 className="h-2.5 w-2.5 text-muted-foreground" />
                       {p}
                     </span>
@@ -508,22 +503,20 @@ export default function LeadersPage() {
           <CadastroSection title="Contato" desc="Dados usados para comunicação e acesso">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <CadastroField icon={User} label="Nome" required>
-                <input
+                <FormControl
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none"
                   required
                 />
               </CadastroField>
               <CadastroField icon={Phone} label="Telefone" required>
-                <BrPhoneInput value={formPhone} onChange={setFormPhone} className="bg-surface font-mono" placeholder="(11) 99999-9999" required />
+                <BrPhoneInput value={formPhone} onChange={setFormPhone} className="font-mono" placeholder="(11) 99999-9999" required />
               </CadastroField>
               <div className="sm:col-span-2">
                 <CadastroField icon={Mail} label="E-mail">
-                  <input
+                  <FormControl
                     value={formEmail}
                     onChange={(e) => setFormEmail(e.target.value)}
-                    className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none"
                     placeholder="Opcional"
                   />
                 </CadastroField>
@@ -533,31 +526,31 @@ export default function LeadersPage() {
 
           <CadastroSection title="Status">
             <CadastroField icon={StatusDot as unknown as typeof Crown} label="Status">
-              <select value={formStatus} onChange={(e) => setFormStatus(e.target.value as 'active' | 'inactive')} className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none">
-                <option value="active">Ativo</option>
-                <option value="inactive">Inativo</option>
-              </select>
+              <FormSelect
+                value={formStatus}
+                onChange={(v) => setFormStatus(v as 'active' | 'inactive')}
+                options={[
+                  { value: 'active', label: 'Ativo' },
+                  { value: 'inactive', label: 'Inativo' },
+                ]}
+              />
             </CadastroField>
           </CadastroSection>
           <div className="flex items-center justify-end gap-2 pt-2">
-            <button
+            <Button
               type="button"
+              variant="outline"
               onClick={() => {
                 clearEditQueryParam();
                 setEditorOpen(false);
               }}
               disabled={saving}
-              className="rounded-md border border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground hover:bg-surface-hover hover:text-foreground disabled:opacity-60"
             >
               Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary-glow disabled:opacity-60"
-            >
+            </Button>
+            <Button type="submit" disabled={saving}>
               {saving ? 'Salvando…' : 'Salvar'}
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>

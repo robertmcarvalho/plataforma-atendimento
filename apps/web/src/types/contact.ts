@@ -33,4 +33,4 @@ export type ContactDetail = {
   created_at: string;
 };
 
-export type ProfileType = 'driver' | 'pharmacy' | 'leader' | 'unknown';
+export type ProfileType = 'driver' | 'pharmacy' | 'leader' | 'partner' | 'unknown';

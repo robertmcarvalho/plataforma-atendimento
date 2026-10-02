@@ -1,13 +1,19 @@
 'use client';
 
+import { leaderPortalPageApi } from '@/lib/leaderPortal/leaderPortalPageApi';
+
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowLeft, Building2, Calendar, CheckCircle2, Loader2, Send, Truck, UserX } from 'lucide-react';
-import api from '@/lib/api';
+import { AlertTriangle, ArrowLeft, Building2, CheckCircle2, Loader2, Send, UserX } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { CadastroField, CadastroPageScroll, CadastroSection } from '@/components/cadastro/CadastroPrimitives';
+import {
+  DriverTerminationRequestForm,
+  type TerminationReason,
+} from '@/components/cadastro/driver/DriverTerminationRequestForm';
 import { cn } from '@/lib/utils';
+import { buttonVariants } from '@/components/ui/button';
 import { useAuth } from '@/store/auth';
 
 type Driver = {
@@ -36,14 +42,6 @@ type TerminationTask = {
   driver?: { id: string; name: string; phone?: string | null; status?: string | null } | null;
 };
 
-const REASONS = [
-  { value: 'driver_request', label: 'Pedido do entregador' },
-  { value: 'performance', label: 'Desempenho' },
-  { value: 'absence', label: 'Ausência' },
-  { value: 'route_ended', label: 'Encerramento de rota' },
-  { value: 'other', label: 'Outro' },
-] as const;
-
 function statusLabel(status: TerminationTask['status']) {
   switch (status) {
     case 'done':
@@ -62,25 +60,25 @@ export default function LiderDesligamentoPage() {
   const qc = useQueryClient();
   const [driverId, setDriverId] = useState('');
   const [lastWorkedAt, setLastWorkedAt] = useState(new Date().toISOString().slice(0, 10));
-  const [reason, setReason] = useState<(typeof REASONS)[number]['value']>('driver_request');
+  const [reason, setReason] = useState<TerminationReason>('driver_request');
   const [notes, setNotes] = useState('');
   const [message, setMessage] = useState<string | null>(null);
 
   const driversQuery = useQuery<Driver[]>({
     queryKey: ['leader-portal', 'drivers'],
-    queryFn: async () => (await api.get('/api/leader-portal/drivers')).data as Driver[],
+    queryFn: async () => await leaderPortalPageApi.fetchDrivers() as Driver[],
     enabled: user?.role === 'leader',
   });
 
   const pharmaciesQuery = useQuery<Pharmacy[]>({
     queryKey: ['leader-portal', 'pharmacies'],
-    queryFn: async () => (await api.get('/api/leader-portal/pharmacies')).data as Pharmacy[],
+    queryFn: async () => await leaderPortalPageApi.fetchPharmacies() as Pharmacy[],
     enabled: user?.role === 'leader',
   });
 
   const requestsQuery = useQuery<TerminationTask[]>({
     queryKey: ['leader-portal', 'termination-requests'],
-    queryFn: async () => (await api.get('/api/leader-portal/termination-requests')).data as TerminationTask[],
+    queryFn: async () => await leaderPortalPageApi.fetchTerminationRequests() as TerminationTask[],
     enabled: user?.role === 'leader',
   });
 
@@ -95,17 +93,13 @@ export default function LiderDesligamentoPage() {
     return all.filter((p) => ids.has(p.id));
   }, [pharmaciesQuery.data, selectedDriver?.leader_linked_pharmacy_ids]);
 
-  useEffect(() => {
-    setMessage(null);
-  }, [driverId, lastWorkedAt, reason, notes]);
-
   const createMutation = useMutation({
     mutationFn: async (payload: {
       driver_id: string;
       last_worked_at: string;
       reason: string;
       notes?: string | null;
-    }) => (await api.post('/api/leader-portal/termination-requests', payload)).data,
+    }) => await leaderPortalPageApi.createTerminationRequest(payload),
     onSuccess: async () => {
       setMessage('Solicitação de desligamento enviada para Operacional e Financeiro.');
       setDriverId('');
@@ -129,7 +123,7 @@ export default function LiderDesligamentoPage() {
     return (
       <div className="mx-auto max-w-3xl px-8 py-10">
         <PageHeader eyebrow="Acesso" title="Desligamento" description="Esta área é exclusiva para perfis de líder." />
-        <Link className="button-secondary" href="/dashboard">
+        <Link className={buttonVariants({ variant: 'secondary' })} href="/dashboard">
           Voltar
         </Link>
       </div>
@@ -139,59 +133,49 @@ export default function LiderDesligamentoPage() {
   return (
     <CadastroPageScroll maxWidthClassName="max-w-6xl">
       <PageHeader
+        icon={UserX}
         eyebrow="Operação"
         title="Desligamento"
         description="Solicite o desligamento de um entregador para análise do Operacional e Financeiro."
         actions={
-          <Link href="/lider" className="button-secondary">
+          <Link href="/lider" className={buttonVariants({ variant: 'secondary' })}>
             <ArrowLeft className="h-4 w-4" />
             Voltar
           </Link>
         }
       />
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
-        <div className="space-y-5">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_340px]">
+        <div className="order-1 space-y-5 lg:order-none">
           <CadastroSection title="Nova solicitação" desc="O desligamento só será aplicado após aprovação operacional.">
-            <div className="grid gap-4 md:grid-cols-2">
-              <CadastroField icon={Truck} label="Entregador" required>
-                <select
-                  value={driverId}
-                  onChange={(e) => setDriverId(e.target.value)}
-                  className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50"
-                >
-                  <option value="">{driversQuery.isLoading ? 'Carregando…' : 'Selecione…'}</option>
-                  {(driversQuery.data || []).map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
-              </CadastroField>
-
-              <CadastroField icon={Calendar} label="Último dia trabalhado" required>
-                <input
-                  type="date"
-                  value={lastWorkedAt}
-                  onChange={(e) => setLastWorkedAt(e.target.value)}
-                  className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50"
-                />
-              </CadastroField>
-
-              <CadastroField icon={UserX} label="Motivo" required>
-                <select
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value as typeof reason)}
-                  className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary/50"
-                >
-                  {REASONS.map((r) => (
-                    <option key={r.value} value={r.value}>
-                      {r.label}
-                    </option>
-                  ))}
-                </select>
-              </CadastroField>
-            </div>
+            <DriverTerminationRequestForm
+              leaderId=""
+              onLeaderIdChange={() => {}}
+              leaders={[]}
+              showLeaderPicker={false}
+              driverId={driverId}
+              onDriverIdChange={(v) => {
+                setDriverId(v);
+                setMessage(null);
+              }}
+              drivers={(driversQuery.data || []).map((d) => ({ id: d.id, name: d.name }))}
+              driversLoading={driversQuery.isLoading}
+              lastWorkedAt={lastWorkedAt}
+              onLastWorkedAtChange={(v) => {
+                setLastWorkedAt(v);
+                setMessage(null);
+              }}
+              reason={reason}
+              onReasonChange={(v) => {
+                setReason(v);
+                setMessage(null);
+              }}
+              notes={notes}
+              onNotesChange={(v) => {
+                setNotes(v);
+                setMessage(null);
+              }}
+            />
 
             <CadastroField icon={Building2} label="Farmácias vinculadas">
               {!selectedDriver ? (
@@ -217,17 +201,7 @@ export default function LiderDesligamentoPage() {
               )}
             </CadastroField>
 
-            <CadastroField icon={AlertTriangle} label="Observações">
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                rows={4}
-                placeholder="Informe pendências, combinado com o entregador ou detalhes para o acerto final…"
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
-              />
-            </CadastroField>
-
-            <div className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-xs text-warning">
+            <div className="mt-4 rounded-lg border border-warning/30 bg-warning/5 p-3 text-xs text-warning">
               Ao aprovar, o Operacional inativa o entregador e o sistema encerra automaticamente os vínculos ativos com farmácias e líder.
             </div>
 
@@ -255,7 +229,7 @@ export default function LiderDesligamentoPage() {
                 });
               }}
               className={cn(
-                'inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary-glow',
+                'inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/80',
                 !canSubmit && 'pointer-events-none opacity-50'
               )}
             >
@@ -265,7 +239,7 @@ export default function LiderDesligamentoPage() {
           </CadastroSection>
         </div>
 
-        <aside className="self-start overflow-hidden rounded-xl border border-border bg-surface">
+        <aside className="order-2 overflow-hidden rounded-xl border border-border bg-card lg:order-none lg:self-start">
           <div className="border-b border-border px-4 py-3">
             <h4 className="text-sm font-semibold">Solicitações recentes</h4>
             <p className="text-[11px] text-muted-foreground">Demandas enviadas para Operacional e Financeiro.</p>
@@ -278,7 +252,7 @@ export default function LiderDesligamentoPage() {
             ) : (
               <div className="space-y-2">
                 {(requestsQuery.data || []).slice(0, 12).map((task) => (
-                  <div key={task.id} className="rounded-lg border border-border bg-background/40 px-3 py-2">
+                  <div key={task.id} className="rounded-lg border border-border bg-card px-3 py-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="truncate text-xs font-medium">{task.driver?.name || task.title}</div>

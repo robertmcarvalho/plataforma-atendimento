@@ -130,6 +130,19 @@ export async function buildPharmaciesWithDriversForLeader(
   }));
 }
 
+/** Endereço em uma linha para cards do wizard do portal líder (paridade Revive). */
+export function formatLeaderPharmacyAddressLine(row: Record<string, unknown>): string | null {
+  const street = [row.address_street, row.address_number]
+    .filter((x) => x != null && String(x).trim())
+    .map((x) => String(x).trim())
+    .join(', ');
+  const hood = row.address_neighborhood ? String(row.address_neighborhood).trim() : '';
+  const city = row.address_city || row.city ? String(row.address_city || row.city).trim() : '';
+  const line = [street, hood].filter(Boolean).join(', ');
+  if (line && city) return `${line} — ${city}`;
+  return line || city || null;
+}
+
 /** Lista entregadores ativos na rede do líder (via driver_pharmacy_links) + IDs de farmácias vinculadas para filtros na UI. */
 export async function getDriversForLeaderPortal(db: SupabaseClient, leaderId: string) {
   const pharmacyIds = await getLeaderManagedPharmacyIds(db, leaderId);

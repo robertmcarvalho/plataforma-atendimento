@@ -5,6 +5,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Check, MessageCircle, Send } from 'lucide-react';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 import { BrPhoneInput } from '@/components/form/BrInputs';
 import { normalizeBrazilPhone } from '@/lib/brFormat';
 import type { LeaderWhatsAppStatus } from './LeaderWhatsAppStatusButton';
@@ -62,7 +63,10 @@ export function LeaderWhatsAppOtpModal({
     if (!open) return;
     setPhone(initialPhone || '');
     setCode('');
-    setPhase(status === 'verified' ? 'connected' : status === 'pending' ? 'code' : 'phone');
+    setPhase((prev) => {
+      if (prev === 'connected') return 'connected';
+      return status === 'verified' ? 'connected' : status === 'pending' ? 'code' : 'phone';
+    });
     setError(null);
     setDebugCode(null);
   }, [open, initialPhone, status]);
@@ -121,7 +125,7 @@ export function LeaderWhatsAppOtpModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-[420px] overflow-hidden rounded-2xl border border-border bg-surface shadow-glow">
+      <div className="max-h-[90dvh] w-full max-w-[420px] overflow-y-auto rounded-2xl border border-border bg-card shadow-md">
         <div className="p-5">
           <div className="mb-5 flex items-center justify-between">
             <Step n={1} label="Login portal" done />
@@ -204,12 +208,12 @@ export function LeaderWhatsAppOtpModal({
 
             {phase === 'connected' ? (
               <div className="mt-5 grid gap-2">
-                <button type="button" className="button-primary" onClick={onClose}>
+                <Button type="button" onClick={onClose}>
                   Continuar
-                </button>
-                <button type="button" className="button-secondary" disabled={busy} onClick={() => reconnectMut.mutate()}>
+                </Button>
+                <Button type="button" variant="secondary" disabled={busy} onClick={() => reconnectMut.mutate()}>
                   Reconectar / trocar número
-                </button>
+                </Button>
               </div>
             ) : null}
 
@@ -221,10 +225,10 @@ export function LeaderWhatsAppOtpModal({
             ) : null}
           </div>
         </div>
-        <div className="border-t border-border bg-surface-2 p-3">
-          <button type="button" onClick={onClose} className="w-full button-secondary">
+        <div className="border-t border-border bg-muted p-3">
+          <Button type="button" onClick={onClose} variant="secondary" className="w-full">
             Fechar
-          </button>
+          </Button>
         </div>
       </div>
     </div>
