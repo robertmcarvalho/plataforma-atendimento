@@ -1,0 +1,36 @@
+---
+description: Deploy GCP Cloud Run Flux Farma — pos-deploy scaling piloto e rollback
+alwaysApply: true
+---
+
+# Deploy Cloud Run (Flux Farma)
+
+## Estado
+
+O perfil piloto de scaling **ja esta aplicado** em producao (`rh-coopmob-bot`). Detalhes: `docs/CLOUD_RUN_SCALING.md`.
+
+## Apos deploy de nova imagem
+
+Qualquer tarefa de deploy (`gcloud run deploy`, Cloud Build, nova revisao em `flux-farma-*`) **deve** incluir como ultimo passo:
+
+```powershell
+$env:GCP_PROJECT_ID = "rh-coopmob-bot"
+.\scripts\gcp\post-deploy-pilot.ps1
+```
+
+Ou: `npm run gcp:post-deploy:pilot`
+
+Deploy **incompleto** sem este passo quando houve nova revisao de imagem nos workers/webhook.
+
+**Nao** rodar pos-deploy se o usuario apenas consultou status ou nao houve deploy.
+
+## Scripts
+
+| Acao | Script |
+|------|--------|
+| Pos-deploy (padrao) | `scripts/gcp/post-deploy-pilot.ps1` |
+| So validar | `scripts/gcp/verify-run-scaling.ps1 -Profile pilot` |
+| Rollback emergencia | `scripts/gcp/configure-workers-rollback.ps1` |
+| Alta escala (evitar no piloto) | `scripts/gcp/configure-workers-production.ps1` |
+
+Apos rollback, voltar ao piloto com `post-deploy-pilot.ps1`.

@@ -1,0 +1,7 @@
+# Serviços auxiliares para desenvolvimento local (proposta DOCX→PDF, etc.)
+services:
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    ports:
+      - '3006:3000'
+    restart: unless-stopped

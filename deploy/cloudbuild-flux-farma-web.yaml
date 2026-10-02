@@ -2,6 +2,8 @@
 #   gcloud builds submit . --config=deploy/cloudbuild-flux-farma-web.yaml --project=$GCP_PROJECT_ID \
 #     --substitutions=_TAG=TAG,_REGION=us-central1,_REPO=panel-services,_NEXT_PUBLIC_API_URL=https://api.aethera.ai,...
 # _NEXT_PUBLIC_SUPABASE_ANON_KEY: chave anónima (pública no cliente); preferir --substitutions em CI.
+# Pos-deploy obrigatorio apos nova revisao no Cloud Run: npm run gcp:post-deploy:pilot
+# Ver docs/CLOUD_RUN_SCALING.md
 steps:
   - name: gcr.io/cloud-builders/docker
     args:
@@ -30,6 +32,8 @@ steps:
       - NEXT_PUBLIC_AI_INBOUND_ASSIST=true
       - --build-arg
       - NEXT_PUBLIC_ENABLE_TICKETING_PANEL=true
+      - --build-arg
+      - NEXT_PUBLIC_BILLING_MODULE_ENABLED=${_NEXT_PUBLIC_BILLING_MODULE_ENABLED}
       - .
 images:
   - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/flux-farma-web:${_TAG}
@@ -40,3 +44,4 @@ substitutions:
   _NEXT_PUBLIC_API_URL: https://api.aethera.ai
   _NEXT_PUBLIC_SUPABASE_URL: https://SEU_PROJETO.supabase.co
   _NEXT_PUBLIC_SUPABASE_ANON_KEY: ""
+  _NEXT_PUBLIC_BILLING_MODULE_ENABLED: "true"

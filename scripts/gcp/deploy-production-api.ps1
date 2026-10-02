@@ -13,12 +13,14 @@ param(
   [string]$Region = $(if ($env:GCP_REGION) { $env:GCP_REGION } else { "us-central1" }),
   [string]$ServiceName = $(if ($env:SERVICE_NAME) { $env:SERVICE_NAME } else { "flux-farma-api" }),
   [string]$AllowedOrigins = $(if ($env:ALLOWED_ORIGINS) { $env:ALLOWED_ORIGINS } else {
-    "https://www.aetheraai.online,https://aetheraai.online,https://app.aethera.ai,https://flux-farma-web-713561463013.us-central1.run.app,http://localhost:3020,http://localhost:3000,http://127.0.0.1:3020,http://127.0.0.1:3000"
+    "https://www.aetheraai.com.br,https://aetheraai.com.br,https://app.aethera.ai,https://flux-farma-web-713561463013.us-central1.run.app,http://localhost:3020,http://localhost:3000,http://127.0.0.1:3020,http://127.0.0.1:3000"
   })
 )
 
 if (-not $ProjectId) { throw "Set GCP_PROJECT_ID" }
 
+# Prefer --update-secrets (additive). Never use --set-secrets here: it drops file mounts
+# (NFS-e PFX / Cora mTLS) and BILLING_NFSE_PFX_PASSWORD_* that are not in this list alone.
 $secrets = @(
   "SUPABASE_URL=supabase-url:latest",
   "SUPABASE_SERVICE_ROLE_KEY=supabase-sr:latest",
@@ -31,7 +33,22 @@ $secrets = @(
   "META_APP_ID=meta-app-id:latest",
   "META_GRAPH_APP_ACCESS_TOKEN=meta-graph-app-access-token:latest",
   "GOOGLE_API_KEY=google-api-key:latest",
-  "SMTP_PASS=smtp-pass:latest"
+  "SMTP_PASS=smtp-pass:latest",
+  "AUTENTIQUE_API_KEY=autentique-api-key:latest",
+  "AUTENTIQUE_WEBHOOK_SECRET=autentique-webhook-secret:latest",
+  "FLUX_DELIVERY_OAUTH_CLIENT_SECRET=flux-delivery-oauth-client-secret:latest",
+  "FLUX_DELIVERY_USERNAME=flux-delivery-username:latest",
+  "FLUX_DELIVERY_PASSWORD=flux-delivery-password:latest",
+  "FLUX_MYSQL_PASSWORD=flux-mysql-password:latest",
+  "SCHEDULER_JOB_TOKEN=scheduler-job-token:latest",
+  "BILLING_NFSE_PFX_PASSWORD_BILLING_NFSE_FLUX_PFX=billing-nfse-flux-pfx-password:latest",
+  "/secrets/nfse/billing-nfse-flux-pfx.pfx=billing-nfse-flux-pfx:latest",
+  "BILLING_NFSE_PFX_PASSWORD_BILLING_NFSE_COOP_PFX=billing-nfse-coop-pfx-password:latest",
+  "/secrets/nfse-coop/billing-nfse-coop-pfx.pfx=billing-nfse-coop-pfx:latest",
+  "/secrets/cora-cert/certificate.pem=cora-flux-mtls-certificate:latest",
+  "/secrets/cora-key/private-key.key=cora-flux-mtls-private-key:latest",
+  "/secrets/cora-coop-cert/certificate.pem=cora-coop-mtls-certificate:latest",
+  "/secrets/cora-coop-key/private-key.key=cora-coop-mtls-private-key:latest"
 ) -join ","
 
 $envFile = Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path ".cloud-env-api-production.yaml"
@@ -42,7 +59,7 @@ if ($AllowedOrigins -and $yaml -notmatch [regex]::Escape($AllowedOrigins.Split('
 }
 
 Write-Host "Deploying $ServiceName to $Region (project $ProjectId)..."
-cmd /c "gcloud run services update $ServiceName --project=$ProjectId --region=$Region --set-secrets=$secrets --env-vars-file=$envFile"
+cmd /c "gcloud run services update $ServiceName --project=$ProjectId --region=$Region --update-secrets=$secrets --env-vars-file=$envFile"
 if ($LASTEXITCODE -ne 0) { throw "gcloud run services update failed with exit code $LASTEXITCODE" }
 
 Write-Host "Done. Verify: gcloud run services describe $ServiceName --region=$Region --format='value(status.url)'"

@@ -1,0 +1,17 @@
+# Pos-deploy obrigatorio apos nova revisao no Cloud Run: npm run gcp:post-deploy:pilot
+# Ver docs/CLOUD_RUN_SCALING.md
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - deploy/dockerfiles/campaign.Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/flux-farma-campaign:${_TAG}
+      - .
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/flux-farma-campaign:${_TAG}
+substitutions:
+  _TAG: latest
+  _REGION: us-central1
+  _REPO: panel-services

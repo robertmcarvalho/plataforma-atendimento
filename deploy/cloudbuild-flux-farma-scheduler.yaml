@@ -1,3 +1,5 @@
+# Pos-deploy obrigatorio apos nova revisao no Cloud Run: npm run gcp:post-deploy:pilot
+# Ver docs/CLOUD_RUN_SCALING.md
 steps:
   - name: gcr.io/cloud-builders/docker
     args:

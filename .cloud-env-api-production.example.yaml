@@ -2,17 +2,54 @@
 # Secrets sensíveis vêm do GCP Secret Manager no deploy (supabase-url, supabase-sr, jwt-secret, smtp-pass, meta-*).
 
 NODE_ENV: production
-WEB_APP_URL: "https://www.aetheraai.online/login"
+# Go-live faturamento: true em produção após migrations 084+
+BILLING_MODULE_ENABLED: "true"
+# NFS-e / Cora — manter no yaml; --env-vars-file remove o que não estiver listado
+BILLING_NFSE_ENABLED: "true"
+BILLING_NFSE_ALLOW_PRODUCAO: "true"
+BILLING_NFSE_SECRETS_DIR: "/secrets/nfse"
+# PFX Coop em diretório próprio (Cloud Run: 1 secret por diretório); senha via secret billing-nfse-coop-pfx-password
+BILLING_NFSE_PFX_PATH_BILLING_NFSE_COOP_PFX: "/secrets/nfse-coop/billing-nfse-coop-pfx.pfx"
+BILLING_CORA_ENABLED: "true"
+BILLING_CORA_CERT_PATH: "/secrets/cora-cert/certificate.pem"
+BILLING_CORA_KEY_PATH: "/secrets/cora-key/private-key.key"
+# Coop (mtls_secret_ref cora-coop-mtls) — env genérico acima vale só para Flux
+BILLING_CORA_CERT_PATH_CORA_COOP_MTLS: "/secrets/cora-coop-cert/certificate.pem"
+BILLING_CORA_KEY_PATH_CORA_COOP_MTLS: "/secrets/cora-coop-key/private-key.key"
+# Extrato/saldo Cora sync (default false até smoke)
+BILLING_CORA_STATEMENT_SYNC_ENABLED: "false"
+BILLING_CORA_STATEMENT_SYNC_WRITE: "false"
+BILLING_DANFSE_LIB_ENABLED: "true"
+BILLING_DANFSE_LIB_JAR: "/opt/danfse/xml-danfse-br-cli.jar"
+WEB_APP_URL: "https://www.aetheraai.com.br/login"
+# Deve ser a anon key do MESMO projeto que SUPABASE_URL (omhlb…). Não reutilize chave do legado ojzzx.
 SUPABASE_ANON_KEY: "<NEXT_PUBLIC_SUPABASE_ANON_KEY_omhlb>"
 ENABLE_DEV_ROUTES: "false"
 USER_TEMP_PASSWORD_RESPONSE_ENABLED: "false"
-ALLOWED_ORIGINS: "https://www.aetheraai.online,https://aetheraai.online,https://app.aethera.ai"
+ALLOWED_ORIGINS: "https://www.aetheraai.com.br,https://aetheraai.com.br,https://app.aethera.ai"
 JWT_EXPIRES_IN: 8h
 GOOGLE_CLOUD_PROJECT_ID: rh-coopmob-bot
 PUBSUB_TOPIC_CAMPAIGN: campaign.dispatch
 WEBHOOK_PUBLIC_BASE_URL: https://flux-farma-webhook-713561463013.us-central1.run.app
+META_GRAPH_VERSION: "v21.0"
+META_APP_ID: "<meta_app_id>"
+META_GRAPH_APP_ACCESS_TOKEN: "<meta_app_access_token>"
+META_WEBHOOK_SUBSCRIPTION_OBJECT: whatsapp_business_account
 META_WEBHOOK_SUBSCRIPTION_FIELDS: "messages,message_template_status_update"
+AUTENTIQUE_API_KEY: "<secret_manager>"
+AUTENTIQUE_WEBHOOK_SECRET: "<secret_manager>"
+AUTENTIQUE_COOP_EMAIL: "gustavo.rezende@rezendeas.com.br"
 STORAGE_BUCKET: exports
+
+# Flux Delivery (secrets: flux-delivery-oauth-client-secret, flux-delivery-username, flux-delivery-password)
+FLUX_DELIVERY_BASE_URL: "https://delivery-flux-it.com.br"
+FLUX_DELIVERY_OAUTH_CLIENT_ID: "SD"
+# MySQL Flux reconcile (secret: flux-mysql-password → FLUX_MYSQL_PASSWORD)
+FLUX_MYSQL_HOST: "flux.infinitybrasil.net"
+FLUX_MYSQL_USER: "root"
+FLUX_MYSQL_DATABASE: "dbfluxsinc"
+COMMERCIAL_DATA_REQUEST_TTL_DAYS: "7"
+COMMERCIAL_VIABILITY_CACHE_TTL_SEC: "300"
 SMTP_HOST: smtps.example.com
 SMTP_PORT: "465"
 SMTP_USER: atendimento@example.com

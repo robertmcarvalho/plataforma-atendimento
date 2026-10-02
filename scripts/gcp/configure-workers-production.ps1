@@ -1,4 +1,6 @@
-# Set min-instances and CPU always allocated for Pub/Sub workers (production).
+# Perfil ALTA ESCALA: min=1 + CPU 24h nos 3 workers (~R$ 900/mes Cloud Run).
+# NAO usar no piloto Flux Farma — preferir configure-workers-pilot.ps1 (~R$ 160/mes).
+#
 # Usage: .\scripts\gcp\configure-workers-production.ps1
 
 param(

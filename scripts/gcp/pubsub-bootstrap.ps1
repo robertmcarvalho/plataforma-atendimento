@@ -5,9 +5,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 $TOPIC_INBOUND = if ($env:TOPIC_INBOUND) { $env:TOPIC_INBOUND } else { "whatsapp.inbound" }
+$TOPIC_INBOUND_AUTO = if ($env:TOPIC_INBOUND_AUTO) { $env:TOPIC_INBOUND_AUTO } else { "whatsapp.inbound.auto" }
 $TOPIC_STATUS = if ($env:TOPIC_STATUS) { $env:TOPIC_STATUS } else { "whatsapp.status" }
 $TOPIC_CAMPAIGN = if ($env:TOPIC_CAMPAIGN) { $env:TOPIC_CAMPAIGN } else { "campaign.dispatch" }
 $SUB_INBOUND = if ($env:SUB_INBOUND) { $env:SUB_INBOUND } else { "whatsapp.inbound-sub" }
+$SUB_INBOUND_AUTO = if ($env:SUB_INBOUND_AUTO) { $env:SUB_INBOUND_AUTO } else { "whatsapp.inbound.auto-sub" }
 $SUB_STATUS = if ($env:SUB_STATUS) { $env:SUB_STATUS } else { "whatsapp.status-sub" }
 $SUB_CAMPAIGN = if ($env:SUB_CAMPAIGN) { $env:SUB_CAMPAIGN } else { "campaign.dispatch-sub" }
 $DLQ_TOPIC = if ($env:DLQ_TOPIC) { $env:DLQ_TOPIC } else { "platform.dead-letter" }
@@ -21,22 +23,32 @@ function Ensure-Topic([string]$Name) {
   }
 }
 
-function Ensure-Sub([string]$Sub, [string]$Topic) {
+function Ensure-Sub([string]$Sub, [string]$Topic, [switch]$MessageOrdering) {
   cmd /c "gcloud pubsub subscriptions describe $Sub --project=$ProjectId 2>nul" | Out-Null
   if ($LASTEXITCODE -eq 0) {
-    cmd /c "gcloud pubsub subscriptions update $Sub --project=$ProjectId --dead-letter-topic=$DLQ_TOPIC --max-delivery-attempts=$MAX_DELIVERY --dead-letter-topic-project=$ProjectId" | Out-Null
+    if ($MessageOrdering) {
+      cmd /c "gcloud pubsub subscriptions update $Sub --project=$ProjectId --enable-message-ordering --ack-deadline=300 --dead-letter-topic=$DLQ_TOPIC --max-delivery-attempts=$MAX_DELIVERY --dead-letter-topic-project=$ProjectId" | Out-Null
+    } else {
+      cmd /c "gcloud pubsub subscriptions update $Sub --project=$ProjectId --dead-letter-topic=$DLQ_TOPIC --max-delivery-attempts=$MAX_DELIVERY --dead-letter-topic-project=$ProjectId" | Out-Null
+    }
     Write-Host "Updated subscription $Sub (DLQ)"
   } else {
-    cmd /c "gcloud pubsub subscriptions create $Sub --topic=$Topic --project=$ProjectId --dead-letter-topic=$DLQ_TOPIC --max-delivery-attempts=$MAX_DELIVERY --dead-letter-topic-project=$ProjectId" | Out-Null
+    if ($MessageOrdering) {
+      cmd /c "gcloud pubsub subscriptions create $Sub --topic=$Topic --project=$ProjectId --enable-message-ordering --dead-letter-topic=$DLQ_TOPIC --max-delivery-attempts=$MAX_DELIVERY --dead-letter-topic-project=$ProjectId" | Out-Null
+    } else {
+      cmd /c "gcloud pubsub subscriptions create $Sub --topic=$Topic --project=$ProjectId --dead-letter-topic=$DLQ_TOPIC --max-delivery-attempts=$MAX_DELIVERY --dead-letter-topic-project=$ProjectId" | Out-Null
+    }
     Write-Host "Created subscription $Sub (DLQ)"
   }
 }
 
 Ensure-Topic $DLQ_TOPIC
 Ensure-Topic $TOPIC_INBOUND
+Ensure-Topic $TOPIC_INBOUND_AUTO
 Ensure-Topic $TOPIC_STATUS
 Ensure-Topic $TOPIC_CAMPAIGN
 Ensure-Sub $SUB_INBOUND $TOPIC_INBOUND
+Ensure-Sub $SUB_INBOUND_AUTO $TOPIC_INBOUND_AUTO -MessageOrdering
 Ensure-Sub $SUB_STATUS $TOPIC_STATUS
 Ensure-Sub $SUB_CAMPAIGN $TOPIC_CAMPAIGN
 Write-Host "OK Pub/Sub bootstrap complete for project $ProjectId"
