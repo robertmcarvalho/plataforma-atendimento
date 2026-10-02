@@ -1,11 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { listChannels, type WorkspaceChannel } from '@/lib/integrations/channelsApi';
 import { useAuth } from '@/store/auth';
-
-const STORAGE_PREFIX = 'operational-context-channel';
+import { readSelectedChannelId, useOperationalContextStore } from '@/store/operationalContext';
 
 export type OperationalChannel = WorkspaceChannel & {
   operation_label: string;
@@ -29,6 +28,10 @@ function realWorkspaceName(...values: Array<string | null | undefined>) {
   return 'Workspace';
 }
 
+function isCommercialChannel(ch: WorkspaceChannel): boolean {
+  return String(ch.config?.purpose || '').toLowerCase() === 'commercial';
+}
+
 export function useOperationalContext(options: { enabled?: boolean; channelTypes?: WorkspaceChannel['channel_type'][] } = {}) {
   const enabled = options.enabled ?? true;
   const user = useAuth((s) => s.user);
@@ -40,7 +43,14 @@ export function useOperationalContext(options: { enabled?: boolean; channelTypes
     (user as { workspace_name?: string | null } | null)?.workspace_name
   );
 
-  const [selectedByWorkspace, setSelectedByWorkspace] = useState<Record<string, string | null>>({});
+  const selectedChannelId = useOperationalContextStore((state) => state.selectedByWorkspace[workspaceId] ?? null);
+  const setSelectedChannelIdForWorkspace = useOperationalContextStore((state) => state.setSelectedChannelId);
+
+  useEffect(() => {
+    if (selectedChannelId) return;
+    const legacy = readSelectedChannelId(workspaceId);
+    if (legacy) setSelectedChannelIdForWorkspace(workspaceId, legacy);
+  }, [selectedChannelId, setSelectedChannelIdForWorkspace, workspaceId]);
 
   const channelsQuery = useQuery({
     queryKey: ['operational-context', 'channels'],
@@ -57,24 +67,26 @@ export function useOperationalContext(options: { enabled?: boolean; channelTypes
       .map((ch) => ({ ...ch, operation_label: channelLabel(ch) }));
   }, [channelsQuery.data, options.channelTypes]);
 
-  const selectedChannelId =
-    selectedByWorkspace[workspaceId] ??
-    (typeof window !== 'undefined' ? window.localStorage.getItem(`${STORAGE_PREFIX}:${workspaceId}`) : null);
-
   useEffect(() => {
     if (!selectedChannelId) return;
     if (channels.length === 0) return;
     if (!channels.some((ch) => ch.id === selectedChannelId)) {
-      if (typeof window !== 'undefined') window.localStorage.removeItem(`${STORAGE_PREFIX}:${workspaceId}`);
+      setSelectedChannelIdForWorkspace(workspaceId, null);
     }
-  }, [channels, selectedChannelId, workspaceId]);
+  }, [channels, selectedChannelId, setSelectedChannelIdForWorkspace, workspaceId]);
+
+  useEffect(() => {
+    if (channels.length === 0 || typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.get('commercial_lead_id')) return;
+    const commercial = channels.find(isCommercialChannel);
+    if (commercial && selectedChannelId !== commercial.id) {
+      setSelectedChannelIdForWorkspace(workspaceId, commercial.id);
+    }
+  }, [channels, selectedChannelId, setSelectedChannelIdForWorkspace, workspaceId]);
 
   const setSelectedChannelId = (next: string | null) => {
-    setSelectedByWorkspace((current) => ({ ...current, [workspaceId]: next }));
-    if (typeof window === 'undefined') return;
-    const key = `${STORAGE_PREFIX}:${workspaceId}`;
-    if (next) window.localStorage.setItem(key, next);
-    else window.localStorage.removeItem(key);
+    setSelectedChannelIdForWorkspace(workspaceId, next);
   };
 
   const selectedChannel = channels.find((ch) => ch.id === selectedChannelId) || null;
@@ -83,7 +95,7 @@ export function useOperationalContext(options: { enabled?: boolean; channelTypes
     workspaceName,
     channels,
     selectedChannel,
-    selectedChannelId: selectedChannel?.id || null,
+    selectedChannelId,
     setSelectedChannelId,
     isLoading: channelsQuery.isLoading,
   };

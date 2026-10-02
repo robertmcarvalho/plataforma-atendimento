@@ -1,6 +1,7 @@
 'use client';
 
 import { Building2, ChevronRight, Radio } from 'lucide-react';
+import { ToolbarSelect } from '@/components/form/ToolbarSelect';
 import { cn } from '@/lib/utils';
 import { useOperationalContext } from '@/hooks/useOperationalContext';
 import type { WorkspaceChannel } from '@/lib/integrations/channelsApi';
@@ -28,7 +29,7 @@ export function OperationalContextBar({ className, channelTypes, note }: Props) 
   return (
     <div
       className={cn(
-        'flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-border bg-surface/70 px-4 py-2 text-xs',
+        'flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-border bg-card/70 px-4 py-2 text-xs',
         className
       )}
     >
@@ -52,19 +53,20 @@ export function OperationalContextBar({ className, channelTypes, note }: Props) 
       <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
         <Radio className="h-3.5 w-3.5 text-primary" />
         <span>trocar</span>
-        <select
+        <ToolbarSelect
           value={selectedChannelId || ''}
-          onChange={(event) => setSelectedChannelId(event.target.value || null)}
+          onChange={(v) => setSelectedChannelId(v || null)}
           disabled={isLoading}
-          className="rounded-md border border-border bg-background/70 px-2 py-1 text-[11px] text-foreground outline-none hover:bg-surface-hover focus:border-primary/60"
-        >
-          <option value="">Todas as operações</option>
-          {channels.map((ch) => (
-            <option key={ch.id} value={ch.id}>
-              {ch.operation_label} · {typeLabel(ch.channel_type)}
-            </option>
-          ))}
-        </select>
+          aria-label="Trocar operação"
+          className="text-[11px]"
+          options={[
+            { value: '', label: 'Todas as operações' },
+            ...channels.map((ch) => ({
+              value: ch.id,
+              label: `${ch.operation_label} · ${typeLabel(ch.channel_type)}`,
+            })),
+          ]}
+        />
       </label>
     </div>
   );
