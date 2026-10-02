@@ -11,14 +11,42 @@ import {
 import { ensureGuidedDemandTaskForConversation, closeGuidedDemandTasksOnResolve } from '../lib/guidedDemandTasks';
 import { ATTENDANCE_PENDING_TASK_TYPES, syncPendingTaskFromConversation } from '../lib/pendingTaskScope';
 import { sectorIdsFromJwt } from '../lib/jwtSectorIds';
+import { resolveSectorIdsFromQueueAssignments } from '../lib/userSectorsDb';
+import { isAttendantLikeRole } from '../lib/roleAliases';
 import { requireWorkspace } from '../lib/workspaceContext';
 import { enrichPharmacyApiRow } from '../lib/pharmacyCommercial';
+import { canonicalBrazilWaPhone } from '@plataforma/channel-runtime';
 
 const PHARMACY_CONTEXT_EMBED = `
   id, trade_name, city, state,
   delivery_fee_cents, delivery_fee_driver_payout_cents,
   minimum_guaranteed_cents, minimum_guaranteed_driver_payout_cents,
   delivery_schedule
+`;
+
+const CONVERSATION_DETAIL_SELECT = `
+  *,
+  contacts(id, wa_phone, display_name, profile_type, driver_id, pharmacy_id, leader_id),
+  sectors:sectors!sector_id(id, name),
+  attendant:users!attendant_id(id, name),
+  context_pharmacy:pharmacies!context_pharmacy_id(${PHARMACY_CONTEXT_EMBED}),
+  context_driver:drivers!context_driver_id(id, name, cpf, phone),
+  context_leader:leaders!context_leader_id(id, name, phone),
+  topic:ai_topics!ai_topic_id(id, name),
+  messages(id, direction, type, content, media_url, status, sent_at, created_at,
+    ai_sentiment, ai_sentiment_score, ai_urgency, ai_urgency_score, ai_analyzed_at),
+  internal_notes(id, content, created_at, author:users!author_id(id, name)),
+  sla_events(
+    id, event_type, severity, notified_attendant, notified_supervisor, created_at
+  ),
+  conversation_assignments(
+    id, reason, created_at,
+    assigned_by:users!assigned_by(id, name),
+    from_attendant:users!from_attendant_id(id, name),
+    to_attendant:users!to_attendant_id(id, name),
+    from_sector:sectors!from_sector_id(id, name),
+    to_sector:sectors!to_sector_id(id, name)
+  )
 `;
 
 function enrichConversationPharmacyContext(row: Record<string, unknown> | null): Record<string, unknown> | null {
@@ -28,29 +56,27 @@ function enrichConversationPharmacyContext(row: Record<string, unknown> | null):
   return { ...row, context_pharmacy: enrichPharmacyApiRow(cp as Record<string, unknown>) };
 }
 import { scheduleInboundAiAnalysis, scheduleNpsPredictionOnResolved } from '@plataforma/ai-core';
+import { resolveTemplateBody, resolveSystemNoteAuthorId } from '@plataforma/operational-notes';
+import { normalizeEmptyTemplatePlaceholders, resolveTemplateVariableKeys } from '../lib/metaTemplateSync';
+import { upsertContactByWaPhone, ensureLeaderContactByWaPhone } from '../lib/contactByPhone';
+import {
+  mergeDuplicateOpenConversations,
+  resolveOrReuseConversation,
+  updatePrimaryConversationIfActive,
+} from '../lib/conversationResolve';
+import { requireConversationsTransfer } from '../lib/permissions';
+import { scheduleCsatOnConversationResolved } from '../lib/conversationCsatOnResolve';
+import { scheduleCloseOpenTicketsForConversation } from '../lib/closeTicketsOnConversationResolve';
+import { resolveWhatsAppSendConfig, sendWhatsAppCloudMessage } from '../lib/channelResolver';
 
-const META_MESSAGES_API_URL = `https://graph.facebook.com/v19.0/${process.env.META_PHONE_NUMBER_ID}/messages`;
-
-async function sendWhatsAppJson(payload: object) {
-  if (!process.env.META_ACCESS_TOKEN || !process.env.META_PHONE_NUMBER_ID) {
-    throw new Error('Meta WhatsApp nao configurado (META_ACCESS_TOKEN/META_PHONE_NUMBER_ID).');
-  }
-  const response = await fetch(META_MESSAGES_API_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.META_ACCESS_TOKEN}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.json().catch(() => null);
-    throw { status: response.status, detail };
-  }
-  return response.json() as Promise<{ messages?: Array<{ id?: string }> }>;
+function metaApiErrorMessage(detail: unknown, fallback: string): string {
+  const message = (detail as { error?: { message?: string } } | null)?.error?.message;
+  return message?.trim() || fallback;
 }
 
 function normalizeWaPhone(input: string): string {
+  const canonical = canonicalBrazilWaPhone(input);
+  if (canonical) return canonical;
   const d = String(input || '').replace(/\D/g, '');
   if (!d) return '';
   if (d.startsWith('55') && d.length >= 12) return d;
@@ -130,7 +156,9 @@ const conversationUpdateSchema = z.object({
   sector_id: z.string().uuid().optional(),
   attendant_id: z.string().uuid().optional().nullable(),
   contact_id: z.string().uuid().optional().nullable(),
+  merge_duplicate_open: z.boolean().optional(),
   context_pharmacy_id: z.string().uuid().optional().nullable(),
+  context_commercial_lead_id: z.string().uuid().optional().nullable(),
   intent_sector_id: z.string().uuid().optional().nullable(),
   status: z.enum(['open', 'pending', 'resolved', 'closed']).optional(),
   priority: z.enum(['low', 'normal', 'high', 'urgent']).optional(),
@@ -158,13 +186,15 @@ const initialMessageSchema = z.union([
 ]);
 
 const staffConversationStartSchema = z.object({
-  contact_type: z.enum(['driver', 'pharmacy', 'leader', 'phone']),
+  contact_type: z.enum(['driver', 'pharmacy', 'leader', 'phone', 'commercial_lead']),
   driver_id: z.string().uuid().optional(),
   pharmacy_id: z.string().uuid().optional(),
   leader_id: z.string().uuid().optional(),
+  commercial_lead_id: z.string().uuid().optional(),
   wa_phone: z.string().optional(),
   display_name: z.string().optional(),
   sector_id: z.string().uuid().optional(),
+  workspace_channel_id: z.string().uuid().optional(),
   initial_message: initialMessageSchema,
 });
 
@@ -220,6 +250,7 @@ export async function conversationRoutes(app: FastifyInstance) {
         contacts(id, wa_phone, display_name, profile_type),
         sectors:sectors!sector_id(id, name),
         attendant:users!attendant_id(id, name),
+        context_driver:drivers!context_driver_id(id, name),
         context_pharmacy:pharmacies!context_pharmacy_id(id, trade_name),
         topic:ai_topics!ai_topic_id(id, name),
         messages(content, direction, created_at, status, ai_sentiment, ai_sentiment_score, ai_urgency, ai_urgency_score, ai_analyzed_at)
@@ -232,7 +263,7 @@ export async function conversationRoutes(app: FastifyInstance) {
     else if (attendance_group === 'waiting') query = query.eq('status', 'pending');
     else if (attendance_group === 'finished') query = query.in('status', ['resolved', 'closed']);
     else if (status) query = query.eq('status', status);
-    else query = query.neq('status', 'closed');
+    else query = query.not('status', 'in', '(resolved,closed)');
 
     if (sector_id) query = query.eq('sector_id', sector_id);
     if (attendant_id) query = query.eq('attendant_id', attendant_id);
@@ -280,8 +311,12 @@ export async function conversationRoutes(app: FastifyInstance) {
     }
 
     // Atendente/supervisor: setores legados + conversas ainda não roteadas em canais/fila do webhook.
-    if ((user.role === 'attendant' || user.role === 'supervisor') && !sector_id) {
-      const sids = sectorIdsFromJwt(user);
+    if ((isAttendantLikeRole(user.role) || user.role === 'supervisor') && !sector_id) {
+      let sids = sectorIdsFromJwt(user);
+      if (!sids.length) {
+        const fromQueues = await resolveSectorIdsFromQueueAssignments(supabase, workspaceId, user.sub);
+        if (fromQueues.length) sids = fromQueues;
+      }
       const sectorFilters = sids.length ? sids : isUuid(user.sector_id) ? [user.sector_id as string] : [];
       const { data: queueAssignments, error: queueErr } = await supabase
         .from('user_channel_queue_assignments')
@@ -301,12 +336,30 @@ export async function conversationRoutes(app: FastifyInstance) {
       ];
 
       if (sectorFilters.length && channelIds.length) {
-        query = query.or(`sector_id.in.(${sectorFilters.join(',')}),workspace_channel_id.in.(${channelIds.join(',')})`);
+        query = query.in('workspace_channel_id', channelIds);
+        const sectorOr = [
+          `sector_id.in.(${sectorFilters.join(',')})`,
+          `attendant_id.eq.${user.sub}`,
+          'sector_id.is.null',
+        ].join(',');
+        query = query.or(sectorOr);
       } else if (sectorFilters.length) {
         query = query.in('sector_id', sectorFilters);
       } else if (channelIds.length) {
         query = query.in('workspace_channel_id', channelIds);
+        query = query.or(`attendant_id.eq.${user.sub},sector_id.is.null`);
       } else {
+        return reply.send({ data: [], total: 0, page: Number(page), limit: Number(limit) });
+      }
+    }
+
+    // Vendas/comercial: todas as conversas do canal WhatsApp comercial (visão compartilhada do time).
+    if (user.role === 'sales' || user.role === 'commercial') {
+      try {
+        const { resolveCommercialWhatsAppChannel } = await import('../lib/commercial/commercialChannel');
+        const commercialChannelId = await resolveCommercialWhatsAppChannel(workspaceId);
+        query = query.eq('workspace_channel_id', commercialChannelId);
+      } catch {
         return reply.send({ data: [], total: 0, page: Number(page), limit: Number(limit) });
       }
     }
@@ -335,72 +388,28 @@ export async function conversationRoutes(app: FastifyInstance) {
     const workspaceId = await requireWorkspace(request, reply);
     if (!workspaceId) return;
     const { id } = request.params as { id: string };
-    const { data, error } = await supabase
-      .from('conversations')
-      .select(`
-        *,
-        contacts(id, wa_phone, display_name, profile_type, driver_id, pharmacy_id, leader_id),
-        sectors:sectors!sector_id(id, name),
-        attendant:users!attendant_id(id, name),
-        context_pharmacy:pharmacies!context_pharmacy_id(${PHARMACY_CONTEXT_EMBED}),
-        context_driver:drivers!context_driver_id(id, name, cpf, phone),
-        context_leader:leaders!context_leader_id(id, name, phone),
-        topic:ai_topics!ai_topic_id(id, name),
-        messages(id, direction, type, content, media_url, status, sent_at, created_at,
-          ai_sentiment, ai_sentiment_score, ai_urgency, ai_urgency_score, ai_analyzed_at),
-        internal_notes(id, content, created_at, author:users!author_id(id, name)),
-        sla_events(
-          id, event_type, severity, notified_attendant, notified_supervisor, created_at
-        ),
-        conversation_assignments(
-          id, reason, created_at,
-          assigned_by:users!assigned_by(id, name),
-          from_attendant:users!from_attendant_id(id, name),
-          to_attendant:users!to_attendant_id(id, name),
-          from_sector:sectors!from_sector_id(id, name),
-          to_sector:sectors!to_sector_id(id, name)
-        )
-      `)
-      .eq('workspace_id', workspaceId)
-      .eq('id', id)
-      .single();
-    if (error) return reply.status(404).send({ error: 'Conversa não encontrada' });
 
     await syncConversationSlaMilestonesFromMessages(id).catch(() => undefined);
     await syncPendingTaskFromConversation(supabase, id, [...ATTENDANCE_PENDING_TASK_TYPES]).catch(() => undefined);
     await ensureGuidedDemandTaskForConversation(supabase, workspaceId, id).catch(() => undefined);
 
-    const { data: refreshed } = await supabase
+    const { data, error } = await supabase
       .from('conversations')
-      .select(`
-        *,
-        contacts(id, wa_phone, display_name, profile_type, driver_id, pharmacy_id, leader_id),
-        sectors:sectors!sector_id(id, name),
-        attendant:users!attendant_id(id, name),
-        context_pharmacy:pharmacies!context_pharmacy_id(${PHARMACY_CONTEXT_EMBED}),
-        context_driver:drivers!context_driver_id(id, name, cpf, phone),
-        context_leader:leaders!context_leader_id(id, name, phone),
-        topic:ai_topics!ai_topic_id(id, name),
-        messages(id, direction, type, content, media_url, status, sent_at, created_at,
-          ai_sentiment, ai_sentiment_score, ai_urgency, ai_urgency_score, ai_analyzed_at),
-        internal_notes(id, content, created_at, author:users!author_id(id, name)),
-        sla_events(
-          id, event_type, severity, notified_attendant, notified_supervisor, created_at
-        ),
-        conversation_assignments(
-          id, reason, created_at,
-          assigned_by:users!assigned_by(id, name),
-          from_attendant:users!from_attendant_id(id, name),
-          to_attendant:users!to_attendant_id(id, name),
-          from_sector:sectors!from_sector_id(id, name),
-          to_sector:sectors!to_sector_id(id, name)
-        )
-      `)
+      .select(CONVERSATION_DETAIL_SELECT)
       .eq('workspace_id', workspaceId)
       .eq('id', id)
       .single();
+    if (error) return reply.status(404).send({ error: 'Conversa não encontrada' });
 
-    const payload = enrichConversationPharmacyContext((refreshed || data) as Record<string, unknown>);
+    const payload = enrichConversationPharmacyContext(data as Record<string, unknown>);
+    if (payload && Array.isArray((payload as { messages?: unknown[] }).messages)) {
+      const messages = (payload as { messages: Array<{ created_at?: string; sent_at?: string }> }).messages;
+      messages.sort((a, b) => {
+        const ta = new Date(a.sent_at || a.created_at || 0).getTime();
+        const tb = new Date(b.sent_at || b.created_at || 0).getTime();
+        return ta - tb;
+      });
+    }
     return reply.send(payload);
   });
 
@@ -439,7 +448,8 @@ export async function conversationRoutes(app: FastifyInstance) {
     }
 
     const patchPayload = { ...body.data, ...(tagsForUpdate !== undefined ? { tags: tagsForUpdate } : {}) };
-    const updates: Record<string, unknown> = { ...patchPayload, updated_at: new Date().toISOString() };
+    const { merge_duplicate_open: mergeDuplicates, ...restPatch } = patchPayload;
+    const updates: Record<string, unknown> = { ...restPatch, updated_at: new Date().toISOString() };
     const resolvedAtIso =
       body.data.status === 'resolved' || body.data.status === 'closed' ? new Date().toISOString() : null;
     if (resolvedAtIso) {
@@ -448,14 +458,19 @@ export async function conversationRoutes(app: FastifyInstance) {
 
     const { data: before } = await supabase
       .from('conversations')
-      .select('attendant_id, sector_id, status, sla_resolution_deadline, resolved_at')
+      .select('attendant_id, sector_id, status, sla_resolution_deadline, resolved_at, contact_id')
       .eq('workspace_id', workspaceId)
       .eq('id', id)
       .maybeSingle();
 
+
     const { data, error } = await supabase
       .from('conversations').update(updates).eq('workspace_id', workspaceId).eq('id', id).select().single();
     if (error) return reply.status(500).send({ error: error.message });
+
+    if (mergeDuplicates && body.data.contact_id) {
+      await mergeDuplicateOpenConversations(supabase, workspaceId, String(body.data.contact_id), id);
+    }
 
     if (before) {
       const patch = body.data;
@@ -476,6 +491,8 @@ export async function conversationRoutes(app: FastifyInstance) {
         before.status !== 'resolved' &&
         before.status !== 'closed';
       if (resolvedNow) {
+        scheduleCsatOnConversationResolved(supabase, id, workspaceId);
+        scheduleCloseOpenTicketsForConversation(supabase, workspaceId, id);
         scheduleNpsPredictionOnResolved(supabase, id, workspaceId);
         const at = resolvedAtIso ? new Date(resolvedAtIso) : new Date();
         const slaResolved = await markConversationResolvedSla(id, at);
@@ -528,7 +545,7 @@ export async function conversationRoutes(app: FastifyInstance) {
   });
 
   // POST /api/conversations/:id/transfer — transferir setor/atendente
-  app.post('/:id/transfer', { preHandler: [authenticate] }, async (request, reply) => {
+  app.post('/:id/transfer', { preHandler: [authenticate, requireConversationsTransfer] }, async (request, reply) => {
     const workspaceId = await requireWorkspace(request, reply);
     if (!workspaceId) return;
     const { id } = request.params as { id: string };
@@ -699,23 +716,19 @@ export async function conversationRoutes(app: FastifyInstance) {
         return reply.status(403).send({ error: 'Vincule e verifique seu WhatsApp antes de iniciar uma conversa.' });
       }
 
-      let { data: contact } = await supabase.from('contacts').select('id').eq('workspace_id', workspaceId).eq('leader_id', leader.id).maybeSingle();
-
-      if (!contact) {
-        const { data: newContact, error: cErr } = await supabase
-          .from('contacts')
-          .insert({
-            workspace_id: workspaceId,
-            wa_phone: leader.phone || `leader_${leader.id.slice(0, 8)}`,
-            display_name: leader.name,
-            profile_type: 'leader',
-            leader_id: leader.id,
-          })
-          .select()
-          .single();
-
-        if (cErr) return reply.status(500).send({ error: cErr.message });
-        contact = newContact;
+      let contact: Record<string, unknown>;
+      try {
+        const ensured = await ensureLeaderContactByWaPhone(
+          supabase,
+          workspaceId,
+          String(leader.id),
+          String(leader.phone || ''),
+          leader.name,
+        );
+        contact = ensured.contact;
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : 'Falha ao resolver contato do líder';
+        return reply.status(500).send({ error: message });
       }
 
       let existingQuery = supabase
@@ -723,10 +736,9 @@ export async function conversationRoutes(app: FastifyInstance) {
         .select('id, status')
         .eq('workspace_id', workspaceId)
         .eq('contact_id', contact!.id)
-        .neq('status', 'closed')
+        .in('status', ['open', 'pending'])
         .order('created_at', { ascending: false })
         .limit(1);
-      existingQuery = sector_id ? existingQuery.eq('sector_id', sector_id) : existingQuery.is('sector_id', null);
       const { data: existing } = await existingQuery.maybeSingle();
 
       if (existing) return reply.send(existing);
@@ -755,11 +767,13 @@ export async function conversationRoutes(app: FastifyInstance) {
         .single();
 
       if (convErr) return reply.status(500).send({ error: convErr.message });
+      const systemAuthor = await resolveSystemNoteAuthorId(supabase, workspaceId);
       await supabase.from('internal_notes').insert({
         workspace_id: workspaceId,
         conversation_id: conversation.id,
-        author_id: user.sub,
+        author_id: systemAuthor || user.sub,
         content: [
+          `Portal do Líder · ${leader.name || 'líder'}:`,
           'Contexto de abertura pelo Portal do Líder:',
           `- Líder: ${leader.name || 'não informado'}`,
           `- Setor solicitado: ${sectorName}`,
@@ -777,10 +791,11 @@ export async function conversationRoutes(app: FastifyInstance) {
 
     const body = staffParsed.data;
     let waPhone = '';
-    let profileType: 'driver' | 'pharmacy' | 'leader' | 'unknown' = 'unknown';
+    let profileType: 'driver' | 'pharmacy' | 'leader' | 'commercial_lead' | 'unknown' = 'unknown';
     let driverId: string | null = null;
     let pharmacyId: string | null = null;
     let leaderId: string | null = null;
+    let commercialLeadId: string | null = null;
     let displayName = '';
 
     if (body.contact_type === 'driver') {
@@ -807,6 +822,19 @@ export async function conversationRoutes(app: FastifyInstance) {
       displayName = l.name || waPhone;
       profileType = 'leader';
       leaderId = l.id;
+    } else if (body.contact_type === 'commercial_lead') {
+      if (!body.commercial_lead_id) return reply.status(400).send({ error: 'commercial_lead_id obrigatorio' });
+      const { data: cl } = await supabase
+        .from('commercial_leads')
+        .select('id, trade_name, phone')
+        .eq('workspace_id', workspaceId)
+        .eq('id', body.commercial_lead_id)
+        .single();
+      if (!cl?.phone) return reply.status(400).send({ error: 'Lead comercial sem telefone cadastrado' });
+      waPhone = normalizeWaPhone(cl.phone);
+      displayName = cl.trade_name || waPhone;
+      profileType = 'commercial_lead';
+      commercialLeadId = cl.id;
     } else {
       waPhone = normalizeWaPhone(body.wa_phone || '');
       if (!waPhone || waPhone.length < 12) {
@@ -817,80 +845,123 @@ export async function conversationRoutes(app: FastifyInstance) {
     }
 
     const sectorId = body.sector_id || (isUuid(user.sector_id || '') ? user.sector_id : null);
-    const workspaceChannelId = await getDefaultWhatsAppChannelId(workspaceId);
+    let workspaceChannelId = body.workspace_channel_id || null;
+    let channelForcedByCommercialTemplate = false;
 
-    let { data: contact } = await supabase.from('contacts').select('*').eq('workspace_id', workspaceId).eq('wa_phone', waPhone).maybeSingle();
-
-    const contactPayload = {
-      workspace_id: workspaceId,
-      wa_phone: waPhone,
-      display_name: displayName,
-      profile_type: profileType,
-      driver_id: profileType === 'driver' ? driverId : null,
-      pharmacy_id: profileType === 'pharmacy' ? pharmacyId : null,
-      leader_id: profileType === 'leader' ? leaderId : null,
-      updated_at: new Date().toISOString(),
-    };
-
-    if (!contact) {
-      const ins = await supabase.from('contacts').insert(contactPayload).select().single();
-      if (ins.error) return reply.status(500).send({ error: ins.error.message });
-      contact = ins.data;
-    } else {
-      const upd = await supabase.from('contacts').update(contactPayload).eq('workspace_id', workspaceId).eq('id', contact.id).select().single();
-      if (upd.error) return reply.status(500).send({ error: upd.error.message });
-      contact = upd.data;
+    // Templates comerciais só existem na WABA comercial. Sem este ajuste, o default
+    // (canal operacional) gera Meta #132001 "Template name does not exist in the translation".
+    if (profileType !== 'commercial_lead' && !('content' in body.initial_message)) {
+      const earlyTplId = body.initial_message.template_id;
+      const { data: earlyTpl } = await supabase
+        .from('message_templates')
+        .select('category, meta_template_name')
+        .eq('workspace_id', workspaceId)
+        .eq('id', earlyTplId)
+        .maybeSingle();
+      if (earlyTpl) {
+        const { isCommercialMessageTemplate, resolveCommercialWhatsAppChannel } = await import(
+          '../lib/commercial/commercialChannel'
+        );
+        if (isCommercialMessageTemplate(earlyTpl)) {
+          try {
+            workspaceChannelId = await resolveCommercialWhatsAppChannel(workspaceId);
+            channelForcedByCommercialTemplate = true;
+          } catch {
+            return reply.status(400).send({
+              error:
+                'Template comercial exige o canal WhatsApp Comercial. Configure purpose=commercial em Canais.',
+            });
+          }
+        }
+      }
     }
 
-    let { data: openConv } = await supabase
-      .from('conversations')
-      .select('id, status')
-      .eq('workspace_id', workspaceId)
-      .eq('contact_id', contact!.id)
-      .neq('status', 'closed')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    if (profileType === 'commercial_lead') {
+      try {
+        const { resolveCommercialWhatsAppChannel } = await import('../lib/commercial/commercialChannel');
+        workspaceChannelId = await resolveCommercialWhatsAppChannel(workspaceId);
+      } catch {
+        return reply.status(400).send({ error: 'Canal WhatsApp comercial não configurado.' });
+      }
+    } else if (!workspaceChannelId) {
+      workspaceChannelId = await getDefaultWhatsAppChannelId(workspaceId);
+    }
 
-    if (!openConv) {
-      const ins = await supabase
-        .from('conversations')
-        .insert({
-          workspace_id: workspaceId,
+    let contact: Record<string, unknown> | null = null;
+    try {
+      const upserted = await upsertContactByWaPhone(supabase, workspaceId, waPhone, {
+        display_name: displayName,
+        profile_type: profileType,
+        driver_id: profileType === 'driver' ? driverId : null,
+        pharmacy_id: profileType === 'pharmacy' ? pharmacyId : null,
+        leader_id: profileType === 'leader' ? leaderId : null,
+        commercial_lead_id: profileType === 'commercial_lead' ? commercialLeadId : null,
+      });
+      contact = upserted.contact;
+    } catch (e: unknown) {
+      const message =
+        e instanceof Error && e.message.trim()
+          ? e.message
+          : e && typeof e === 'object' && typeof (e as { message?: unknown }).message === 'string'
+            ? String((e as { message: string }).message)
+            : 'Falha ao resolver contato';
+      return reply.status(500).send({ error: message || 'Falha ao resolver contato' });
+    }
+
+    const reopenPatch: Record<string, unknown> = {
+      attendant_id: user.sub,
+      context_driver_id: driverId,
+      context_pharmacy_id: pharmacyId,
+      context_leader_id: leaderId,
+      context_commercial_lead_id: commercialLeadId,
+    };
+    if (channelForcedByCommercialTemplate && workspaceChannelId) {
+      reopenPatch.workspace_channel_id = workspaceChannelId;
+    } else if (body.workspace_channel_id) {
+      reopenPatch.workspace_channel_id = body.workspace_channel_id;
+    } else if (profileType === 'commercial_lead' && workspaceChannelId) {
+      reopenPatch.workspace_channel_id = workspaceChannelId;
+    }
+    if (sectorId) reopenPatch.sector_id = sectorId;
+
+    let openConv: Record<string, unknown>;
+    try {
+      openConv = await resolveOrReuseConversation(supabase, {
+        workspaceId,
+        contactId: String(contact!.id),
+        insert: {
           workspace_channel_id: workspaceChannelId,
-          contact_id: contact!.id,
-          status: 'open',
           priority: 'normal',
           sector_id: sectorId,
           attendant_id: user.sub,
           context_driver_id: driverId,
           context_pharmacy_id: pharmacyId,
           context_leader_id: leaderId,
-        })
-        .select()
-        .single();
-      if (ins.error) return reply.status(500).send({ error: ins.error.message });
-      openConv = ins.data;
-    } else {
-      const patch: Record<string, unknown> = {
-        attendant_id: user.sub,
-        context_driver_id: driverId,
-        context_pharmacy_id: pharmacyId,
-        context_leader_id: leaderId,
-        updated_at: new Date().toISOString(),
-      };
-      if (workspaceChannelId) patch.workspace_channel_id = workspaceChannelId;
-      if (sectorId) patch.sector_id = sectorId;
-      const upd = await supabase.from('conversations').update(patch).eq('workspace_id', workspaceId).eq('id', openConv.id).select().single();
-      if (upd.error) return reply.status(500).send({ error: upd.error.message });
-      openConv = upd.data;
+          context_commercial_lead_id: commercialLeadId,
+        },
+        reopenPatch,
+      });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Falha ao abrir conversa';
+      return reply.status(500).send({ error: message });
     }
 
-    const convId = openConv!.id as string;
+    const convId = String(openConv.id);
+
+    if (commercialLeadId) {
+      await updatePrimaryConversationIfActive(
+        supabase,
+        workspaceId,
+        commercialLeadId,
+        convId,
+        String(openConv.status || 'open'),
+      );
+    }
 
     if (sectorId) await refreshConversationSla(convId);
 
-    const metaEnabled = Boolean(process.env.META_ACCESS_TOKEN && process.env.META_PHONE_NUMBER_ID);
+    const whatsappConfig = await resolveWhatsAppSendConfig(workspaceId, workspaceChannelId);
+    const metaEnabled = Boolean(whatsappConfig);
     const im = body.initial_message;
 
     if ('content' in im) {
@@ -904,13 +975,16 @@ export async function conversationRoutes(app: FastifyInstance) {
       const textBody = im.content.trim();
       const signed = user.name ? `${user.name}:\n${textBody}` : textBody;
       try {
-        if (metaEnabled) {
-          const metaResponse = await sendWhatsAppJson({
-            messaging_product: 'whatsapp',
-            to: waPhone,
-            type: 'text',
-            text: { body: signed, preview_url: false },
-          });
+        if (metaEnabled && whatsappConfig) {
+          const metaResponse = await sendWhatsAppCloudMessage(
+            {
+              messaging_product: 'whatsapp',
+              to: waPhone,
+              type: 'text',
+              text: { body: signed, preview_url: false },
+            },
+            whatsappConfig
+          );
           await persistOutboundRow(workspaceId, convId, {
             meta_message_id: metaResponse.messages?.[0]?.id || null,
             type: 'text',
@@ -922,7 +996,7 @@ export async function conversationRoutes(app: FastifyInstance) {
       } catch (err: unknown) {
         const payload = err as { status?: number; detail?: unknown; message?: string };
         return reply.status(502).send({
-          error: payload.message || 'Falha ao enviar mensagem via WhatsApp',
+          error: metaApiErrorMessage(payload.detail, payload.message || 'Falha ao enviar mensagem via WhatsApp'),
           detail: payload.detail,
         });
       }
@@ -934,12 +1008,18 @@ export async function conversationRoutes(app: FastifyInstance) {
       }
 
       const vars = im.template_variables || {};
+      const variableKeys = resolveTemplateVariableKeys(template);
+      const resolvedBody = resolveTemplateBody(
+        normalizeEmptyTemplatePlaceholders(String(template.body || '')),
+        variableKeys,
+        vars,
+      );
       const components =
-        template.variables?.length > 0
+        variableKeys.length > 0
           ? [
               {
                 type: 'body',
-                parameters: (template.variables as string[]).map((v: string) => ({
+                parameters: variableKeys.map((v: string) => ({
                   type: 'text',
                   text: vars[v] || '',
                 })),
@@ -951,35 +1031,38 @@ export async function conversationRoutes(app: FastifyInstance) {
         if (!template.meta_template_name) {
           return reply.status(400).send({ error: 'Template sem meta_template_name configurado' });
         }
-        if (metaEnabled) {
-          const metaResponse = await sendWhatsAppJson({
-            messaging_product: 'whatsapp',
-            to: waPhone,
-            type: 'template',
-            template: {
-              name: template.meta_template_name,
-              language: { code: template.meta_template_language || 'pt_BR' },
-              components,
+        if (metaEnabled && whatsappConfig) {
+          const metaResponse = await sendWhatsAppCloudMessage(
+            {
+              messaging_product: 'whatsapp',
+              to: waPhone,
+              type: 'template',
+              template: {
+                name: template.meta_template_name,
+                language: { code: template.meta_template_language || 'pt_BR' },
+                components,
+              },
             },
-          });
+            whatsappConfig
+          );
           await persistOutboundRow(workspaceId, convId, {
             meta_message_id: metaResponse.messages?.[0]?.id || null,
             type: 'template',
-            content: template.body,
+            content: resolvedBody,
             template_id: template.id,
           });
         } else {
           await persistOutboundRow(workspaceId, convId, {
             meta_message_id: null,
             type: 'template',
-            content: template.body,
+            content: resolvedBody,
             template_id: template.id,
           });
         }
       } catch (err: unknown) {
         const payload = err as { status?: number; detail?: unknown; message?: string };
         return reply.status(502).send({
-          error: payload.message || 'Falha ao enviar template via WhatsApp',
+          error: metaApiErrorMessage(payload.detail, payload.message || 'Falha ao enviar template via WhatsApp'),
           detail: payload.detail,
         });
       }

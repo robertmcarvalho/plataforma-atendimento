@@ -22,15 +22,27 @@ export function deriveEntityIdsFromDetail(detail: unknown): EntityIds {
 
   if (ctxDriver?.id) {
     driver_id = ctxDriver.id;
-  } else if (ctxPharmacy?.id) {
+  } else if (typeof d.context_driver_id === 'string' && d.context_driver_id) {
+    driver_id = d.context_driver_id;
+  }
+
+  if (ctxPharmacy?.id) {
     pharmacy_id = ctxPharmacy.id;
-  } else if (ctxLeader?.id) {
+  } else if (typeof d.context_pharmacy_id === 'string' && d.context_pharmacy_id) {
+    pharmacy_id = d.context_pharmacy_id;
+  }
+
+  if (ctxLeader?.id) {
     leader_id = ctxLeader.id;
-  } else if (c) {
+  } else if (typeof d.context_leader_id === 'string' && d.context_leader_id) {
+    leader_id = d.context_leader_id;
+  }
+
+  if (c) {
     const pt = String(c.profile_type || '');
-    if (pt === 'driver' && c.driver_id) driver_id = String(c.driver_id);
-    else if (pt === 'pharmacy' && c.pharmacy_id) pharmacy_id = String(c.pharmacy_id);
-    else if (pt === 'leader' && c.leader_id) leader_id = String(c.leader_id);
+    if (!driver_id && pt === 'driver' && c.driver_id) driver_id = String(c.driver_id);
+    if (!pharmacy_id && pt === 'pharmacy' && c.pharmacy_id) pharmacy_id = String(c.pharmacy_id);
+    if (!leader_id && pt === 'leader' && c.leader_id) leader_id = String(c.leader_id);
   }
 
   return { driver_id, pharmacy_id, leader_id };

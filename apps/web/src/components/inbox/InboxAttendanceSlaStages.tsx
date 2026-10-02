@@ -3,7 +3,9 @@
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { AlertTriangle, Check, Clock } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { InboxPanelCard, type InboxPanelProgressTone } from '@/components/inbox/InboxPanelCard';
+import { semanticPillClass } from '@/lib/interactiveRow';
+import { formatSlaCountdown, formatSlaOverdue } from '@/lib/sla/formatSlaDuration';
 
 export type AttendanceSlaStageDetail = {
   status?: string | null;
@@ -21,6 +23,14 @@ function parseMs(iso: string | null | undefined): number | null {
   if (!iso) return null;
   const n = new Date(iso).getTime();
   return Number.isFinite(n) ? n : null;
+}
+
+function formatDeadlineLines(ms: number): { primary: string; secondary: string } {
+  const d = new Date(ms);
+  return {
+    primary: `Prazo final · ${format(d, 'dd/MM/yyyy', { locale: ptBR })}`,
+    secondary: `às ${format(d, 'HH:mm', { locale: ptBR })}`,
+  };
 }
 
 /** Prazo persistido ou interpolado (conversas antigas só com 1ª + resolução). */
@@ -55,16 +65,51 @@ function linearProgress(nowMs: number, startMs: number, endMs: number): number {
   return clampPct(((nowMs - startMs) / (endMs - startMs)) * 100);
 }
 
-type RowTone = 'neutral' | 'ok' | 'warn' | 'bad';
+type RowTone = InboxPanelProgressTone;
 
-function toneBarClass(tone: RowTone) {
-  if (tone === 'ok') return 'bg-emerald-500';
-  if (tone === 'bad') return 'bg-destructive';
-  if (tone === 'warn') return 'bg-amber-500';
-  return 'bg-primary';
+const AT_RISK_MS = 10 * 60 * 1000;
+
+export type ConversationSlaListBadgeState = {
+  label: string;
+  title: string;
+  className: string;
+};
+
+/** Pill compacto para lista de conversas (C.12). */
+export function getConversationSlaListBadgeState(
+  d: AttendanceSlaStageDetail | null | undefined,
+  nowMs: number
+): ConversationSlaListBadgeState | null {
+  if (!d || isSlaConversationTerminal(d)) return null;
+  const deadlineIso = pickActiveSlaDeadlineForCountdown(d, nowMs);
+  if (!deadlineIso) return null;
+  const dueMs = new Date(deadlineIso).getTime();
+  if (!Number.isFinite(dueMs)) return null;
+  const diffMs = dueMs - nowMs;
+  const title = `Prazo SLA: ${format(new Date(deadlineIso), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}`;
+
+  if (diffMs <= 0) {
+    return {
+      label: formatSlaOverdue(diffMs),
+      title: `${title} (vencido)`,
+      className: semanticPillClass('destructive', 'inbox-t-meta font-mono'),
+    };
+  }
+  if (diffMs <= AT_RISK_MS) {
+    return {
+      label: formatSlaCountdown(diffMs),
+      title,
+      className: semanticPillClass('warning', 'inbox-t-meta font-mono'),
+    };
+  }
+  return {
+    label: formatSlaCountdown(diffMs),
+    title,
+    className: semanticPillClass('success', 'inbox-t-meta font-mono'),
+  };
 }
 
-/** Prazo exibido no chip “SLA · mm:ss” conforme a etapa em curso. */
+/** Prazo exibido no chip conforme a etapa em curso. */
 export function pickActiveSlaDeadlineForCountdown(d: AttendanceSlaStageDetail | null | undefined, nowMs: number): string | null {
   if (!d || isSlaConversationTerminal(d)) return null;
 
@@ -89,10 +134,23 @@ type Row = {
   title: string;
   pct: number;
   tone: RowTone;
-  deadlineLabel: string;
+  deadlineMs: number;
   badge: 'wait' | 'focus' | 'ok' | 'bad';
   icon: 'clock' | 'check' | 'alert';
 };
+
+function statusBadge(badge: Row['badge']): { label: string; tone: 'neutral' | 'primary' | 'success' | 'destructive' } {
+  if (badge === 'wait') return { label: 'Aguardando', tone: 'neutral' };
+  if (badge === 'focus') return { label: 'Em foco', tone: 'primary' };
+  if (badge === 'ok') return { label: 'Dentro do prazo', tone: 'success' };
+  return { label: 'Fora do prazo', tone: 'destructive' };
+}
+
+function stageIcon(icon: Row['icon']) {
+  if (icon === 'check') return <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" aria-hidden />;
+  if (icon === 'alert') return <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden />;
+  return <Clock className="h-3.5 w-3.5 shrink-0 text-foreground/70" aria-hidden />;
+}
 
 export function InboxAttendanceSlaStages({
   detail,
@@ -145,7 +203,7 @@ export function InboxAttendanceSlaStages({
         tone = 'bad';
         badge = 'bad';
         icon = 'alert';
-      } else if (firstMs - nowMs <= 10 * 60 * 1000) {
+      } else if (firstMs - nowMs <= AT_RISK_MS) {
         tone = 'warn';
         badge = focus === 'first' ? 'focus' : 'wait';
       } else {
@@ -165,15 +223,7 @@ export function InboxAttendanceSlaStages({
       }
     }
 
-    rows.push({
-      key: 'first',
-      title: '1ª resposta',
-      pct,
-      tone,
-      deadlineLabel: format(new Date(firstMs), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR }),
-      badge,
-      icon,
-    });
+    rows.push({ key: 'first', title: '1ª resposta', pct, tone, deadlineMs: firstMs, badge, icon });
   }
 
   if (hasMid && treatmentMs !== null && (unlockedTreatment || terminal)) {
@@ -181,7 +231,6 @@ export function InboxAttendanceSlaStages({
     let tone: RowTone = 'neutral';
     let badge: Row['badge'] = 'wait';
     let icon: Row['icon'] = 'clock';
-
     const start = Math.max(openedMs, firstAtMs ?? openedMs);
 
     if (terminal && resolvedMs !== null) {
@@ -196,7 +245,7 @@ export function InboxAttendanceSlaStages({
         tone = 'bad';
         badge = 'bad';
         icon = 'alert';
-      } else if (treatmentMs - nowMs <= 10 * 60 * 1000) {
+      } else if (treatmentMs - nowMs <= AT_RISK_MS) {
         tone = 'warn';
         badge = focus === 'treatment' ? 'focus' : 'wait';
       } else {
@@ -204,15 +253,7 @@ export function InboxAttendanceSlaStages({
       }
     }
 
-    rows.push({
-      key: 'treatment',
-      title: 'Tratamento',
-      pct,
-      tone,
-      deadlineLabel: format(new Date(treatmentMs), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR }),
-      badge,
-      icon,
-    });
+    rows.push({ key: 'treatment', title: 'Tratamento', pct, tone, deadlineMs: treatmentMs, badge, icon });
   }
 
   if (resolutionMs !== null && (unlockedResolution || terminal)) {
@@ -237,7 +278,7 @@ export function InboxAttendanceSlaStages({
         tone = 'bad';
         badge = 'bad';
         icon = 'alert';
-      } else if (resolutionMs - nowMs <= 10 * 60 * 1000) {
+      } else if (resolutionMs - nowMs <= AT_RISK_MS) {
         tone = 'warn';
         badge = focus === 'resolution' ? 'focus' : 'wait';
       } else {
@@ -245,72 +286,36 @@ export function InboxAttendanceSlaStages({
       }
     }
 
-    rows.push({
-      key: 'resolution',
-      title: 'Resolução',
-      pct,
-      tone,
-      deadlineLabel: format(new Date(resolutionMs), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR }),
-      badge,
-      icon,
-    });
+    rows.push({ key: 'resolution', title: 'Resolução', pct, tone, deadlineMs: resolutionMs, badge, icon });
   }
 
   if (rows.length === 0) return null;
 
   return (
     <div className="space-y-3">
-      {rows.map((s) => (
-        <div
-          key={s.key}
-          className={cn(
-            'rounded-lg border px-3 py-2.5 transition-colors',
-            s.badge === 'focus' ? 'border-primary/35 bg-primary/5' : 'border-border bg-background/30'
-          )}
-        >
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                {s.icon === 'check' ? (
-                  <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" aria-hidden />
-                ) : s.icon === 'alert' ? (
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden />
-                ) : (
-                  <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                )}
-                <span className="truncate">{s.title}</span>
-              </div>
-              <div className="mt-1 font-mono text-[10px] text-muted-foreground">Prazo final · {s.deadlineLabel}</div>
-            </div>
-            {s.badge === 'wait' ? (
-              <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                Aguardando
-              </span>
-            ) : s.badge === 'focus' ? (
-              <span className="shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                Em foco
-              </span>
-            ) : s.badge === 'ok' ? (
-              <span className="shrink-0 rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600">
-                Dentro do prazo
-              </span>
-            ) : (
-              <span className="shrink-0 rounded-md bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
-                Fora do prazo
-              </span>
-            )}
-          </div>
-          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className={cn('h-full rounded-full transition-all duration-500', toneBarClass(s.tone))}
-              style={{ width: `${clampPct(s.pct)}%` }}
-            />
-          </div>
-          <div className="mt-1 text-right font-mono text-[10px] text-muted-foreground">
-            {s.badge === 'ok' || s.badge === 'bad' ? `${Math.round(clampPct(s.pct))}%` : `${Math.round(clampPct(s.pct))}% do intervalo`}
-          </div>
-        </div>
-      ))}
+      {rows.map((s) => {
+        const deadline = formatDeadlineLines(s.deadlineMs);
+        const badge = statusBadge(s.badge);
+        const footerRight =
+          s.badge === 'ok' || s.badge === 'bad'
+            ? `${Math.round(clampPct(s.pct))}%`
+            : `${Math.round(clampPct(s.pct))}% do intervalo`;
+
+        return (
+          <InboxPanelCard
+            key={s.key}
+            icon={stageIcon(s.icon)}
+            title={s.title}
+            badgeLabel={badge.label}
+            badgeTone={badge.tone}
+            metaPrimary={deadline.primary}
+            metaSecondary={deadline.secondary}
+            progressPct={s.pct}
+            progressTone={s.tone}
+            footerRight={footerRight}
+          />
+        );
+      })}
     </div>
   );
 }

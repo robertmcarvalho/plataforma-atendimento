@@ -1,10 +1,21 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
+import { onApiError } from '@/lib/apiErrorMessage';
 import { BrPhoneInput } from '@/components/form/BrInputs';
-import { formatBrazilPhone, normalizeBrazilPhone } from '@/lib/brFormat';
+import { FormControl, formTextareaClassName } from '@/components/form/FormControl';
+import { FormSearchCombobox } from '@/components/form/FormSearchCombobox';
+import { FormSelect } from '@/components/form/FormSelect';
+import { normalizeBrazilPhone } from '@/lib/brFormat';
+import { CadastroSearchCombobox } from '@/components/cadastro/CadastroSearchCombobox';
+import {
+  buildOperacionalInstalacaoTemplateVariables,
+  pharmacyContactFirstName,
+  pickOperacionalInstalacaoTemplate,
+} from '@/lib/operacao/operationalInstalacao';
+import { resolveTemplateVariableKeys, hasInvalidEmptyPlaceholders } from '@/lib/inbox/templateVariables';
 
 type ContactStartType = 'driver' | 'pharmacy' | 'leader' | 'phone';
 
@@ -21,30 +32,13 @@ export interface TemplatePickerOption {
   meta_template_name?: string | null;
 }
 
-interface DriverHit {
-  id: string;
-  name: string;
-  phone?: string | null;
-}
-
-interface PharmacyHit {
-  id: string;
-  trade_name: string;
-  phone?: string | null;
-}
-
-interface LeaderHit {
-  id: string;
-  name: string;
-  phone?: string | null;
-}
-
 export function NewConversationModal({
   open,
   onClose,
   sectors,
   templates,
   defaultSectorId,
+  workspaceChannelId,
   onCreated,
 }: {
   open: boolean;
@@ -52,22 +46,15 @@ export function NewConversationModal({
   sectors: SectorPickerOption[];
   templates: TemplatePickerOption[];
   defaultSectorId?: string | null;
+  workspaceChannelId?: string | null;
   onCreated: (conversationId: string) => void;
 }) {
   const queryClient = useQueryClient();
   const [contactType, setContactType] = useState<ContactStartType>('driver');
   const [sectorId, setSectorId] = useState('');
 
-  const [driverQ, setDriverQ] = useState('');
-  const [driverHits, setDriverHits] = useState<DriverHit[]>([]);
   const [driverId, setDriverId] = useState('');
-
-  const [pharmacyQ, setPharmacyQ] = useState('');
-  const [pharmacyHits, setPharmacyHits] = useState<PharmacyHit[]>([]);
   const [pharmacyId, setPharmacyId] = useState('');
-
-  const [leaderQ, setLeaderQ] = useState('');
-  const [leaderHits, setLeaderHits] = useState<LeaderHit[]>([]);
   const [leaderId, setLeaderId] = useState('');
 
   const [waPhone, setWaPhone] = useState('');
@@ -87,76 +74,43 @@ export function NewConversationModal({
     }
   }, [open, defaultSectorId]);
 
+  // Canal trocado / lista filtrada: não manter template de outra WABA selecionado.
   useEffect(() => {
-    if (contactType !== 'driver') {
-      setDriverHits([]);
-      return;
-    }
-    const t = window.setTimeout(() => {
-      const q = driverQ.trim();
-      if (q.length < 2) {
-        setDriverHits([]);
-        return;
-      }
-      void (async () => {
-        try {
-          const { data } = await api.get<DriverHit[]>(`/api/drivers?search=${encodeURIComponent(q)}`);
-          setDriverHits(Array.isArray(data) ? data.slice(0, 20) : []);
-        } catch {
-          setDriverHits([]);
-        }
-      })();
-    }, 320);
-    return () => window.clearTimeout(t);
-  }, [driverQ, contactType]);
-
-  useEffect(() => {
-    if (contactType !== 'pharmacy') {
-      setPharmacyHits([]);
-      return;
-    }
-    const t = window.setTimeout(() => {
-      const q = pharmacyQ.trim();
-      if (q.length < 2) {
-        setPharmacyHits([]);
-        return;
-      }
-      void (async () => {
-        try {
-          const { data } = await api.get<PharmacyHit[]>(`/api/pharmacies?search=${encodeURIComponent(q)}`);
-          setPharmacyHits(Array.isArray(data) ? data.slice(0, 20) : []);
-        } catch {
-          setPharmacyHits([]);
-        }
-      })();
-    }, 320);
-    return () => window.clearTimeout(t);
-  }, [pharmacyQ, contactType]);
-
-  useEffect(() => {
-    if (contactType !== 'leader') {
-      setLeaderHits([]);
-      return;
-    }
-    const t = window.setTimeout(() => {
-      const q = leaderQ.trim();
-      if (q.length < 2) {
-        setLeaderHits([]);
-        return;
-      }
-      void (async () => {
-        try {
-          const { data } = await api.get<LeaderHit[]>(`/api/leaders?search=${encodeURIComponent(q)}`);
-          setLeaderHits(Array.isArray(data) ? data.slice(0, 20) : []);
-        } catch {
-          setLeaderHits([]);
-        }
-      })();
-    }, 320);
-    return () => window.clearTimeout(t);
-  }, [leaderQ, contactType]);
+    if (!templateId) return;
+    if (templates.some((tpl) => tpl.id === templateId)) return;
+    setTemplateId('');
+    setTemplateVars({});
+  }, [templates, templateId]);
 
   const selectedTemplate = templates.find((x) => x.id === templateId);
+  const selectedTemplateVars = useMemo(
+    () => resolveTemplateVariableKeys(selectedTemplate),
+    [selectedTemplate]
+  );
+  const operacionalInstalacaoTemplate = useMemo(() => pickOperacionalInstalacaoTemplate(templates), [templates]);
+
+  const pharmacyQuery = useQuery({
+    queryKey: ['inbox-new-conversation-pharmacy', pharmacyId],
+    enabled: open && contactType === 'pharmacy' && Boolean(pharmacyId),
+    queryFn: () =>
+      api
+        .get<{
+          trade_name?: string | null;
+          contact_expedition_name?: string | null;
+          contact_manager_name?: string | null;
+          contact_financial_name?: string | null;
+        }>(`/api/pharmacies/${pharmacyId}`)
+        .then((r) => r.data),
+  });
+
+  const pharmacyContactName = pharmacyQuery.data ? pharmacyContactFirstName(pharmacyQuery.data) : '';
+  const pharmacyTradeName = (pharmacyQuery.data?.trade_name || '').trim();
+
+  useEffect(() => {
+    if (!open || contactType !== 'pharmacy' || !operacionalInstalacaoTemplate || templateId) return;
+    setMsgMode('template');
+    setTemplateId(operacionalInstalacaoTemplate.id);
+  }, [open, contactType, operacionalInstalacaoTemplate, templateId]);
 
   useEffect(() => {
     if (!selectedTemplate?.variables?.length) {
@@ -172,6 +126,26 @@ export function NewConversationModal({
     });
   }, [selectedTemplate]);
 
+  useEffect(() => {
+    if (!open || contactType !== 'pharmacy' || !selectedTemplate || !pharmacyQuery.data) return;
+    if (selectedTemplate.meta_template_name !== operacionalInstalacaoTemplate?.meta_template_name) return;
+    setTemplateVars(
+      buildOperacionalInstalacaoTemplateVariables(
+        selectedTemplate.variables ?? [],
+        pharmacyContactName,
+        pharmacyTradeName,
+      ),
+    );
+  }, [
+    open,
+    contactType,
+    selectedTemplate,
+    operacionalInstalacaoTemplate?.meta_template_name,
+    pharmacyQuery.data,
+    pharmacyContactName,
+    pharmacyTradeName,
+  ]);
+
   const startMutation = useMutation({
     mutationFn: async () => {
       const initial_message =
@@ -182,6 +156,7 @@ export function NewConversationModal({
       const base = {
         contact_type: contactType,
         sector_id: sectorId || undefined,
+        ...(workspaceChannelId ? { workspace_channel_id: workspaceChannelId } : {}),
         initial_message,
       };
 
@@ -205,11 +180,7 @@ export function NewConversationModal({
       }
       onClose();
     },
-    onError: (e: unknown) => {
-      const ax = e as { response?: { data?: { error?: string } }; message?: string };
-      const msg = ax.response?.data?.error || ax.message;
-      setError(typeof msg === 'string' ? msg : 'Nao foi possivel iniciar a conversa.');
-    },
+    onError: onApiError(setError, 'Nao foi possivel iniciar a conversa.'),
   });
 
   if (!open) return null;
@@ -222,8 +193,8 @@ export function NewConversationModal({
 
   const varsOk =
     msgMode !== 'template' ||
-    !selectedTemplate?.variables?.length ||
-    selectedTemplate.variables.every((v) => (templateVars[v] || '').trim().length > 0);
+    !selectedTemplateVars.length ||
+    selectedTemplateVars.every((v) => (templateVars[v] || '').trim().length > 0);
 
   const canSend =
     canSubmit &&
@@ -238,7 +209,7 @@ export function NewConversationModal({
             <h2 className="text-lg font-semibold text-foreground">Nova conversa</h2>
             <p className="mt-1 text-xs text-muted-foreground">Abre ou reaproveita conversa aberta e envia a primeira mensagem.</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted">
+          <button type="button" onClick={onClose} className="rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground">
             Fechar
           </button>
         </div>
@@ -246,90 +217,33 @@ export function NewConversationModal({
         <div className="grid gap-4">
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">Contato</span>
-            <select
+            <FormSelect
               value={contactType}
-              onChange={(e) => {
-                setContactType(e.target.value as ContactStartType);
+              onChange={(v) => {
+                setContactType(v as ContactStartType);
                 setDriverId('');
                 setPharmacyId('');
                 setLeaderId('');
               }}
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/40"
-            >
-              <option value="driver">Entregador</option>
-              <option value="pharmacy">Farmacia</option>
-              <option value="leader">Lider</option>
-              <option value="phone">Telefone (livre)</option>
-            </select>
+              options={[
+                { value: 'driver', label: 'Entregador' },
+                { value: 'pharmacy', label: 'Farmacia' },
+                { value: 'leader', label: 'Lider' },
+                { value: 'phone', label: 'Telefone (livre)' },
+              ]}
+            />
           </label>
 
           {contactType === 'driver' ? (
-            <div className="grid gap-2">
-              <input
-                value={driverQ}
-                onChange={(e) => setDriverQ(e.target.value)}
-                placeholder="Buscar por nome, CPF ou telefone..."
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none"
-              />
-              <select
-                value={driverId}
-                onChange={(e) => setDriverId(e.target.value)}
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none"
-              >
-                <option value="">Selecione o entregador</option>
-                {driverHits.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name} {d.phone ? `· ${formatBrazilPhone(d.phone) || d.phone}` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <CadastroSearchCombobox entity="driver" value={driverId} onChange={setDriverId} />
           ) : null}
 
           {contactType === 'pharmacy' ? (
-            <div className="grid gap-2">
-              <input
-                value={pharmacyQ}
-                onChange={(e) => setPharmacyQ(e.target.value)}
-                placeholder="Buscar farmacia..."
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none"
-              />
-              <select
-                value={pharmacyId}
-                onChange={(e) => setPharmacyId(e.target.value)}
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none"
-              >
-                <option value="">Selecione a farmacia</option>
-                {pharmacyHits.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.trade_name} {p.phone ? `· ${formatBrazilPhone(p.phone) || p.phone}` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <CadastroSearchCombobox entity="pharmacy" value={pharmacyId} onChange={setPharmacyId} />
           ) : null}
 
           {contactType === 'leader' ? (
-            <div className="grid gap-2">
-              <input
-                value={leaderQ}
-                onChange={(e) => setLeaderQ(e.target.value)}
-                placeholder="Buscar lider..."
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none"
-              />
-              <select
-                value={leaderId}
-                onChange={(e) => setLeaderId(e.target.value)}
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none"
-              >
-                <option value="">Selecione o lider</option>
-                {leaderHits.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name} {l.phone ? `· ${formatBrazilPhone(l.phone) || l.phone}` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <CadastroSearchCombobox entity="leader" value={leaderId} onChange={setLeaderId} />
           ) : null}
 
           {contactType === 'phone' ? (
@@ -345,10 +259,9 @@ export function NewConversationModal({
               </label>
               <label className="flex flex-col gap-1 text-xs">
                 <span className="font-medium text-muted-foreground">Nome exibido (opcional)</span>
-                <input
+                <FormControl
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none"
                 />
               </label>
             </div>
@@ -356,18 +269,15 @@ export function NewConversationModal({
 
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">Setor (opcional)</span>
-            <select
+            <FormSearchCombobox
               value={sectorId}
-              onChange={(e) => setSectorId(e.target.value)}
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none"
-            >
-              <option value="">Padrao (seu setor ou vazio)</option>
-              {sectors.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+              onChange={setSectorId}
+              placeholder="Buscar setor (opcional)…"
+              options={[
+                { value: '', label: 'Padrao (seu setor ou vazio)' },
+                ...sectors.map((s) => ({ value: s.id, label: s.name })),
+              ]}
+            />
           </label>
 
           <div className="grid gap-2">
@@ -391,29 +301,45 @@ export function NewConversationModal({
 
             {msgMode === 'template' ? (
               <div className="grid gap-2">
-                <select
+                <FormSearchCombobox
                   value={templateId}
-                  onChange={(e) => setTemplateId(e.target.value)}
-                  className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none"
-                >
-                  <option value="">Selecione o template aprovado</option>
-                  {templates.map((tpl) => (
-                    <option key={tpl.id} value={tpl.id}>
-                      {tpl.name}
-                      {!tpl.meta_template_name ? ' (sem nome Meta)' : ''}
-                    </option>
-                  ))}
-                </select>
-                {selectedTemplate?.variables?.map((v) => (
+                  onChange={setTemplateId}
+                  placeholder="Buscar template aprovado…"
+                  options={[
+                    { value: '', label: 'Selecione o template aprovado' },
+                    ...templates.map((tpl) => ({
+                      value: tpl.id,
+                      label: `${tpl.name}${!tpl.meta_template_name ? ' (sem nome Meta)' : ''}`,
+                    })),
+                  ]}
+                />
+                {selectedTemplate?.body ? (
+                  <p className="whitespace-pre-wrap rounded-md border border-border bg-background/50 px-3 py-2 text-xs text-muted-foreground">
+                    {selectedTemplate.body}
+                  </p>
+                ) : null}
+                {selectedTemplate && hasInvalidEmptyPlaceholders(selectedTemplate.body || '') ? (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-100">
+                    Este template na Meta usa <code>{'{{}}'}</code> (inválido). A Meta espera{' '}
+                    <code>{'{{1}}'}</code>, <code>{'{{2}}'}</code>… Corrija no Gerenciador da Meta, aprove de novo e
+                    sincronize em Configurações → Templates. Enquanto isso, o envio vai sem parâmetros.
+                  </div>
+                ) : null}
+                {selectedTemplateVars.map((v) => (
                   <label key={v} className="flex flex-col gap-1 text-xs">
                     <span className="font-medium text-muted-foreground">{`{{${v}}}`}</span>
-                    <input
+                    <FormControl
                       value={templateVars[v] || ''}
                       onChange={(e) => setTemplateVars((prev) => ({ ...prev, [v]: e.target.value }))}
-                      className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none"
+                      placeholder={`Valor para {{${v}}}`}
                     />
                   </label>
                 ))}
+                {selectedTemplate && selectedTemplateVars.length === 0 && !hasInvalidEmptyPlaceholders(selectedTemplate.body || '') ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    Este template não tem variáveis.
+                  </p>
+                ) : null}
               </div>
             ) : (
               <textarea
@@ -421,7 +347,7 @@ export function NewConversationModal({
                 onChange={(e) => setTextBody(e.target.value)}
                 rows={3}
                 placeholder="Mensagem de texto (requer janela de 24h se Meta estiver ativa)"
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none"
+                className={formTextareaClassName}
               />
             )}
           </div>
@@ -431,7 +357,7 @@ export function NewConversationModal({
           ) : null}
 
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted">
+            <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground">
               Cancelar
             </button>
             <button
