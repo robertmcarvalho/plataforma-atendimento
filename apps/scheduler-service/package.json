@@ -9,8 +9,13 @@
   },
   "dependencies": {
     "@google-cloud/pubsub": "^4.4.0",
+    "google-auth-library": "^9.14.1",
+    "@plataforma/ai-core": "file:../../packages/ai-core",
+    "@plataforma/channel-runtime": "file:../../packages/channel-runtime",
+    "@plataforma/flux-delivery": "file:../../packages/flux-delivery",
     "@plataforma/logger": "file:../../packages/logger",
     "@plataforma/operational-notes": "file:../../packages/operational-notes",
+    "@plataforma/ops-task-catalog": "file:../../packages/ops-task-catalog",
     "@supabase/supabase-js": "^2.43.4",
     "dotenv": "^16.4.5",
     "node-cron": "^3.0.3",

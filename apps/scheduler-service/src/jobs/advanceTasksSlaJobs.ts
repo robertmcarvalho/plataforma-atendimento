@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { resolveFinanceGestorUserId, insertSystemInternalNote } from '@plataforma/operational-notes';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -58,7 +59,7 @@ async function runAdvanceSlaJob(db: SupabaseClient) {
   const now = Date.now();
   const { data: rows, error } = await db
     .from('pending_tasks')
-    .select('id, task_type, title, status, due_at, created_at, assignee_id, conversation_id, metadata')
+    .select('id, task_type, title, status, due_at, created_at, assignee_id, conversation_id, workspace_id, metadata')
     .eq('task_type', 'financial_advance_request')
     .in('status', ['open', 'in_progress']);
   if (error || !rows?.length) return;
@@ -68,19 +69,22 @@ async function runAdvanceSlaJob(db: SupabaseClient) {
     const createdAtMs = new Date(String(row.created_at || '')).getTime();
     if (Number.isNaN(dueAtMs) || Number.isNaN(createdAtMs)) continue;
     const meta = asMeta(row.metadata);
+    const workspaceId = String(row.workspace_id || '').trim();
+    const financeGestorId = workspaceId ? await resolveFinanceGestorUserId(db, workspaceId) : null;
+    const notifyAssignee = financeGestorId || (row.assignee_id ? String(row.assignee_id) : null);
     const warningAt = dueAtMs - (1 - cfg.warning_pct) * cfg.sla_minutes * 60 * 1000;
     const overdueAt = dueAtMs;
     const escalateAt = createdAtMs + cfg.escalate_after_x * cfg.sla_minutes * 60 * 1000;
 
     if (now >= warningAt && meta.notified_80 !== true) {
-      await createDerivedNotification(db, row, 'advance_sla_warning', 'high', 'Alerta 80% SLA adiantamento');
+      await createDerivedNotification(db, row, notifyAssignee, 'advance_sla_warning', 'high', 'Alerta 80% SLA adiantamento');
       await updateTaskMeta(db, String(row.id), { ...meta, notified_80: true });
       await logSlaAudit(db, 'sla.advance_warning', row, cfg);
       await appendSlaInternalNote(db, row, 'Alerta preventivo: pendência de adiantamento atingiu 80% do SLA.');
     }
 
     if (now >= overdueAt && meta.notified_overdue !== true) {
-      await createDerivedNotification(db, row, 'advance_sla_overdue', 'urgent', 'SLA vencido adiantamento');
+      await createDerivedNotification(db, row, notifyAssignee, 'advance_sla_overdue', 'urgent', 'SLA vencido adiantamento');
       await updateTaskMeta(db, String(row.id), { ...meta, notified_overdue: true });
       await logSlaAudit(db, 'sla.advance_overdue', row, cfg);
       await appendSlaInternalNote(db, row, 'SLA vencido para decisão de adiantamento.');
@@ -98,17 +102,24 @@ async function runAdvanceSlaJob(db: SupabaseClient) {
         .limit(1)
         .maybeSingle();
       if (!recentReminder?.id) {
-        await createDerivedNotification(db, row, 'advance_sla_reminder', 'urgent', 'Lembrete SLA adiantamento');
+        await createDerivedNotification(db, row, notifyAssignee, 'advance_sla_reminder', 'urgent', 'Lembrete SLA adiantamento');
       }
     }
 
     if (now >= escalateAt && meta.escalated !== true) {
-      const adminId = await resolveActiveUserByRole(db, cfg.fallback_admin_role);
-      if (adminId) {
-        await db.from('pending_tasks').update({ assignee_id: adminId, updated_at: new Date().toISOString() }).eq('id', row.id);
+      const escalateTo =
+        financeGestorId || (await resolveActiveUserByRole(db, cfg.fallback_admin_role));
+      if (escalateTo) {
+        await db.from('pending_tasks').update({ assignee_id: escalateTo, updated_at: new Date().toISOString() }).eq('id', row.id);
         await updateTaskMeta(db, String(row.id), { ...meta, escalated: true });
-        await logSlaAudit(db, 'sla.advance_escalated', row, cfg, { to_assignee_id: adminId });
-        await appendSlaInternalNote(db, row, 'Pendência escalonada automaticamente para administração por extrapolar o SLA.');
+        await logSlaAudit(db, 'sla.advance_escalated', row, cfg, { to_assignee_id: escalateTo });
+        await appendSlaInternalNote(
+          db,
+          row,
+          financeGestorId
+            ? 'Pendência escalonada automaticamente para o gestor financeiro por extrapolar o SLA.'
+            : 'Pendência escalonada automaticamente para administração por extrapolar o SLA.'
+        );
       }
     }
   }
@@ -142,11 +153,12 @@ async function cancelOrphanDerivedNotifications(db: SupabaseClient) {
 async function createDerivedNotification(
   db: SupabaseClient,
   parent: { id: string; assignee_id?: string | null; conversation_id?: string | null; title?: string | null },
+  assigneeId: string | null,
   taskType: 'advance_sla_warning' | 'advance_sla_overdue' | 'advance_sla_reminder',
   priority: 'high' | 'urgent',
   title: string
 ) {
-  const assignee = parent.assignee_id || null;
+  const assignee = assigneeId || parent.assignee_id || null;
   if (!assignee) return;
   await db.from('pending_tasks').insert({
     task_type: taskType,
@@ -201,12 +213,12 @@ async function appendSlaInternalNote(
 ) {
   const conversationId = task.conversation_id || null;
   if (!conversationId) return;
-  const { data: systemAuthor } = await db.from('users').select('id').eq('is_active', true).limit(1).maybeSingle();
-  const authorId = (systemAuthor?.id as string | undefined) || null;
-  if (!authorId) return;
-  await db.from('internal_notes').insert({
-    conversation_id: conversationId,
-    author_id: authorId,
+  const { data: conv } = await db.from('conversations').select('workspace_id').eq('id', conversationId).maybeSingle();
+  const workspaceId = conv?.workspace_id ? String(conv.workspace_id) : '';
+  if (!workspaceId) return;
+  await insertSystemInternalNote(db, {
+    workspaceId,
+    conversationId,
     content: `[SLA Adiantamento] ${message} (task: ${String(task.id).slice(0, 8)})`,
   });
 }

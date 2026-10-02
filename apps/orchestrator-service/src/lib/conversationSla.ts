@@ -1,5 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { postWhatsAppMessage } from './whatsappOutbound';
+import {
+  tryOperationalOutOfHoursNotice,
+  tryOperationalQueueWaitingNotice,
+} from './operationalChannelMessaging';
 import {
   addBusinessMinutes,
   formatNextOpenHuman,
@@ -68,7 +71,7 @@ export async function refreshConversationSla(supabase: SupabaseClient, conversat
 
   const { data: policies } = await supabase
     .from('sla_policies')
-    .select('*')
+    .select('id, use_business_hours, first_response_minutes, resolution_minutes, sector_id, priority, profile_type')
     .eq('workspace_id', workspaceId);
   const priority = (conv.priority || 'normal') as string;
   const profile =
@@ -112,107 +115,26 @@ export async function refreshConversationSla(supabase: SupabaseClient, conversat
     .eq('id', conversationId);
 }
 
+export async function isSectorClosedNow(
+  supabase: SupabaseClient,
+  sectorId: string,
+  now: Date = new Date()
+): Promise<boolean> {
+  const { data: sector } = await supabase.from('sectors').select('business_hours').eq('id', sectorId).single();
+  const raw = sector?.business_hours;
+  if (!hasCanonicalBusinessHours(raw)) return false;
+  return !isOpen(normalizeBusinessHours(raw), now);
+}
+
 export async function maybeOutOfHoursNotice(
   supabase: SupabaseClient,
   conversationId: string,
-  sectorId: string | null,
-  options?: { skipWhenEdgeHandled?: boolean }
+  sectorId: string | null
 ) {
-  if (options?.skipWhenEdgeHandled) return;
   if (!sectorId) return;
+  await tryOperationalOutOfHoursNotice(supabase, { conversationId, sectorId });
+}
 
-  const { data: sector } = await supabase.from('sectors').select('business_hours').eq('id', sectorId).single();
-  const raw = sector?.business_hours;
-  if (!hasCanonicalBusinessHours(raw)) return;
-
-  const cfg = normalizeBusinessHours(raw);
-  if (isOpen(cfg, new Date())) return;
-
-  const { data: conv } = await supabase.from('conversations').select('tags').eq('id', conversationId).single();
-  const tags = ((conv?.tags || []) as string[]).filter(Boolean);
-  if (tags.includes('out_of_hours')) return;
-
-  const { data: convWorkspace } = await supabase.from('conversations').select('workspace_id').eq('id', conversationId).maybeSingle();
-  const workspaceId = convWorkspace?.workspace_id ? String(convWorkspace.workspace_id) : null;
-
-  let template =
-    'Obrigado pelo contato. No momento estamos fora do horario de atendimento. Voltamos em {{next_open_at}}.';
-
-  if (workspaceId) {
-    const { data: oohRule } = await supabase
-      .from('workspace_out_of_hours_rules')
-      .select('message, is_active')
-      .eq('workspace_id', workspaceId)
-      .eq('channel', 'whatsapp')
-      .maybeSingle();
-    if (oohRule?.is_active && String(oohRule.message || '').trim()) {
-      template = String(oohRule.message);
-    } else {
-      const { data: setting } = await supabase
-        .from('app_settings')
-        .select('value')
-        .eq('workspace_id', workspaceId)
-        .eq('key', 'auto_reply_out_of_hours')
-        .maybeSingle();
-      const v = setting?.value;
-      if (typeof v === 'string' && v.trim()) template = v;
-    }
-  } else {
-    const { data: setting } = await supabase.from('app_settings').select('value').eq('key', 'auto_reply_out_of_hours').single();
-    const v = setting?.value;
-    if (typeof v === 'string') template = v;
-    else if (v && typeof v === 'object') template = JSON.stringify(v);
-  }
-
-  const nextOpen = nextOpenAt(cfg, new Date());
-  const human = formatNextOpenHuman(cfg, nextOpen);
-  const text = template.replace(/\{\{\s*next_open_at\s*\}\}/g, human);
-
-  const { data: convFull } = await supabase
-    .from('conversations')
-    .select('workspace_id, contacts(wa_phone)')
-    .eq('id', conversationId)
-    .single();
-
-  const wa =
-    (convFull?.contacts as { wa_phone?: string } | null)?.wa_phone ||
-    (Array.isArray(convFull?.contacts) ? (convFull?.contacts[0] as { wa_phone?: string })?.wa_phone : undefined);
-
-  if (!wa || wa.startsWith('leader_')) return;
-
-  try {
-    const workspaceId = convFull?.workspace_id ? String(convFull.workspace_id) : null;
-    await postWhatsAppMessage(
-      supabase,
-      {
-        messaging_product: 'whatsapp',
-        to: wa,
-        type: 'text',
-        text: { body: text },
-      },
-      workspaceId
-    );
-
-    await supabase.from('messages').insert({
-      conversation_id: conversationId,
-      meta_message_id: null,
-      direction: 'outbound',
-      type: 'text',
-      content: text,
-      status: 'sent',
-      sent_at: new Date().toISOString(),
-    });
-
-    const nextTags = Array.from(new Set([...tags, 'out_of_hours']));
-    await supabase
-      .from('conversations')
-      .update({
-        tags: nextTags,
-        last_message_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', conversationId);
-  } catch (err) {
-    console.error('maybeOutOfHoursNotice:', err);
-  }
+export async function maybeQueueWaitingNotice(supabase: SupabaseClient, conversationId: string) {
+  await tryOperationalQueueWaitingNotice(supabase, conversationId);
 }

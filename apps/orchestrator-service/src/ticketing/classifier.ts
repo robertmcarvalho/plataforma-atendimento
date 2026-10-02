@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { findPendingCsatDispatch, parseCsatScore, parseCsatScoreFromMessage } from '@plataforma/channel-runtime';
 import { classifyInboundText } from './mappings';
 import { buildContextSnapshot } from './contextSnapshot';
 import { computeDueAt } from './sla';
@@ -10,9 +11,18 @@ type InboundTicketInput = {
   contactId: string;
   inboundText: string;
   messageId?: string | null;
+  msg?: Record<string, unknown>;
 };
 
 export async function processInboundTicketing(db: SupabaseClient, input: InboundTicketInput): Promise<void> {
+  const csatScore = input.msg
+    ? parseCsatScoreFromMessage(input.msg)
+    : parseCsatScore({ text: input.inboundText });
+  if (csatScore !== null) return;
+
+  const pendingCsat = await findPendingCsatDispatch(db, input.workspaceId, input.contactId);
+  if (pendingCsat) return;
+
   const classification = classifyInboundText(input.inboundText);
 
   // Duvidas financeiras simples devem seguir pelo bot sem abrir ticket humano.

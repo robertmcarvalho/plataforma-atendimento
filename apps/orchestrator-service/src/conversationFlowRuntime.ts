@@ -3,6 +3,8 @@
  * Persistência: conversation_flow_sessions. Resolução de versão: bindings ativos ou slug guided-intake.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { compileFlowGraphToV2 } from '@plataforma/channel-runtime';
+import { orchestratorConsole as console } from './lib/orchestratorContext';
 
 export type FlowTurnDeps = {
   sendText: (to: string, text: string) => Promise<void>;
@@ -17,7 +19,7 @@ export type FlowTurnDeps = {
   extractInteractiveId: (msg: Record<string, unknown>) => string | undefined;
 };
 
-export type FlowTurnResult = 'handled' | 'skipped';
+export type FlowTurnResult = 'handled' | 'skipped' | 'defer_catalog' | 'defer_triagem_por_perfil';
 
 type V2Graph = { entry_node_id: string; nodes: Record<string, Record<string, unknown>> };
 
@@ -27,15 +29,6 @@ type FlowSessionState = {
   awaiting?: { kind: 'prompt_choice' | 'prompt_text'; node_id: string; variable?: string };
   completed?: boolean;
 };
-
-function parseV2(graph: unknown): V2Graph | null {
-  if (!graph || typeof graph !== 'object') return null;
-  const g = graph as Record<string, unknown>;
-  const entry = typeof g.entry_node_id === 'string' ? g.entry_node_id.trim() : '';
-  const nodes = g.nodes;
-  if (!entry || !nodes || typeof nodes !== 'object' || Array.isArray(nodes)) return null;
-  return { entry_node_id: entry, nodes: nodes as Record<string, Record<string, unknown>> };
-}
 
 function pickText(raw: unknown): string {
   if (typeof raw === 'string') return raw.trim();
@@ -62,22 +55,32 @@ async function getPublishedVersionForDefinition(
   return data?.id ? { id: String(data.id), graph: data.graph } : null;
 }
 
+function bindingMatchesChannel(row: Record<string, unknown>, workspaceChannelId: string | null): boolean {
+  const boundChannel = String(row.workspace_channel_id || '').trim();
+  if (!boundChannel) return true;
+  if (!workspaceChannelId) return false;
+  return boundChannel === workspaceChannelId;
+}
+
 async function resolvePublishedV2Flow(
   db: SupabaseClient,
-  workspaceId: string
+  workspaceId: string,
+  workspaceChannelId: string | null
 ): Promise<{ versionId: string; definitionId: string; graph: V2Graph } | null> {
   const { data: binds } = await db
     .from('conversation_flow_bindings')
-    .select('definition_id')
+    .select('definition_id, workspace_channel_id, priority')
     .eq('workspace_id', workspaceId)
     .eq('is_active', true)
     .order('priority', { ascending: false });
 
   for (const row of binds || []) {
-    const defId = String((row as { definition_id?: string }).definition_id || '');
+    const r = row as Record<string, unknown>;
+    if (!bindingMatchesChannel(r, workspaceChannelId)) continue;
+    const defId = String(r.definition_id || '').trim();
     if (!defId) continue;
     const ver = await getPublishedVersionForDefinition(db, workspaceId, defId);
-    const g = ver?.graph ? parseV2(ver.graph) : null;
+    const g = ver?.graph ? compileFlowGraphToV2(ver.graph) : null;
     if (ver && g) return { versionId: ver.id, definitionId: defId, graph: g };
   }
 
@@ -90,7 +93,7 @@ async function resolvePublishedV2Flow(
   const defId = def?.id ? String(def.id) : '';
   if (!defId) return null;
   const ver = await getPublishedVersionForDefinition(db, workspaceId, defId);
-  const g = ver?.graph ? parseV2(ver.graph) : null;
+  const g = ver?.graph ? compileFlowGraphToV2(ver.graph) : null;
   if (ver && g) return { versionId: ver.id, definitionId: defId, graph: g };
   return null;
 }
@@ -188,6 +191,7 @@ export async function tryConversationFlowTurn(
   deps: FlowTurnDeps,
   input: {
     workspaceId: string;
+    workspaceChannelId?: string | null;
     conversationId: string;
     contactWa: string;
     botSessionId: string;
@@ -195,8 +199,18 @@ export async function tryConversationFlowTurn(
     rawText: string;
   }
 ): Promise<FlowTurnResult> {
-  const resolved = await resolvePublishedV2Flow(db, input.workspaceId);
-  if (!resolved) return 'skipped';
+  const resolved = await resolvePublishedV2Flow(
+    db,
+    input.workspaceId,
+    input.workspaceChannelId ? String(input.workspaceChannelId) : null
+  );
+  if (!resolved) {
+    console.warn('[Orchestrator] flow: nenhum fluxo v2 publicado', {
+      workspace_id: input.workspaceId,
+      workspace_channel_id: input.workspaceChannelId || null,
+    });
+    return 'skipped';
+  }
 
   const { graph, versionId, definitionId } = resolved;
   void definitionId;
@@ -381,6 +395,18 @@ export async function tryConversationFlowTurn(
         state = { ...state, current_node_id: nextId };
         await persistSessionState(db, sessionRow.id, state);
         continue;
+      }
+      case 'catalog_triagem_por_perfil': {
+        const welcome = pickText(node.welcome_text) || pickText(node.text) || '';
+        state = { ...state, completed: true, vars: { ...(state.vars || {}), flow_welcome: welcome } };
+        await persistSessionState(db, sessionRow.id, state);
+        return 'defer_triagem_por_perfil';
+      }
+      case 'catalog_guided_intake':
+      case 'guided_intake_handoff': {
+        state = { ...state, completed: true };
+        await persistSessionState(db, sessionRow.id, state);
+        return 'defer_catalog';
       }
       case 'gate_channel':
       case 'start':

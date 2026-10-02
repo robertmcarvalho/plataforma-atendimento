@@ -4,7 +4,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { PubSub } from '@google-cloud/pubsub';
 import { createClient } from '@supabase/supabase-js';
-import { listActiveVerifyTokens, resolveWorkspaceIdByPhoneNumberId, tryWebhookEdgeOutOfHoursReply } from '@plataforma/channel-runtime';
+import { listActiveVerifyTokens, resolveWorkspaceIdByPhoneNumberId } from '@plataforma/channel-runtime';
 import { buildPubSubEnvelope, createLogger, getCorrelationId, normalizeError } from '@plataforma/logger';
 
 const logger = createLogger('webhook-service');
@@ -143,49 +143,16 @@ async function processWebhookAsync(payload: Record<string, unknown>, correlation
           const phoneNumberId = String(value.metadata?.phone_number_id || '').trim();
           const fromWa = String(message.from || '').trim();
 
-          let intakeHints: Record<string, unknown> | undefined;
-          let workspaceChannelId: string | null = null;
-
-          if (supabase && workspaceId && phoneNumberId && fromWa && message.type === 'text') {
-            try {
-              const edge = await tryWebhookEdgeOutOfHoursReply({
-                db: supabase,
-                workspaceId,
-                phoneNumberId,
-                toWaPhone: fromWa,
-              });
-              if (edge.handled) {
-                intakeHints = { ooh_handled_at_edge: true };
-                workspaceChannelId = edge.workspace_channel_id;
-                logger.info('Resposta fora do horário enviada na borda (webhook)', {
-                  event_type: 'webhook.edge_out_of_hours',
-                  correlation_id: correlationId,
-                  workspace_id: workspaceId,
-                  workspace_channel_id: workspaceChannelId,
-                  preview: edge.message_preview,
-                });
-              }
-            } catch (err) {
-              logger.warn('Falha ao enviar fora do horário na borda; segue fluxo normal', {
-                event_type: 'webhook.edge_out_of_hours_failed',
-                correlation_id: correlationId,
-                workspace_id: workspaceId,
-                ...normalizeError(err, 'WEBHOOK_ERROR'),
-              });
-            }
-          }
-
           const data = Buffer.from(JSON.stringify(buildPubSubEnvelope({
             type: 'message',
             payload: message,
             workspace_id: workspaceId,
-            intake_hints: intakeHints,
             channel: {
               provider: 'meta_cloud',
               channel_type: 'whatsapp',
               phone_number_id: phoneNumberId || null,
               display_phone_number: value.metadata?.display_phone_number || null,
-              workspace_channel_id: workspaceChannelId,
+              workspace_channel_id: null,
             },
             raw_entry: currentEntry,
           }, { correlation_id: correlationId, workspace_id: workspaceId })));

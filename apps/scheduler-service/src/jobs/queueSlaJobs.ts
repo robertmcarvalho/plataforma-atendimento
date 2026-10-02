@@ -4,6 +4,9 @@ import {
   formatQueueSlaOverdueNote,
   formatQueueSlaReassignNote,
   formatQueueSlaWarningNote,
+  resolveGestorUserIdForSectorId,
+  resolveOperacionalGestorUserId,
+  insertSystemInternalNote,
 } from '@plataforma/operational-notes';
 
 type JsonRecord = Record<string, unknown>;
@@ -24,7 +27,7 @@ async function runQueueSlaJob(db: SupabaseClient) {
   const now = Date.now();
   const { data: rows, error } = await db
     .from('pending_tasks')
-    .select('id, task_type, title, status, due_at, created_at, assignee_id, conversation_id, metadata')
+    .select('id, task_type, title, status, due_at, created_at, assignee_id, conversation_id, workspace_id, metadata')
     .eq('task_type', 'queue_sla_treatment')
     .in('status', ['open', 'in_progress']);
   if (error || !rows?.length) return;
@@ -105,8 +108,15 @@ async function runQueueSlaJob(db: SupabaseClient) {
 
     if (now < overdueAt) continue;
 
+    const workspaceId = String(row.workspace_id || '').trim();
+
     if (treatmentAction === 'alert_and_reassign' && meta.reassigned !== true) {
-      const supervisorId = await resolveSupervisorId(db, conv.attendant_id as string | null | undefined);
+      const supervisorId = await resolveGestorForConversation(
+        db,
+        workspaceId,
+        conv.sector_id as string | null | undefined,
+        conv.attendant_id as string | null | undefined
+      );
       await db
         .from('conversations')
         .update({
@@ -124,7 +134,12 @@ async function runQueueSlaJob(db: SupabaseClient) {
     }
 
     if (treatmentAction === 'escalate_supervisor' && meta.escalated !== true) {
-      const supervisorId = await resolveSupervisorId(db, conv.attendant_id as string | null | undefined);
+      const supervisorId = await resolveGestorForConversation(
+        db,
+        workspaceId,
+        conv.sector_id as string | null | undefined,
+        conv.attendant_id as string | null | undefined
+      );
       const supervisionSectorId = await resolveSectorIdByName(db, 'Supervisão');
       const updates: JsonRecord = {
         updated_at: new Date().toISOString(),
@@ -155,6 +170,23 @@ async function closeQueueTask(db: SupabaseClient, taskId: string, status: 'cance
 async function resolveSectorIdByName(db: SupabaseClient, name: string): Promise<string | null> {
   const { data } = await db.from('sectors').select('id').eq('name', name).maybeSingle();
   return (data?.id as string | undefined) || null;
+}
+
+async function resolveGestorForConversation(
+  db: SupabaseClient,
+  workspaceId: string,
+  sectorId: string | null | undefined,
+  fallbackUserId?: string | null
+): Promise<string | null> {
+  if (workspaceId && sectorId) {
+    const gestorId = await resolveGestorUserIdForSectorId(db, workspaceId, String(sectorId));
+    if (gestorId) return gestorId;
+  }
+  if (workspaceId) {
+    const operacionalGestor = await resolveOperacionalGestorUserId(db, workspaceId);
+    if (operacionalGestor) return operacionalGestor;
+  }
+  return fallbackUserId || null;
 }
 
 async function resolveSupervisorId(db: SupabaseClient, fallbackUserId?: string | null): Promise<string | null> {
@@ -236,14 +268,10 @@ async function cancelOrphanDerivedNotifications(db: SupabaseClient) {
 }
 
 async function appendInternalNote(db: SupabaseClient, conversationId: string, content: string) {
-  const { data: systemAuthor } = await db.from('users').select('id').eq('is_active', true).limit(1).maybeSingle();
-  const authorId = (systemAuthor?.id as string | undefined) || null;
-  if (!authorId) return;
-  await db.from('internal_notes').insert({
-    conversation_id: conversationId,
-    author_id: authorId,
-    content,
-  });
+  const { data: conv } = await db.from('conversations').select('workspace_id').eq('id', conversationId).maybeSingle();
+  const workspaceId = conv?.workspace_id ? String(conv.workspace_id) : '';
+  if (!workspaceId) return;
+  await insertSystemInternalNote(db, { workspaceId, conversationId, content });
 }
 
 async function writeAuditLogCompat(

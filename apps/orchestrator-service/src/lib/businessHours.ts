@@ -125,22 +125,33 @@ export function normalizeBusinessHours(raw: unknown, fallbackTz = 'America/Sao_P
   };
 }
 
+function parseIntervalPair(startRaw: unknown, endRaw: unknown): BusinessHoursInterval | null {
+  const start = String(startRaw || '').trim();
+  const end = String(endRaw || '').trim();
+  if (!/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end)) return null;
+  return { start, end };
+}
+
+function intervalsFromDayObject(o: Record<string, unknown>): BusinessHoursInterval[] {
+  if (Array.isArray(o.intervals)) {
+    const parsed = (o.intervals as unknown[])
+      .map((iv) => {
+        if (!iv || typeof iv !== 'object') return null;
+        const x = iv as Record<string, unknown>;
+        return parseIntervalPair(x.start, x.end);
+      })
+      .filter(Boolean) as BusinessHoursInterval[];
+    if (parsed.length) return parsed;
+  }
+  const flat = parseIntervalPair(o.start ?? o.inicio, o.end ?? o.fim);
+  return flat ? [flat] : [];
+}
+
 function normalizeDay(day: unknown): DaySchedule {
   if (!day || typeof day !== 'object') return closedDay();
   const o = day as Record<string, unknown>;
-  const isOpen = o.is_open !== false;
-  const intervals = Array.isArray(o.intervals)
-    ? (o.intervals as unknown[])
-        .map((iv) => {
-          if (!iv || typeof iv !== 'object') return null;
-          const x = iv as Record<string, unknown>;
-          const start = String(x.start || '').trim();
-          const end = String(x.end || '').trim();
-          if (!/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end)) return null;
-          return { start, end };
-        })
-        .filter(Boolean) as BusinessHoursInterval[]
-    : [];
+  const isOpen = o.is_open !== false && o.ativo !== false;
+  const intervals = intervalsFromDayObject(o);
   if (!isOpen || intervals.length === 0) return { is_open: false, intervals: [] };
   return { is_open: true, intervals: mergeIntervals(intervals) };
 }
@@ -322,14 +333,20 @@ export function isOpen(config: BusinessHoursConfig | null | undefined, date: Dat
 
 export function formatNextOpenHuman(config: BusinessHoursConfig, next: Date, locale = 'pt-BR'): string {
   try {
-    return new Intl.DateTimeFormat(locale, {
-      timeZone: config.timezone,
-      weekday: 'short',
-      day: '2-digit',
-      month: '2-digit',
+    const tz = config.timezone;
+    const weekday = new Intl.DateTimeFormat(locale, { timeZone: tz, weekday: 'long' }).format(next);
+    const day = new Intl.DateTimeFormat(locale, { timeZone: tz, day: 'numeric' }).format(next);
+    const month = new Intl.DateTimeFormat(locale, { timeZone: tz, month: 'long' }).format(next);
+    const parts = new Intl.DateTimeFormat(locale, {
+      timeZone: tz,
       hour: '2-digit',
       minute: '2-digit',
-    }).format(next);
+      hour12: false,
+    }).formatToParts(next);
+    const hour = parts.find((p) => p.type === 'hour')?.value ?? '00';
+    const minute = parts.find((p) => p.type === 'minute')?.value ?? '00';
+    const timeLabel = minute === '00' ? `${hour}h00` : `${hour}h${minute}`;
+    return `${weekday}, ${day} de ${month}, às ${timeLabel}`;
   } catch {
     return next.toISOString();
   }

@@ -1,4 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { isChannelOpenNow } from '@plataforma/channel-runtime';
+import { resolveGestorUserIdForConversation, insertSystemInternalNote } from '@plataforma/operational-notes';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -19,6 +21,19 @@ async function runAlert80Job(db: SupabaseClient) {
   if (error || !rows?.length) return;
 
   for (const ticket of rows) {
+    const conversationId = (ticket.conversation_id as string | null | undefined) || null;
+    if (conversationId) {
+      const { data: conv } = await db
+        .from('conversations')
+        .select('status')
+        .eq('id', conversationId)
+        .maybeSingle();
+      if (conv && ['resolved', 'closed'].includes(String(conv.status || ''))) continue;
+    }
+
+    const workspaceId = String(ticket.workspace_id || '').trim();
+    if (workspaceId && !(await isWorkspaceChannelOpen(db, workspaceId))) continue;
+
     const createdAt = new Date(String(ticket.created_at || ''));
     const now = Date.now();
     if (Number.isNaN(createdAt.getTime())) continue;
@@ -26,10 +41,15 @@ async function runAlert80Job(db: SupabaseClient) {
     const threshold = Number(ticket.sla_minutes || 0) * 0.8;
     if (elapsedMinutes < threshold) continue;
 
-    const exists = await hasRecentEvent(db, String(ticket.id), 'sla_80_alert');
+    const exists = await hasTicketEvent(db, String(ticket.id), 'sla_80_alert');
     if (exists) continue;
 
-    const supervisorId = await resolveSupervisorId(db, ticket.assignee_user_id as string | null | undefined);
+    const supervisorId = await resolveSupervisorForTicket(
+      db,
+      String(ticket.workspace_id || ''),
+      conversationId,
+      ticket.assignee_user_id as string | null | undefined
+    );
     await db.from('ticket_events').insert({
       workspace_id: ticket.workspace_id || null,
       ticket_id: ticket.id,
@@ -68,10 +88,28 @@ async function runEscalationJob(db: SupabaseClient) {
   if (error || !rows?.length) return;
 
   for (const ticket of rows) {
-    const exists = await hasRecentEvent(db, String(ticket.id), 'sla_escalated');
+    const conversationId = (ticket.conversation_id as string | null | undefined) || null;
+    if (conversationId) {
+      const { data: conv } = await db
+        .from('conversations')
+        .select('status')
+        .eq('id', conversationId)
+        .maybeSingle();
+      if (conv && ['resolved', 'closed'].includes(String(conv.status || ''))) continue;
+    }
+
+    const workspaceId = String(ticket.workspace_id || '').trim();
+    if (workspaceId && !(await isWorkspaceChannelOpen(db, workspaceId))) continue;
+
+    const exists = await hasTicketEvent(db, String(ticket.id), 'sla_escalated');
     if (exists) continue;
 
-    const supervisorId = await resolveSupervisorId(db, ticket.assignee_user_id as string | null | undefined);
+    const supervisorId = await resolveSupervisorForTicket(
+      db,
+      String(ticket.workspace_id || ''),
+      conversationId,
+      ticket.assignee_user_id as string | null | undefined
+    );
     await db
       .from('tickets')
       .update({
@@ -170,17 +208,47 @@ async function runDailyReportJob(db: SupabaseClient) {
   }
 }
 
-async function hasRecentEvent(db: SupabaseClient, ticketId: string, eventType: string): Promise<boolean> {
-  const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+async function hasTicketEvent(db: SupabaseClient, ticketId: string, eventType: string): Promise<boolean> {
   const { data } = await db
     .from('ticket_events')
     .select('id')
     .eq('ticket_id', ticketId)
     .eq('event_type', eventType)
-    .gte('created_at', tenMinAgo)
     .limit(1)
     .maybeSingle();
   return Boolean(data?.id);
+}
+
+async function isWorkspaceChannelOpen(db: SupabaseClient, workspaceId: string): Promise<boolean> {
+  const { data } = await db
+    .from('workspace_channels')
+    .select('config')
+    .eq('workspace_id', workspaceId)
+    .eq('channel_type', 'whatsapp')
+    .eq('is_active', true)
+    .limit(1)
+    .maybeSingle();
+  const cfg = (data?.config as Record<string, unknown> | null) || null;
+  if (!cfg) return true;
+  return isChannelOpenNow(cfg, new Date());
+}
+
+/** @deprecated use hasTicketEvent — mantido para compatibilidade interna */
+async function hasRecentEvent(db: SupabaseClient, ticketId: string, eventType: string): Promise<boolean> {
+  return hasTicketEvent(db, ticketId, eventType);
+}
+
+async function resolveSupervisorForTicket(
+  db: SupabaseClient,
+  workspaceId: string,
+  conversationId: string | null,
+  fallbackUserId?: string | null
+): Promise<string | null> {
+  if (workspaceId && conversationId) {
+    const gestorId = await resolveGestorUserIdForConversation(db, workspaceId, conversationId);
+    if (gestorId) return gestorId;
+  }
+  return resolveSupervisorId(db, fallbackUserId);
 }
 
 async function resolveSupervisorId(db: SupabaseClient, fallbackUserId?: string | null): Promise<string | null> {
@@ -272,18 +340,24 @@ async function createPendingTask(
 }
 
 async function appendInternalNote(db: SupabaseClient, conversationId: string, content: string) {
-  const systemAuthor = await resolveSystemNoteAuthorId(db);
-  if (!systemAuthor) return;
-  await db.from('internal_notes').insert({
-    conversation_id: conversationId,
-    author_id: systemAuthor,
-    content,
-  });
-}
+  const { data: conv } = await db.from('conversations').select('workspace_id').eq('id', conversationId).maybeSingle();
+  const workspaceId = conv?.workspace_id ? String(conv.workspace_id) : '';
+  if (!workspaceId) return;
 
-async function resolveSystemNoteAuthorId(db: SupabaseClient): Promise<string | null> {
-  const { data } = await db.from('users').select('id').eq('is_active', true).limit(1).maybeSingle();
-  return (data?.id as string | undefined) || null;
+  const since = new Date(Date.now() - 24 * 3600000).toISOString();
+  const { data: recent } = await db
+    .from('internal_notes')
+    .select('id, content')
+    .eq('conversation_id', conversationId)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(10);
+  const normalized = content.trim();
+  if ((recent || []).some((row: { content?: string }) => String(row.content || '').trim() === normalized)) {
+    return;
+  }
+
+  await insertSystemInternalNote(db, { workspaceId, conversationId, content });
 }
 
 function computeAverageByType(rows: Array<{ type?: string | null; created_at?: string | null; resolved_at?: string | null }>) {
