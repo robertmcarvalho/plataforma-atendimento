@@ -17,6 +17,12 @@ type SendEmailArgs = {
   /** Teste de canal: usa só este canal (e depois env), sem SMTP global da plataforma. */
   channelId?: string;
   useChannelOnly?: boolean;
+  /** Anexos (boleto, DANFSe, XML, etc.). */
+  attachments?: Array<{
+    filename: string;
+    content: Buffer;
+    contentType?: string;
+  }>;
 };
 
 async function logDelivery(
@@ -96,6 +102,10 @@ function isSmtpConfigUsable(cfg: SystemEmailConfig): boolean {
 async function sendViaResend(cfg: SystemEmailConfig, args: SendEmailArgs): Promise<void> {
   const apiKey = cfg.api_key || '';
   if (!apiKey) throw new Error('API key Resend não configurada');
+  const attachments = (args.attachments || []).map((a) => ({
+    filename: a.filename,
+    content: a.content.toString('base64'),
+  }));
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
@@ -108,6 +118,7 @@ async function sendViaResend(cfg: SystemEmailConfig, args: SendEmailArgs): Promi
       subject: args.subject,
       html: args.html,
       text: args.text || args.html.replace(/<[^>]+>/g, ''),
+      ...(attachments.length ? { attachments } : {}),
     }),
   });
   if (!res.ok) {
@@ -143,6 +154,11 @@ async function sendViaSmtp(cfg: SystemEmailConfig, args: SendEmailArgs): Promise
     subject: args.subject,
     html: args.html,
     text: args.text,
+    attachments: (args.attachments || []).map((a) => ({
+      filename: a.filename,
+      content: a.content,
+      contentType: a.contentType,
+    })),
   };
 
   const maxAttempts = 3;
