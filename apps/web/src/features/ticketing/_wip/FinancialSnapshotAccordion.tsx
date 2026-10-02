@@ -1,3 +1,6 @@
+// WIP � feature paused. Flag: ticketingPanel in lib/features.ts
+// Do not delete. Context: codebase audit Phase A (ticketing panel soft-pause)
+
 'use client';
 
 import type { OperationalTicket } from '@/lib/ticketing/types';

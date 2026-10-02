@@ -1,3 +1,10 @@
+import {
+  mergeDiscountRulesFromJson,
+  previousClosedCycleMonSun,
+  primarySettlementWeekdayUi,
+  uiWeekdayToJsDay,
+  weekBoundsMonSun,
+} from '@plataforma/financial-cycle';
 import { supabase } from './supabase';
 import { loadEntryTypes, type FinancialEntryType } from './financialEntryTypes';
 
@@ -198,47 +205,72 @@ export type WeeklyDriverSummary = {
   net_estimated: number;
 };
 
+function paymentDatesInWeek(weekStartIso: string, daysOfWeekUi: number[]): string[] {
+  const monday = new Date(`${weekStartIso}T12:00:00.000Z`);
+  return daysOfWeekUi.map((uiDay) => {
+    const js = uiWeekdayToJsDay(uiDay);
+    const offset = (js + 7 - 1) % 7;
+    const d = new Date(monday);
+    d.setUTCDate(monday.getUTCDate() + offset);
+    return d.toISOString().slice(0, 10);
+  });
+}
+
+function settlementDateFromReference(referenceDateIso: string | undefined, settlementUi: number): string {
+  const ref = referenceDateIso || new Date().toISOString().slice(0, 10);
+  const d = new Date(`${ref}T12:00:00.000Z`);
+  const ui = d.getUTCDay() === 0 ? 7 : d.getUTCDay();
+  if (ui === settlementUi) return ref.slice(0, 10);
+  const monday = weekBoundsMonSun(ref).startDate;
+  const dates = paymentDatesInWeek(monday, [settlementUi]);
+  return dates[0] || ref.slice(0, 10);
+}
+
 export async function buildWeeklyDriverSummary(driver_id: string, reference_date?: string): Promise<WeeklyDriverSummary> {
   const currentWeek = currentWeekBoundsMonSun(reference_date);
-  const currentWeekPayments = currentWeekPaymentBounds(reference_date);
-  const cycle = previousClosedCycleBoundsMonSun(reference_date);
+  const cycle = previousClosedCycleMonSun(reference_date ?? new Date().toISOString().slice(0, 10));
+
+  const { data: driverRow } = await supabase.from('drivers').select('workspace_id').eq('id', driver_id).maybeSingle();
+  const workspaceId = driverRow?.workspace_id ? String(driverRow.workspace_id) : '';
+  let rules = mergeDiscountRulesFromJson(null);
+  if (workspaceId) {
+    const { data: setting } = await supabase
+      .from('app_settings')
+      .select('value')
+      .eq('workspace_id', workspaceId)
+      .eq('key', 'financial_discount_rules')
+      .maybeSingle();
+    rules = mergeDiscountRulesFromJson(setting?.value ?? null);
+  }
+
+  const dailyPayDates = paymentDatesInWeek(currentWeek.startDate, rules.daily?.daysOfWeek ?? [2, 4]);
+  const settlementUi = primarySettlementWeekdayUi(rules);
+  const paymentDateIso = settlementDateFromReference(reference_date, settlementUi);
+  const legacyPayments = currentWeekPaymentBounds(reference_date);
 
   const verifiedStatuses = ['approved', 'active', 'settled'];
 
   const entryTypes = await loadEntryTypes();
   const typesBySlug = new Map<string, FinancialEntryType>();
   for (const t of entryTypes) typesBySlug.set(t.slug, t);
-  const discountSlugs = entryTypes.filter((t) => t.active && t.affects_net === 'discount').map((t) => t.slug);
+  const discountSlugs = new Set(entryTypes.filter((t) => t.active && t.affects_net === 'discount').map((t) => t.slug));
 
   const { data: dailyEntries, error: dailyErr } = await supabase
     .from('financial_entries')
     .select('id, type, total_amount, status, start_date, description')
     .eq('driver_id', driver_id)
     .eq('type', 'daily')
-    .gte('start_date', currentWeek.startDate)
-    .lte('start_date', currentWeek.endDate);
+    .in('start_date', dailyPayDates.length ? dailyPayDates : [legacyPayments.tuesdayDate, legacyPayments.thursdayDate]);
   if (dailyErr) throw new Error(dailyErr.message);
 
   const verifiedDailies = (dailyEntries || []).filter((row) => verifiedStatuses.includes(String(row.status)));
-  const verifiedDailiesTueThu = verifiedDailies.filter((row) => {
-    const d = String(row.start_date || '');
-    return d === currentWeekPayments.tuesdayDate || d === currentWeekPayments.thursdayDate;
-  });
-  const daily_total = verifiedDailiesTueThu.reduce((acc, row) => acc + (Number(row.total_amount) || 0), 0);
-  const daily_entries = verifiedDailiesTueThu.map((row) => ({
+  const daily_total = verifiedDailies.reduce((acc, row) => acc + (Number(row.total_amount) || 0), 0);
+  const daily_entries = verifiedDailies.map((row) => ({
     id: String(row.id),
     start_date: String(row.start_date),
     total_amount: Number(row.total_amount) || 0,
     description: row.description ? String(row.description) : null,
   }));
-
-  const { data: cycleEntries, error: cycleErr } = await supabase
-    .from('financial_entries')
-    .select('id, type, total_amount, status, start_date')
-    .eq('driver_id', driver_id)
-    .gte('start_date', cycle.startDate)
-    .lte('start_date', cycle.endDate);
-  if (cycleErr) throw new Error(cycleErr.message);
 
   const discounts_breakdown: Record<string, { label: string; amount: number; count: number; last_date: string | null }> = {};
   for (const slug of discountSlugs) {
@@ -246,15 +278,24 @@ export async function buildWeeklyDriverSummary(driver_id: string, reference_date
     discounts_breakdown[slug] = { label: t.label, amount: 0, count: 0, last_date: null };
   }
 
-  for (const row of cycleEntries || []) {
-    if (!verifiedStatuses.includes(String(row.status))) continue;
-    const slug = String(row.type || '');
+  const { data: instRows, error: instErr } = await supabase
+    .from('financial_installments')
+    .select('amount, due_date, financial_entries!inner(id, type, status, driver_id)')
+    .eq('financial_entries.driver_id', driver_id)
+    .eq('due_date', paymentDateIso);
+  if (instErr) throw new Error(instErr.message);
+
+  for (const row of instRows || []) {
+    const entry = row.financial_entries as { type?: string; status?: string };
+    if (!entry || !verifiedStatuses.includes(String(entry.status))) continue;
+    const slug = String(entry.type || '');
+    if (!discountSlugs.has(slug)) continue;
     const bucket = discounts_breakdown[slug];
     if (!bucket) continue;
-    const amount = Number(row.total_amount) || 0;
+    const amount = Number(row.amount) || 0;
     bucket.amount += amount;
     bucket.count += 1;
-    const dt = String(row.start_date || '').slice(0, 10);
+    const dt = String(row.due_date || '').slice(0, 10);
     if (!bucket.last_date || dt > String(bucket.last_date)) {
       bucket.last_date = dt || null;
     }
@@ -268,8 +309,8 @@ export async function buildWeeklyDriverSummary(driver_id: string, reference_date
       .from('financial_import_rows')
       .select('gross_amount, created_at')
       .eq('driver_id', driver_id)
-      .gte('created_at', cycle.startIso)
-      .lte('created_at', cycle.endIso);
+      .gte('created_at', `${cycle.startDate}T00:00:00.000Z`)
+      .lte('created_at', `${cycle.endDate}T23:59:59.999Z`);
     if (revenueErr) {
       const msg = String(revenueErr.message || '').toLowerCase();
       if (!msg.includes('does not exist') && !msg.includes('not found')) {
@@ -287,8 +328,8 @@ export async function buildWeeklyDriverSummary(driver_id: string, reference_date
   return {
     driver_id,
     current_week: {
-      start: currentWeekPayments.tuesdayDate,
-      end: currentWeekPayments.thursdayDate,
+      start: dailyPayDates[0] || legacyPayments.tuesdayDate,
+      end: dailyPayDates[dailyPayDates.length - 1] || legacyPayments.thursdayDate,
       daily_total,
       daily_entries,
     },
