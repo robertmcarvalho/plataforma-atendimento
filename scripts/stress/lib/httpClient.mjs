@@ -23,7 +23,7 @@ export async function loginAdmin(baseUrl, email, password) {
   return res.body.token;
 }
 
-const PROD_SUPABASE_REF = 'ojzzxqqatqncchnspkch';
+const PROD_SUPABASE_REF = 'omhlbavfsttwcnybzvcd';
 
 export function blockProductionUrl(url, flagName = 'CONFIRM_PRODUCTION_STRESS') {
   const raw = String(url || '');

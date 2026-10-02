@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 
-/** Supabase plataforma_atendimento — banco de produção (aetheraai.online). */
+/** Supabase plataforma_atendimento — banco de produção (aetheraai.com.br). */
 const PROD_REF = 'omhlbavfsttwcnybzvcd';
 /** Projeto legado pausável (ex-staging no Dashboard); não usar em produção. */
 const LEGACY_REF = 'ojzzxqqatqncchnspkch';
