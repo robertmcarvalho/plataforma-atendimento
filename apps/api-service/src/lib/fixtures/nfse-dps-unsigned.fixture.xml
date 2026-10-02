@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fixture ilustrativa DPS v1.01 (unsigned). Gerada pelo builder; não enviar à Sefin. -->
+<DPS xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01">
+  <infDPS Id="DPS317020625074901600017000001000000000000001">
+    <tpAmb>2</tpAmb>
+    <dhEmi>2026-08-12T15:00:00-03:00</dhEmi>
+    <verAplic>plat-nfse/0.2</verAplic>
+    <serie>1</serie>
+    <nDPS>1</nDPS>
+    <dCompet>2026-08-01</dCompet>
+    <tpEmit>1</tpEmit>
+    <cLocEmi>3170206</cLocEmi>
+    <prest>
+      <CNPJ>50749016000170</CNPJ>
+      <IM>000000000123456</IM>
+      <email>fiscal@example.local</email>
+      <regTrib>
+        <opSimpNac>1</opSimpNac>
+        <regEspTrib>1</regEspTrib>
+      </regTrib>
+    </prest>
+    <toma>
+      <CNPJ>11222333000181</CNPJ>
+      <IM>000000000998877</IM>
+      <xNome>FARMACIA FIXTURE LTDA</xNome>
+      <end>
+        <endNac>
+          <cMun>3170206</cMun>
+          <CEP>38400000</CEP>
+        </endNac>
+        <xLgr>Rua Exemplo</xLgr>
+        <nro>100</nro>
+        <xBairro>Centro</xBairro>
+      </end>
+    </toma>
+    <serv>
+      <locPrest>
+        <cLocPrestacao>3170206</cLocPrestacao>
+      </locPrest>
+      <cServ>
+        <cTribNac>260101</cTribNac>
+        <xDescServ>Prestação de serviços de entrega no período de 01/08/2026 a 15/08/2026 — FARMACIA FIXTURE LTDA</xDescServ>
+        <cNBS>107020000</cNBS>
+      </cServ>
+    </serv>
+    <valores>
+      <vServPrest>
+        <vServ>150.50</vServ>
+      </vServPrest>
+      <trib>
+        <tribMun>
+          <tribISSQN>1</tribISSQN>
+          <tpRetISSQN>1</tpRetISSQN>
+        </tribMun>
+        <totTrib>
+          <pTotTrib>
+            <pTotTribFed>0.00</pTotTribFed>
+            <pTotTribEst>0.00</pTotTribEst>
+            <pTotTribMun>3.00</pTotTribMun>
+          </pTotTrib>
+        </totTrib>
+      </trib>
+    </valores>
+  </infDPS>
+</DPS>
