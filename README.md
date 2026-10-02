@@ -2,7 +2,7 @@
 
 Plataforma de suporte e atendimento multicanal (WhatsApp, e-mail, LLM), com roteamento, automações, financeiro parcelado e campanhas com anti-ban.
 
-**Produção:** [https://www.aetheraai.online](https://www.aetheraai.online) · Supabase **plataforma_atendimento** (`omhlbavfsttwcnybzvcd`) · GCP `rh-coopmob-bot`
+**Produção:** [https://www.aetheraai.com.br](https://www.aetheraai.com.br) · Supabase **plataforma_atendimento** (`omhlbavfsttwcnybzvcd`) · GCP `rh-coopmob-bot`
 
 Documentação operacional: [docs/README.md](docs/README.md) · [docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
 
@@ -101,3 +101,11 @@ plataforma_atendimento/
 ## Deploy
 
 Ver [docs/DEPLOY_CLOUD_RUN.md](docs/DEPLOY_CLOUD_RUN.md) e [docs/GO_LIVE_CHECKLIST.md](docs/GO_LIVE_CHECKLIST.md).
+
+**Após deploy de nova imagem** nos serviços `flux-farma-*` (obrigatório):
+
+```bash
+npm run gcp:post-deploy:pilot
+```
+
+Runbook scaling + rollback: [docs/CLOUD_RUN_SCALING.md](docs/CLOUD_RUN_SCALING.md). Instruções para agentes: [AGENTS.md](AGENTS.md).

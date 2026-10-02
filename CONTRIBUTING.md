@@ -32,3 +32,11 @@ Se a PR altera schema, inclua migration em `supabase/migrations/` e documente no
 ## Deploy
 
 Deploy de produção é manual via Cloud Build / scripts em `deploy/` — não há deploy automático no GitHub Actions na v1.
+
+**Pós-deploy (obrigatório após nova imagem Cloud Run):**
+
+```bash
+npm run gcp:post-deploy:pilot
+```
+
+Scaling piloto, quando rodar scripts e rollback: [docs/CLOUD_RUN_SCALING.md](docs/CLOUD_RUN_SCALING.md).

@@ -150,7 +150,7 @@ $env:API_ADMIN_EMAIL="admin-staging@..."
 $env:API_ADMIN_PASSWORD="..."
 npm run smoke:ticketing-mcp-api
 npm run smoke:financial-summary
-npm run smoke:inbox-unificado-guided-api
+npm run smoke:inbox-guided-api
 npm run smoke:metrics-alerts-api
 npm run smoke:ai-api
 ```
@@ -174,6 +174,30 @@ Validar no navegador:
 - Financeiro: resumo, lançamentos e parcelas.
 - Automações e configurações por webhook/canal.
 - Copiloto/IA conforme flags habilitadas no ambiente.
+
+## Leader mobile QA (`/lider/*`)
+
+Testar em viewport **375×667** e **390×844** (Chrome DevTools ou dispositivo real), com usuário `role=leader`.
+
+### Shell e navegação
+
+- [ ] Botão menu (☰) abre/fecha sidebar; backdrop fecha ao toque.
+- [ ] Sidebar fecha ao trocar de rota e com tecla Escape.
+- [ ] Conteúdo ocupa largura útil sem scroll horizontal no shell.
+
+### Rotas
+
+| Rota | Verificar |
+|------|-----------|
+| `/lider` | KPIs e ações rápidas legíveis em coluna única |
+| `/lider/farmacias`, `/lider/entregadores` | Lista → detalhe → Voltar; busca na lista |
+| `/lider/diarias`, `/lider/faltas` | Formulário e resumo empilhados; campos usáveis com teclado virtual |
+| `/lider/pre-cadastro`, `/lider/desligamento` | Formulário antes do histórico no mobile |
+| `/lider/chat` | Lista de conversas ↔ thread com Voltar; Nova conversa via modal; composer com safe-area; OTP modal rolável (`max-h` 90dvh) |
+
+### Regressão desktop (`≥1024px`)
+
+- [ ] Sidebar fixa e redimensionável; layout master-detail e chat em 3 colunas inalterados.
 
 ## Rollback
 

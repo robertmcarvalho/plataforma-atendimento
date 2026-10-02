@@ -1,0 +1,1277 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Proposta Comercial — Farmácia Exemplo · Flux Farma</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --flux-blue: #1B3A6B;
+      --flux-blue-light: #2B5BA8;
+      --flux-accent: #00C28B;
+      --flux-accent-dim: #00C28B22;
+      --flux-warn: #F59E0B;
+      --flux-warn-dim: #F59E0B18;
+      --flux-ink: #0F1923;
+      --flux-muted: #64748B;
+      --flux-border: #E2E8F0;
+      --flux-bg: #F8FAFC;
+      --flux-card: #FFFFFF;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 4px 24px -4px rgba(27, 58, 107, 0.12);
+      --shadow-lg: 0 12px 40px -8px rgba(27, 58, 107, 0.18);
+      --font: 'Inter', system-ui, -apple-system, sans-serif;
+      --font-display: 'DM Serif Display', Georgia, serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      font-family: var(--font);
+      background: var(--flux-bg);
+      color: var(--flux-ink);
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .deck {
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+      max-height: 100vh;
+    }
+
+    .deck-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 1.25rem;
+      background: var(--flux-card);
+      border-bottom: 1px solid var(--flux-border);
+      flex-shrink: 0;
+      gap: 1rem;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: var(--flux-blue);
+    }
+
+    .brand-mark {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--flux-blue), var(--flux-blue-light));
+      display: grid;
+      place-items: center;
+      color: white;
+      font-family: var(--font-display);
+      font-size: 0.85rem;
+      letter-spacing: -0.02em;
+    }
+
+    .slide-counter {
+      font-size: 0.8rem;
+      color: var(--flux-muted);
+      white-space: nowrap;
+    }
+
+    .prototype-badge {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+      background: var(--flux-accent-dim);
+      color: var(--flux-accent);
+      font-weight: 600;
+    }
+
+    .slides-viewport {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(900px circle at 85% -15%, rgba(43, 91, 168, 0.09), transparent 55%),
+        radial-gradient(600px circle at 10% 100%, rgba(0, 194, 139, 0.06), transparent 50%),
+        var(--flux-bg);
+    }
+
+    .slides-track {
+      display: flex;
+      height: 100%;
+      transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .slide {
+      min-width: 100%;
+      height: 100%;
+      padding: 1.5rem 1.25rem 5rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: stretch;
+    }
+
+    .slide-inner {
+      max-width: 760px;
+      width: 100%;
+      margin: 0 auto;
+      animation: slideIn 0.5s ease-out;
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .slide-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--flux-accent);
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .slide h1 {
+      font-family: var(--font-display);
+      font-size: clamp(1.85rem, 5vw, 2.6rem);
+      font-weight: 400;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      color: var(--flux-blue);
+      margin-bottom: 0.75rem;
+    }
+
+    .slide h2 {
+      font-family: var(--font-display);
+      font-size: clamp(1.4rem, 4vw, 2rem);
+      font-weight: 400;
+      line-height: 1.2;
+      color: var(--flux-blue);
+      margin-bottom: 1rem;
+    }
+
+    .slide p {
+      font-size: 1rem;
+      line-height: 1.65;
+      color: var(--flux-muted);
+      margin-bottom: 1rem;
+    }
+
+    .slide p.lead {
+      font-size: 1.05rem;
+      color: var(--flux-ink);
+    }
+
+    .card {
+      background: var(--flux-card);
+      border: 1px solid var(--flux-border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      box-shadow: var(--shadow);
+      margin-bottom: 1rem;
+    }
+
+    .card-accent {
+      border-left: 3px solid var(--flux-accent);
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 0.75rem;
+      margin: 1.25rem 0;
+    }
+
+    .stat {
+      background: var(--flux-card);
+      border: 1px solid var(--flux-border);
+      border-radius: var(--radius-sm);
+      padding: 1rem;
+      text-align: center;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .stat:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow);
+    }
+
+    .stat-value {
+      font-size: 1.45rem;
+      font-weight: 700;
+      color: var(--flux-blue);
+      line-height: 1.2;
+    }
+
+    .stat-label {
+      font-size: 0.72rem;
+      color: var(--flux-muted);
+      margin-top: 0.25rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.35rem 0.85rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    .badge-success {
+      background: #ECFDF5;
+      color: #059669;
+    }
+
+    .badge-primary {
+      background: #EFF6FF;
+      color: #2563EB;
+    }
+
+    .badge-pack {
+      background: linear-gradient(135deg, var(--flux-blue), var(--flux-blue-light));
+      color: #fff;
+      font-size: 0.85rem;
+      padding: 0.45rem 1rem;
+      box-shadow: 0 4px 16px rgba(27, 58, 107, 0.25);
+    }
+
+    .list-check {
+      list-style: none;
+      margin: 1rem 0;
+    }
+
+    .list-check li {
+      position: relative;
+      padding-left: 1.75rem;
+      margin-bottom: 0.65rem;
+      line-height: 1.55;
+      font-size: 0.95rem;
+    }
+
+    .list-check li::before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      color: var(--flux-accent);
+      font-weight: 700;
+    }
+
+    .kv-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    .kv-table tr { border-bottom: 1px solid var(--flux-border); }
+    .kv-table tr:last-child { border-bottom: none; }
+    .kv-table td { padding: 0.65rem 0; }
+    .kv-table td:first-child { color: var(--flux-muted); width: 50%; }
+    .kv-table td:last-child { font-weight: 600; text-align: right; color: var(--flux-ink); }
+
+    /* Cover */
+    .slide-cover { text-align: center; justify-content: center; }
+
+    .slide-cover .slide-inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .cover-logo {
+      width: 76px;
+      height: 76px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, var(--flux-blue), var(--flux-blue-light));
+      display: grid;
+      place-items: center;
+      color: white;
+      font-family: var(--font-display);
+      font-size: 1.6rem;
+      margin-bottom: 2rem;
+      box-shadow: var(--shadow-lg);
+    }
+
+    .cover-client {
+      font-family: var(--font-display);
+      font-size: clamp(2rem, 6vw, 3.2rem);
+      letter-spacing: -0.03em;
+      margin-bottom: 0.5rem;
+      color: var(--flux-blue);
+    }
+
+    .cover-meta {
+      font-size: 1rem;
+      color: var(--flux-muted);
+      margin-bottom: 1.25rem;
+    }
+
+    .cover-date { font-size: 0.85rem; color: var(--flux-muted); }
+
+    .cover-model-tag {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--flux-muted);
+      margin-bottom: 0.75rem;
+    }
+
+    /* Highlight box (preview.html style) */
+    .highlight-box {
+      background: linear-gradient(135deg, var(--flux-blue), var(--flux-blue-light));
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      color: #fff;
+      margin: 1rem 0;
+    }
+
+    .highlight-box .accent-line {
+      width: 36px;
+      height: 3px;
+      background: var(--flux-accent);
+      border-radius: 2px;
+      margin-bottom: 0.75rem;
+    }
+
+    .highlight-box .title {
+      font-family: var(--font-display);
+      font-size: 1.15rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .highlight-box .body {
+      font-size: 0.9rem;
+      color: rgba(255, 255, 255, 0.78);
+      line-height: 1.6;
+    }
+
+    .highlight {
+      border-left: 3px solid var(--flux-accent);
+      padding: 1rem 1.25rem;
+      background: var(--flux-accent-dim);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      margin: 1rem 0;
+      font-size: 0.92rem;
+      line-height: 1.55;
+      color: var(--flux-ink);
+    }
+
+    /* Package cards */
+    .pack-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 0.85rem;
+      margin: 1.25rem 0;
+    }
+
+    .pack-card {
+      border: 2px solid var(--flux-border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      cursor: pointer;
+      background: var(--flux-card);
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+      text-align: left;
+    }
+
+    .pack-card:hover {
+      transform: translateY(-3px);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .pack-card.selected {
+      border-color: var(--flux-accent);
+      box-shadow: 0 0 0 3px var(--flux-accent-dim), var(--shadow-lg);
+    }
+
+    .pack-card-header {
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid var(--flux-border);
+    }
+
+    .pack-card-header.basico { background: #F1F5F9; }
+    .pack-card-header.medio { background: #EFF6FF; border-bottom-color: #BFDBFE; }
+    .pack-card-header.capital { background: #FFFBEB; border-bottom-color: #FCD34D; }
+
+    .pack-card-header .pack-eyebrow {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.25rem;
+    }
+
+    .pack-card-header.basico .pack-eyebrow { color: var(--flux-muted); }
+    .pack-card-header.medio .pack-eyebrow { color: #2563EB; }
+    .pack-card-header.capital .pack-eyebrow { color: #D97706; }
+
+    .pack-price {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--flux-blue);
+      line-height: 1.1;
+    }
+
+    .pack-price span {
+      font-size: 0.8rem;
+      font-weight: 400;
+      color: var(--flux-muted);
+    }
+
+    .pack-card-body {
+      padding: 0.85rem 1rem;
+      font-size: 0.82rem;
+      color: var(--flux-muted);
+      line-height: 1.55;
+    }
+
+    .pack-card-body strong { color: var(--flux-ink); }
+
+    .pack-card-body li {
+      list-style: none;
+      padding-left: 1rem;
+      position: relative;
+      margin-bottom: 0.35rem;
+    }
+
+    .pack-card-body li::before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      color: var(--flux-accent);
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+
+    .pack-recommended {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      font-size: 0.6rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      background: var(--flux-accent);
+      color: #fff;
+      padding: 0.2rem 0.5rem;
+      border-radius: 99px;
+    }
+
+    .pack-card { position: relative; }
+
+    /* Result box (simulator style) */
+    .result-box {
+      background: var(--flux-blue);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      margin-top: 1rem;
+    }
+
+    .result-title {
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.5);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 1rem;
+    }
+
+    .result-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 0.55rem 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 0.88rem;
+    }
+
+    .result-row:last-of-type { border-bottom: none; }
+
+    .result-name { color: rgba(255, 255, 255, 0.65); }
+
+    .result-amount {
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .result-amount.accent { color: var(--flux-accent); }
+
+    /* Faixa table */
+    .faixa-table {
+      border: 1px solid var(--flux-border);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      margin-top: 1rem;
+      font-size: 0.82rem;
+    }
+
+    .faixa-row {
+      display: flex;
+      align-items: center;
+      padding: 0.65rem 0.85rem;
+      gap: 0.75rem;
+      border-bottom: 1px solid var(--flux-border);
+      flex-wrap: wrap;
+    }
+
+    .faixa-row:last-child { border-bottom: none; }
+
+    .faixa-range {
+      min-width: 120px;
+      font-weight: 600;
+      color: var(--flux-blue);
+      font-size: 0.78rem;
+    }
+
+    .faixa-desc {
+      flex: 1;
+      color: var(--flux-muted);
+      min-width: 140px;
+    }
+
+    .faixa-taxa {
+      font-weight: 700;
+      color: var(--flux-ink);
+      white-space: nowrap;
+    }
+
+    /* CTA */
+    .cta-box {
+      text-align: center;
+      padding: 2rem 1.5rem;
+      background: linear-gradient(135deg, var(--flux-blue), var(--flux-blue-light));
+      border-radius: var(--radius);
+      color: white;
+      margin-top: 1.5rem;
+    }
+
+    .cta-box h3 {
+      font-family: var(--font-display);
+      font-size: 1.35rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .cta-box p {
+      color: rgba(255, 255, 255, 0.8);
+      margin-bottom: 1.25rem;
+    }
+
+    .cta-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.85rem 1.5rem;
+      background: white;
+      color: var(--flux-blue);
+      border: none;
+      border-radius: 999px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+
+    .cta-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    }
+
+    .steps {
+      display: grid;
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+
+    @media (min-width: 640px) {
+      .steps { grid-template-columns: repeat(3, 1fr); }
+    }
+
+    .step {
+      text-align: center;
+      padding: 1rem;
+      border: 1px solid var(--flux-border);
+      border-radius: var(--radius-sm);
+      background: var(--flux-card);
+      transition: transform 0.2s;
+    }
+
+    .step:hover { transform: translateY(-2px); }
+
+    .step-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--flux-blue);
+      color: white;
+      font-size: 0.8rem;
+      font-weight: 700;
+      display: grid;
+      place-items: center;
+      margin: 0 auto 0.5rem;
+    }
+
+    .step-title { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.25rem; }
+    .step-desc { font-size: 0.8rem; color: var(--flux-muted); }
+
+    /* Navigation */
+    .deck-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(12px);
+      border-top: 1px solid var(--flux-border);
+      z-index: 10;
+    }
+
+    .nav-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: 1px solid var(--flux-border);
+      background: var(--flux-card);
+      color: var(--flux-ink);
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      font-size: 1.25rem;
+      transition: background 0.15s, border-color 0.15s;
+      flex-shrink: 0;
+    }
+
+    .nav-btn:hover:not(:disabled) {
+      background: #EFF6FF;
+      border-color: var(--flux-blue-light);
+    }
+
+    .nav-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .nav-dots {
+      display: flex;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 320px;
+    }
+
+    .nav-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      border: none;
+      background: var(--flux-border);
+      cursor: pointer;
+      padding: 0;
+      transition: background 0.2s, transform 0.2s;
+    }
+
+    .nav-dot.active {
+      background: var(--flux-blue);
+      transform: scale(1.25);
+    }
+
+    .nav-dot:hover:not(.active) { background: var(--flux-blue-light); }
+
+    .keyboard-hint {
+      display: none;
+      font-size: 0.7rem;
+      color: var(--flux-muted);
+    }
+
+    @media (min-width: 768px) {
+      .keyboard-hint { display: block; }
+      .slide { padding: 2rem 2rem 5.5rem; }
+    }
+
+    .proto-footer {
+      text-align: center;
+      font-size: 0.7rem;
+      color: var(--flux-muted);
+      margin-top: 2rem;
+      opacity: 0.7;
+    }
+
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin-top: 0.75rem;
+    }
+
+    .tag {
+      font-size: 0.72rem;
+      padding: 0.2rem 0.6rem;
+      border-radius: 99px;
+      background: #F1F5F9;
+      color: var(--flux-muted);
+      border: 1px solid var(--flux-border);
+    }
+
+    .tag.green { background: #ECFDF5; color: #059669; border-color: #A7F3D0; }
+  </style>
+</head>
+<body>
+  <div class="deck" role="application" aria-label="Apresentação de proposta comercial">
+    <header class="deck-header">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">F</div>
+        <span>Flux Farma</span>
+      </div>
+      <span class="slide-counter" id="slideCounter">1 / 9</span>
+      <span class="prototype-badge">Modelo 2026</span>
+    </header>
+
+    <div class="slides-viewport">
+      <div class="slides-track" id="slidesTrack">
+
+        <!-- Slide 1: Capa -->
+        <section class="slide slide-cover" data-slide="0" aria-label="Capa">
+          <div class="slide-inner">
+            <div class="cover-logo" aria-hidden="true">F</div>
+            <p class="cover-model-tag">Modelo Comercial 2026</p>
+            <p class="slide-label">Proposta Comercial</p>
+            <h1 class="cover-client">Farmácia Exemplo</h1>
+            <p class="cover-meta">Belo Horizonte · MG · Maria Silva</p>
+            <span class="badge badge-pack" id="coverPackBadge">Pacote Médio · R$ 1.200/sem</span>
+            <div class="tag-row" style="justify-content: center; margin-top: 0.75rem;">
+              <span class="tag green">Cobertura operacional</span>
+              <span class="tag green">Previsibilidade de custo</span>
+            </div>
+            <p class="cover-date" style="margin-top: 1.5rem;">15 de junho de 2026</p>
+          </div>
+        </section>
+
+        <!-- Slide 2: Diagnóstico -->
+        <section class="slide" data-slide="1" aria-label="Diagnóstico">
+          <div class="slide-inner">
+            <p class="slide-label">Diagnóstico</p>
+            <h2>Perfil da sua operação</h2>
+            <p class="lead">Entendemos o volume e os horários da farmácia para dimensionar a cobertura com precisão.</p>
+
+            <div class="stat-grid">
+              <div class="stat">
+                <div class="stat-value">480</div>
+                <div class="stat-label">Entregas / mês</div>
+              </div>
+              <div class="stat">
+                <div class="stat-value">~18</div>
+                <div class="stat-label">Entregas / dia útil</div>
+              </div>
+              <div class="stat">
+                <div class="stat-value">~90</div>
+                <div class="stat-label">Entregas / semana</div>
+              </div>
+            </div>
+
+            <div class="card">
+              <h3 style="font-size: 0.95rem; font-weight: 600; color: var(--flux-blue); margin-bottom: 0.75rem;">Horários de delivery informados</h3>
+              <table class="kv-table">
+                <tr><td>Segunda a sexta</td><td>08:00 às 18:00</td></tr>
+                <tr><td>Sábado</td><td>08:00 às 14:00</td></tr>
+                <tr><td>Domingo</td><td>Fechado ao delivery</td></tr>
+                <tr><td>Feriados</td><td>Fechado</td></tr>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Slide 3: Viabilidade -->
+        <section class="slide" data-slide="2" aria-label="Viabilidade">
+          <div class="slide-inner">
+            <p class="slide-label">Viabilidade</p>
+            <h2>Operação viável</h2>
+            <span class="badge badge-success" style="margin-bottom: 1rem;">✓ Cobertura recomendada</span>
+            <p class="lead">Com o volume atual, recomendamos o <strong id="viabPackName">Pacote Médio</strong> — cidade média com franquia de 100 entregas/semana.</p>
+
+            <div class="highlight-box">
+              <div class="accent-line"></div>
+              <div class="title">Cobertura sem surpresa</div>
+              <div class="body">A farmácia contrata <strong style="color:#fff">disponibilidade operacional da cooperativa</strong>, não um entregador individual. Folgas e substituições são organizadas pela Flux — diária de cobertura de <strong style="color:#fff">R$ 250</strong> apenas quando necessário.</div>
+            </div>
+
+            <div class="stat-grid">
+              <div class="stat">
+                <div class="stat-value" id="viabFranquia">100</div>
+                <div class="stat-label">Franquia / semana</div>
+              </div>
+              <div class="stat">
+                <div class="stat-value">1</div>
+                <div class="stat-label">Entregador fixo</div>
+              </div>
+              <div class="stat">
+                <div class="stat-value">1</div>
+                <div class="stat-label">Diária / semana</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Slide 4: Escolha do pacote -->
+        <section class="slide" data-slide="3" aria-label="Escolha do pacote">
+          <div class="slide-inner">
+            <p class="slide-label">Pacotes 2026</p>
+            <h2>Escolha do pacote</h2>
+            <p class="lead">Pacote fixo semanal calibrado por <strong>região</strong> e <strong>volume</strong>. Dentro da franquia: custo previsível. Acima: excedente por faixa.</p>
+
+            <div class="pack-grid" role="radiogroup" aria-label="Seleção de pacote">
+              <button type="button" class="pack-card" data-pack="basico" aria-pressed="false">
+                <div class="pack-card-header basico">
+                  <div class="pack-eyebrow">Pacote Básico</div>
+                  <div class="pack-price">R$ 1.000<span>/sem</span></div>
+                </div>
+                <div class="pack-card-body">
+                  <div style="font-weight:600;color:var(--flux-ink);margin-bottom:0.5rem;">Interior / cidade pequena</div>
+                  <ul>
+                    <li>Franquia: <strong>até 80 entregas</strong></li>
+                    <li>Custo/entrega: <strong>R$ 12,50</strong></li>
+                    <li>Referência regional: R$ 1.000</li>
+                  </ul>
+                </div>
+              </button>
+
+              <button type="button" class="pack-card selected" data-pack="medio" aria-pressed="true">
+                <span class="pack-recommended">Recomendado</span>
+                <div class="pack-card-header medio">
+                  <div class="pack-eyebrow">Pacote Médio</div>
+                  <div class="pack-price">R$ 1.200<span>/sem</span></div>
+                </div>
+                <div class="pack-card-body">
+                  <div style="font-weight:600;color:var(--flux-ink);margin-bottom:0.5rem;">Cidade média</div>
+                  <ul>
+                    <li>Franquia: <strong>até 100 entregas</strong></li>
+                    <li>Custo/entrega: <strong>R$ 12,00</strong></li>
+                    <li>Referência regional: R$ 1.200</li>
+                  </ul>
+                </div>
+              </button>
+
+              <button type="button" class="pack-card" data-pack="capital" aria-pressed="false">
+                <div class="pack-card-header capital">
+                  <div class="pack-eyebrow">Pacote Capital</div>
+                  <div class="pack-price">R$ 1.400<span>/sem</span></div>
+                </div>
+                <div class="pack-card-body">
+                  <div style="font-weight:600;color:var(--flux-ink);margin-bottom:0.5rem;">Capital / grande cidade</div>
+                  <ul>
+                    <li>Franquia: <strong>até 120 entregas</strong></li>
+                    <li>Custo/entrega: <strong>R$ 11,67</strong></li>
+                    <li>Referência regional: R$ 1.400</li>
+                  </ul>
+                </div>
+              </button>
+            </div>
+
+            <div class="card card-accent">
+              <p style="margin:0;font-size:0.88rem;color:var(--flux-muted);line-height:1.6;">
+                <strong style="color:var(--flux-ink);">Região define o valor.</strong> Capitais têm custo de vida maior — o pacote já vem calibrado para viabilizar a operação local.
+                <strong style="color:var(--flux-ink);"> Volume define a franquia.</strong> Acima dela, cobrança transparente por entrega adicional.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Slide 5: Operação -->
+        <section class="slide" data-slide="4" aria-label="Operação">
+          <div class="slide-inner">
+            <p class="slide-label">Operação</p>
+            <h2>Como funciona na prática</h2>
+            <p>Equipe enxuta com cobertura de folga via diarista — modelo testado em centenas de farmácias.</p>
+
+            <ul class="list-check">
+              <li><strong>1 entregador fixo</strong> com escala seg–sáb conforme horários da loja</li>
+              <li><strong>1 diária por semana</strong> (folguista) para cobrir a folga semanal</li>
+              <li>Escala resumida: titular + folguista quando necessário</li>
+              <li>Raio base incluído — km adicional cobrado de forma transparente</li>
+            </ul>
+
+            <div class="card">
+              <h3 style="font-size: 0.95rem; font-weight: 600; color: var(--flux-blue); margin-bottom: 0.5rem;">Janela de atendimento</h3>
+              <table class="kv-table">
+                <tr><td>Seg–Sex</td><td>08:00 às 18:00</td></tr>
+                <tr><td>Sábado</td><td>08:00 às 14:00</td></tr>
+                <tr><td>Domingo</td><td>Fechado ao delivery</td></tr>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Slide 6: Economia -->
+        <section class="slide" data-slide="5" aria-label="Economia">
+          <div class="slide-inner">
+            <p class="slide-label">Investimento</p>
+            <h2>Economia e previsibilidade</h2>
+            <p>Modelo <strong>Pacote fixo semanal + excedente escalonado</strong> — <span id="econPackLabel">Pacote Médio</span>.</p>
+
+            <div class="stat-grid">
+              <div class="stat">
+                <div class="stat-value" id="econPackValue">R$ 1.200</div>
+                <div class="stat-label">Pacote / semana</div>
+              </div>
+              <div class="stat">
+                <div class="stat-value" id="econFranquia">100</div>
+                <div class="stat-label">Franquia entregas</div>
+              </div>
+              <div class="stat">
+                <div class="stat-value">R$ 250</div>
+                <div class="stat-label">Diária cobertura</div>
+              </div>
+            </div>
+
+            <div class="result-box">
+              <div class="result-title">Resumo semanal estimado</div>
+              <div class="result-row">
+                <span class="result-name">Pacote base</span>
+                <span class="result-amount" id="resBase">R$ 1.200</span>
+              </div>
+              <div class="result-row">
+                <span class="result-name">Diária folguista (1×/sem)</span>
+                <span class="result-amount">R$ 250</span>
+              </div>
+              <div class="result-row">
+                <span class="result-name">Excedente (volume ~90 entregas)</span>
+                <span class="result-amount" id="resExcedente">—</span>
+              </div>
+              <div class="result-row">
+                <span class="result-name" style="color:#fff;font-weight:600;">Total estimado / semana</span>
+                <span class="result-amount accent" id="resTotal">R$ 1.450</span>
+              </div>
+              <div class="result-row">
+                <span class="result-name">Referência mensal (~4,33 sem)</span>
+                <span class="result-amount" id="resMensal">R$ 6.278</span>
+              </div>
+            </div>
+
+            <div class="faixa-table">
+              <div class="faixa-row">
+                <span class="faixa-range" id="faixa0">0 – 100 entregas</span>
+                <span class="faixa-desc">Dentro do pacote</span>
+                <span class="faixa-taxa">incluso</span>
+              </div>
+              <div class="faixa-row">
+                <span class="faixa-range" id="faixa1">101 – 140</span>
+                <span class="faixa-desc">Excedente leve</span>
+                <span class="faixa-taxa">+ R$ 8,00/ent</span>
+              </div>
+              <div class="faixa-row">
+                <span class="faixa-range" id="faixa2">141 – 200</span>
+                <span class="faixa-desc">Excedente médio</span>
+                <span class="faixa-taxa">+ R$ 9,50/ent</span>
+              </div>
+              <div class="faixa-row">
+                <span class="faixa-range" id="faixa3">201+</span>
+                <span class="faixa-desc">Alto volume — reforço</span>
+                <span class="faixa-taxa">+ R$ 11,00/ent</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Slide 7: Setup -->
+        <section class="slide" data-slide="6" aria-label="Setup">
+          <div class="slide-inner">
+            <p class="slide-label">Implantação</p>
+            <h2>Setup e implantação</h2>
+            <p>Investimento único para configurar operação, treinamento e integração com sua farmácia.</p>
+
+            <div class="stat-grid">
+              <div class="stat">
+                <div class="stat-value">R$ 2.500</div>
+                <div class="stat-label">Setup total</div>
+              </div>
+              <div class="stat">
+                <div class="stat-value">À vista</div>
+                <div class="stat-label">Forma de pagamento</div>
+              </div>
+            </div>
+
+            <ul class="list-check">
+              <li>Configuração da operação e rotas</li>
+              <li>Treinamento da equipe de balcão e expediente</li>
+              <li>Integração com app de delivery e acompanhamento inicial</li>
+              <li>Suporte dedicado nas primeiras semanas</li>
+            </ul>
+
+            <div class="highlight">
+              O setup é independente do pacote escolhido. Após implantação, a cobrança recorrente segue o modelo de pacote fixo semanal.
+            </div>
+          </div>
+        </section>
+
+        <!-- Slide 8: Fechamento -->
+        <section class="slide" data-slide="7" aria-label="Fechamento">
+          <div class="slide-inner">
+            <p class="slide-label">Resumo</p>
+            <h2>Resumo da proposta</h2>
+            <p class="lead"><span id="closePackName">Pacote Médio</span> — proposta v2 · 15/06/2026</p>
+
+            <div class="card">
+              <ul class="list-check" style="margin: 0;" id="closeBullets">
+                <li><strong id="closePackBullet">Pacote Médio</strong> — R$ 1.200/semana · franquia 100 entregas</li>
+                <li>1 entregador fixo + 1 diária/semana de folguista</li>
+                <li>Domingo fechado ao delivery (sem custo de folguista)</li>
+                <li>Excedente escalonado: R$ 8,00 / R$ 9,50 / R$ 11,00 por entrega</li>
+                <li>Setup R$ 2.500,00 à vista</li>
+                <li>Operação viável para ~480 entregas/mês</li>
+              </ul>
+            </div>
+
+            <div class="highlight-box">
+              <div class="accent-line"></div>
+              <div class="title">Proposta exclusiva</div>
+              <div class="body">Preparada para <strong style="color:#fff">Farmácia Exemplo</strong> com base nos dados informados. Valores válidos na data de emissão.</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Slide 9: Próximos passos -->
+        <section class="slide" data-slide="8" aria-label="Próximos passos">
+          <div class="slide-inner">
+            <p class="slide-label">Próximos passos</p>
+            <h2>Como avançar</h2>
+            <p>Gostou da proposta? Veja o caminho até o go-live:</p>
+
+            <div class="steps">
+              <div class="step">
+                <div class="step-num">1</div>
+                <div class="step-title">Tire dúvidas</div>
+                <div class="step-desc">Converse com seu consultor Flux Farma</div>
+              </div>
+              <div class="step">
+                <div class="step-num">2</div>
+                <div class="step-title">Formalize</div>
+                <div class="step-desc">Envio do contrato e dados da farmácia</div>
+              </div>
+              <div class="step">
+                <div class="step-num">3</div>
+                <div class="step-title">Go-live</div>
+                <div class="step-desc">Implantação em até 15 dias úteis</div>
+              </div>
+            </div>
+
+            <div class="cta-box">
+              <h3>Pronto para começar?</h3>
+              <p id="ctaPackHint">Pacote Médio · R$ 1.200/semana — fale com seu consultor</p>
+              <a class="cta-btn" href="#" onclick="event.preventDefault(); alert('Protótipo — sem integração real.')">
+                Chamar no WhatsApp
+              </a>
+            </div>
+
+            <p class="proto-footer">Protótipo estático · Modelo Comercial 2026 · dados fictícios para aprovação de layout</p>
+          </div>
+        </section>
+
+      </div>
+    </div>
+
+    <nav class="deck-nav" aria-label="Navegação de slides">
+      <button class="nav-btn" id="btnPrev" aria-label="Slide anterior" disabled>←</button>
+      <div class="nav-dots" id="navDots" role="tablist"></div>
+      <button class="nav-btn" id="btnNext" aria-label="Próximo slide">→</button>
+      <span class="keyboard-hint">← → navegar</span>
+    </nav>
+  </div>
+
+  <script>
+    (function () {
+      const PACKAGES = {
+        basico: {
+          id: 'basico',
+          name: 'Pacote Básico',
+          short: 'Básico',
+          value: 1000,
+          franquia: 80,
+          region: 'Interior / cidade pequena',
+          costPerDelivery: '12,50',
+          motorKey: 'pacote_basico_interior'
+        },
+        medio: {
+          id: 'medio',
+          name: 'Pacote Médio',
+          short: 'Médio',
+          value: 1200,
+          franquia: 100,
+          region: 'Cidade média',
+          costPerDelivery: '12,00',
+          motorKey: 'pacote_medio_cidade_media'
+        },
+        capital: {
+          id: 'capital',
+          name: 'Pacote Capital',
+          short: 'Capital',
+          value: 1400,
+          franquia: 120,
+          region: 'Capital / grande cidade',
+          costPerDelivery: '11,67',
+          motorKey: 'pacote_capital_grande_cidade'
+        }
+      };
+
+      const WEEKLY_DELIVERIES = 90;
+      const DAILY_COST = 250;
+      const WEEKS_PER_MONTH = 4.33;
+
+      let selectedPack = 'medio';
+      const TOTAL = 9;
+      let current = 0;
+
+      const track = document.getElementById('slidesTrack');
+      const counter = document.getElementById('slideCounter');
+      const btnPrev = document.getElementById('btnPrev');
+      const btnNext = document.getElementById('btnNext');
+      const dotsContainer = document.getElementById('navDots');
+
+      const labels = [
+        'Capa', 'Diagnóstico', 'Viabilidade', 'Pacotes',
+        'Operação', 'Economia', 'Setup', 'Fechamento', 'Próximos passos'
+      ];
+
+      function fmt(v) {
+        return 'R$ ' + Math.round(v).toLocaleString('pt-BR');
+      }
+
+      function calcExcedente(entregas, franquia) {
+        if (entregas <= franquia) return 0;
+        const t1 = 8, t2 = 9.5, t3 = 11;
+        const f1 = franquia + 40;
+        const f2 = franquia + 100;
+        let extra = 0;
+        extra += (Math.min(entregas, f1) - franquia) * t1;
+        if (entregas > f1) extra += (Math.min(entregas, f2) - f1) * t2;
+        if (entregas > f2) extra += (entregas - f2) * t3;
+        return extra;
+      }
+
+      function updatePackageUI() {
+        const p = PACKAGES[selectedPack];
+        const excedente = calcExcedente(WEEKLY_DELIVERIES, p.franquia);
+        const weeklyTotal = p.value + DAILY_COST + excedente;
+        const monthlyTotal = weeklyTotal * WEEKS_PER_MONTH;
+
+        document.getElementById('coverPackBadge').textContent =
+          p.name + ' · ' + fmt(p.value) + '/sem';
+
+        document.getElementById('viabPackName').textContent = p.name;
+        document.getElementById('viabFranquia').textContent = p.franquia;
+
+        document.getElementById('econPackLabel').textContent = p.name;
+        document.getElementById('econPackValue').textContent = fmt(p.value);
+        document.getElementById('econFranquia').textContent = p.franquia;
+
+        document.getElementById('resBase').textContent = fmt(p.value);
+        document.getElementById('resExcedente').textContent = excedente > 0 ? fmt(excedente) : '—';
+        document.getElementById('resTotal').textContent = fmt(weeklyTotal);
+        document.getElementById('resMensal').textContent = fmt(monthlyTotal);
+
+        const f1 = p.franquia + 40;
+        const f2 = p.franquia + 100;
+        document.getElementById('faixa0').textContent = '0 – ' + p.franquia + ' entregas';
+        document.getElementById('faixa1').textContent = (p.franquia + 1) + ' – ' + f1;
+        document.getElementById('faixa2').textContent = (f1 + 1) + ' – ' + f2;
+        document.getElementById('faixa3').textContent = (f2 + 1) + '+';
+
+        document.getElementById('closePackName').textContent = p.name;
+        document.getElementById('closePackBullet').textContent = p.name;
+        document.querySelector('#closeBullets li').innerHTML =
+          '<strong>' + p.name + '</strong> — ' + fmt(p.value) + '/semana · franquia ' + p.franquia + ' entregas';
+
+        document.getElementById('ctaPackHint').textContent =
+          p.name + ' · ' + fmt(p.value) + '/semana — fale com seu consultor';
+
+        document.querySelectorAll('.pack-card').forEach(function (card) {
+          const isSelected = card.dataset.pack === selectedPack;
+          card.classList.toggle('selected', isSelected);
+          card.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+        });
+      }
+
+      document.querySelectorAll('.pack-card').forEach(function (card) {
+        card.addEventListener('click', function () {
+          selectedPack = card.dataset.pack;
+          updatePackageUI();
+        });
+      });
+
+      for (let i = 0; i < TOTAL; i++) {
+        const dot = document.createElement('button');
+        dot.className = 'nav-dot' + (i === 0 ? ' active' : '');
+        dot.setAttribute('aria-label', 'Ir para slide ' + (i + 1) + ': ' + labels[i]);
+        dot.setAttribute('role', 'tab');
+        dot.dataset.index = i;
+        dot.addEventListener('click', function () { goTo(i); });
+        dotsContainer.appendChild(dot);
+      }
+
+      const dots = dotsContainer.querySelectorAll('.nav-dot');
+
+      function goTo(index) {
+        if (index < 0 || index >= TOTAL) return;
+        current = index;
+        track.style.transform = 'translateX(-' + (current * 100) + '%)';
+        counter.textContent = (current + 1) + ' / ' + TOTAL;
+        btnPrev.disabled = current === 0;
+        btnNext.disabled = current === TOTAL - 1;
+        dots.forEach(function (d, i) { d.classList.toggle('active', i === current); });
+      }
+
+      btnPrev.addEventListener('click', function () { goTo(current - 1); });
+      btnNext.addEventListener('click', function () { goTo(current + 1); });
+
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          goTo(current - 1);
+        } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
+          e.preventDefault();
+          goTo(current + 1);
+        } else if (e.key === 'Home') {
+          goTo(0);
+        } else if (e.key === 'End') {
+          goTo(TOTAL - 1);
+        }
+      });
+
+      var touchStartX = 0;
+      var viewport = document.querySelector('.slides-viewport');
+
+      viewport.addEventListener('touchstart', function (e) {
+        touchStartX = e.changedTouches[0].screenX;
+      }, { passive: true });
+
+      viewport.addEventListener('touchend', function (e) {
+        var diff = touchStartX - e.changedTouches[0].screenX;
+        if (Math.abs(diff) > 50) {
+          if (diff > 0) goTo(current + 1);
+          else goTo(current - 1);
+        }
+      }, { passive: true });
+
+      updatePackageUI();
+      goTo(0);
+    })();
+  </script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # Matriz de acesso por papel (referência)
 
-Papéis no modelo: `admin`, `supervisor`, `attendant`, `operational`, `financial`, e `leader` (portal do líder).
+Papéis no modelo: `admin`, `supervisor`, `attendant`, `operational`, `financial`, `financial_auditor` (Auditor financeiro), e `leader` (portal do líder).
 
 ## Configurações (`/settings` — `apps/web/src/app/(app)/settings/page.tsx`)
 
@@ -34,11 +34,52 @@ Implementação: `settingsSectionsForRole`, `canViewSettingsSection`, `SYSTEM_SE
 
 ## Menu lateral (`apps/web/src/components/shell/Sidebar.tsx`)
 
-Regras em `apps/web/src/lib/roleNav.ts` (`sidebarHrefsForRole`, `roleHasSettingsAccess`).
+Regras em `apps/web/src/lib/roleNav.ts` (`sidebarHrefsForRole`, `roleHasSettingsAccess`). Permissões granulares do perfil (JSON em `roles.permissions`) complementam o papel — ex.: `financial.view` libera `/financial` para `attendant`.
 
-- **leader**: apenas Portal do Líder e Suporte Operacional (`roleHasSettingsAccess` falso).
-- **supervisor**: menu operacional completo + financeiro + `/settings`.
-- **financial**, **operational**, **attendant**: incluem `/settings` para o grupo Conta e sistema; itens operacionais na própria página respeitam `canViewSettingsSection`.
+- **leader**: apenas Portal do Líder (`/lider/*`); sem `/operacao`, `/reports` nem `/settings`.
+- **supervisor**: `/operacao` (coordenação de campo), `/reports` (BI atendimento), dashboard, financeiro, cadastros, `/settings`.
+- **attendant**: `/operacao` — visual conforme setor (ver abaixo); sem `/reports` nem `/dashboard`. Com permissão **`financial.view`** no perfil, também `/financial` (menu e rota).
+- **financial**: `/operacao` (gestão financeira + tarefas) + cadastros, `/financial`, `/settings`.
+- **financial_auditor** (Auditor financeiro): somente `/billing` com subnav filtrada (conciliação, relatórios, DRE, acertos/a pagar/a receber em leitura). Pode conciliar baixas e importar extrato (`financial.reconcile`). Sem inbox, cadastros, `/reports`, aprovar acerto, mark_paid, fechar DRE ou enviar recibo.
+- **operational** (analista operacional): `/operacao` (carteira), cadastros, financeiro, `/settings` (grupo Conta); sem `/reports`.
+
+## Painéis de operação (`/operacao` + `/reports`)
+
+Roteamento UI (`apps/web/src/lib/operacao/operacaoMode.ts` + `apps/web/src/app/(app)/operacao/page.tsx`):
+
+| Setor principal (ou papel) | Visual |
+|----------------------------|--------|
+| Operacional | Carteira do analista — resumo + **tarefas** + **atendimentos** (`OperacaoCarteiraPage` + hub) |
+| Atendimento Geral | Execução — **só gestão de tarefas** (sem envio Autentique na UI) |
+| Financeiro (attendant) | Execução financeira (filtro `task_type`) |
+| `financial` | Gestor financeiro — escopo **global** (`OperacaoFinanceiroGestorPage` + `financial-hub`) |
+| `supervisor` / `admin` | Gestor operacional (`OperacaoGestorOperacionalPage` — carteira agregada de todos os analistas + filtro) |
+
+Deep link: `/operacao?task={uuid}` abre o drawer da tarefa.
+
+Plano UI operação (arquivado): `docs/archive/plans/OPERACAO_REVIVE_ADAPTATION_PLAN.md` — implementação em `components/operacao/revive/`.
+
+| Rota / API | attendant | supervisor | admin | financial |
+|------------|-----------|------------|-------|-----------|
+| `GET /api/ops-analytics/portfolio` | sim (carteira) | — | — | — |
+| `GET /api/ops-analytics/portfolio/hub` | sim (carteira + KPIs + pharmacy_cards + compliance + tarefas) | — | — | — |
+| `GET /api/ops-analytics/financial-hub` | — | — | sim | sim |
+| `GET /api/ops-analytics/execution-board` | sim (fila AG ou financeiro conforme setor) | — | — | — |
+| `GET /api/ops-analytics/tasks/launch-context` | sim (`scope=portfolio` analista, `scope=ag` AG) | — | — | — |
+| `POST /api/ops-analytics/tasks` (criação manual, `source: operacao_manual`) | sim (AG + analista; desligamento operacional só analista) | — | — | — |
+| `GET /api/ops-analytics/portfolio/launch-context` | sim | — | — | — |
+| `POST /api/ops-analytics/occurrences` (+ `on_behalf_of_leader_id`) | sim | — | — | — |
+| `GET /api/ops-analytics/gestor-operacional/hub` | — | sim | sim |
+| `GET /api/ops-analytics/gestor-operacional/attendants` | — | sim | sim |
+| `GET /api/settings/operacao-task-config` | — | sim | sim |
+| `PUT /api/settings` (`ops_task_playbooks`, `ops_task_sla_config`) | — | — | admin |
+| `PATCH /api/tasks/:id/playbook-progress` | sim | sim | sim |
+| `GET /api/ops-analytics/coordination` | — | sim | sim (legado BI) |
+| `GET /api/tasks` (pendências do setor) | sim | sim | sim | sim |
+| `GET /api/reports/*` | — | sim | sim | — |
+| UI `/reports` | — | sim | sim | — |
+
+Carteira do analista: farmácias onde é `primary_attendant_id`, `secondary_attendant_id` ou `pharmacy_sector_attendants.attendant_id`.
 
 ## API — usuários
 

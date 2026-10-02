@@ -55,7 +55,7 @@ gcloud pubsub topics add-iam-policy-binding whatsapp.inbound \
 
 Repita para `whatsapp.status`. Para subscrições, use `roles/pubsub.subscriber` no **tópico** ou ligue a SA à subscrição conforme a vossa política de IAM.
 
-**Workers**: defina **mínimo 1 instância** e **CPU sempre alocada** em `orchestrator-service`, `scheduler-service` e `campaign-worker` para não perder pulls de Pub/Sub nem timers.
+**Workers (scaling)**: perfil piloto **já aplicado** em produção. Após **cada deploy de nova imagem**, rode `npm run gcp:post-deploy:pilot` (obrigatório). Runbook: [CLOUD_RUN_SCALING.md](./CLOUD_RUN_SCALING.md). Ver [Perfis de scaling](#perfis-de-scaling-cloud-run) abaixo.
 
 ## Seis serviços e imagens
 
@@ -158,6 +158,8 @@ Em produção **não** defina `WEBHOOK_SKIP_SIGNATURE_VERIFY=true` (só bypass e
 
 `SUPABASE_*`, `GOOGLE_CLOUD_PROJECT_ID`, `PUBSUB_TOPIC_CAMPAIGN`, `TZ`.
 
+Para sync automático de entregadores Flux (cron 6h): `FLUX_DELIVERY_OAUTH_CLIENT_SECRET`, `FLUX_DELIVERY_USERNAME`, `FLUX_DELIVERY_PASSWORD` (Secret Manager, espelhar `flux-farma-api`), opcional `FLUX_SYNC_WORKSPACE_ID`, `FLUX_DRIVER_SYNC_CRON` (default `0 */6 * * *`).
+
 ### `campaign-worker`
 
 `SUPABASE_*`, `GOOGLE_CLOUD_PROJECT_ID`, `PUBSUB_SUBSCRIPTION_CAMPAIGN`, `META_*`, defaults `DEFAULT_*` opcionais.
@@ -180,8 +182,45 @@ Apenas build-args (tabela acima). Opcionalmente `NODE_ENV=production` já na ima
 
 **WhatsApp E2E**: após webhook + orchestrator + API com Meta, envie uma mensagem de teste ao número e confirme conversa na inbox.
 
+```powershell
+$env:GCP_PROJECT_ID = "rh-coopmob-bot"
+.\scripts\gcp\verify-run-scaling.ps1 -Profile pilot
+```
+
+## Perfis de scaling (Cloud Run)
+
+| Serviço Cloud Run | Piloto (padrão Flux) | Alta escala |
+|-------------------|----------------------|-------------|
+| `flux-farma-scheduler` | `min=1`, CPU 24h (`node-cron` interno) | igual |
+| `flux-farma-orchestrator` | `min=1`, **cpu-throttling** | `min=1`, CPU 24h |
+| `flux-farma-campaign` | `min=0`, cpu-throttling | `min=1`, CPU 24h |
+| `flux-farma-webhook` | `min=0`, cpu-throttling | igual |
+| `flux-farma-api` / `web` | `min=0` (default) | igual |
+
+| Script | Custo estimado Cloud Run |
+|--------|-------------------------|
+| `configure-workers-pilot.ps1` | ~R$ 120–200/mês |
+| `configure-workers-production.ps1` | ~R$ 900/mês |
+
+Backups de config antes de mudanças: `scripts/gcp/backups/run-config-*/` (local, não versionado).
+
+## Roadmap — reduzir custo do scheduler (Fase 4)
+
+O `scheduler-service` usa `node-cron` dentro do container; por isso exige `min-instances=1` (~R$ 72/mês). Próxima otimização:
+
+1. Expor endpoints HTTP por job (`POST /jobs/tickets-sla`, etc.) no `scheduler-service`.
+2. Migrar cada cron para **Cloud Scheduler** (custo por execução, não instância 24h).
+3. Colocar `flux-farma-scheduler` em `min-instances=0`.
+4. (Opcional) Orchestrator: Pub/Sub **push** → `min-instances=0` no orchestrator.
+
+Meta pós-migração: Cloud Run ~R$ 50–80/mês em produção piloto.
+
+Alerta de custo: `scripts/gcp/create-cloud-run-budget-alert.ps1` (requer `GCP_BILLING_ACCOUNT_ID`).
+
 ## Ficheiros relacionados
 
+- Scaling piloto: [`scripts/gcp/configure-workers-pilot.ps1`](../scripts/gcp/configure-workers-pilot.ps1)
+- Verificação: [`scripts/gcp/verify-run-scaling.ps1`](../scripts/gcp/verify-run-scaling.ps1)
 - Script Pub/Sub: [`scripts/gcp/pubsub-bootstrap.sh`](../scripts/gcp/pubsub-bootstrap.sh)
 - Docker web (standalone + build-args): [`apps/web/Dockerfile`](../apps/web/Dockerfile)
 - Checklist env local: [`scripts/check-local-env.mjs`](../scripts/check-local-env.mjs)

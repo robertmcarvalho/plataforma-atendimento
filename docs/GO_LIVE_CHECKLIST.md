@@ -21,7 +21,9 @@ Ver mapa detalhado: [STAGING_PROD_DATABASE_MAP.md](./STAGING_PROD_DATABASE_MAP.m
 - [ ] `ENABLE_DEV_ROUTES=false` em todos os serviços Cloud Run
 - [ ] `USER_TEMP_PASSWORD_RESPONSE_ENABLED=false`
 - [ ] `ALLOWED_ORIGINS` com domínio final do web
-- [ ] Workers com `min-instances=1` e CPU always allocated
+- [ ] Workers com perfil de scaling correto: `.\scripts\gcp\configure-workers-pilot.ps1` + `.\scripts\gcp\verify-run-scaling.ps1 -Profile pilot`
+  - Piloto Flux: scheduler `min=1` (CPU 24h); orchestrator `min=1` + throttle; campaign `min=0`
+  - Alta escala (>2k conversas/mês): `configure-workers-production.ps1` (3× min=1, CPU 24h)
 
 ## Governança (CI / local)
 
@@ -61,9 +63,12 @@ npm run security:api-cross-tenant
 
 - `scripts/gcp/bootstrap-production-secrets.ps1` — cria/atualiza secrets + rotaciona JWT/OTP
 - `scripts/gcp/deploy-production-api.ps1` — API com Secret Manager
-- `scripts/gcp/configure-workers-production.ps1` — min instances workers (`flux-farma-campaign`, não `campaign-worker`)
+- `scripts/gcp/configure-workers-pilot.ps1` — scaling piloto (padrão Flux)
+- `scripts/gcp/configure-workers-production.ps1` — scaling alta escala (custo ~R$ 900/mês Run)
+- `scripts/gcp/verify-run-scaling.ps1` — gate pós-deploy
+- `scripts/gcp/create-cloud-run-budget-alert.ps1` — alerta billing Cloud Run
 - `scripts/gcp/pubsub-bootstrap.ps1` — Pub/Sub + DLQ (Windows)
-- `node scripts/apply-migration-038.mjs --execute` — rate limit table (requer `CONFIRM_PRODUCTION_MIGRATION_038=true`)
+- `node scripts/db/apply-migration-038.mjs --execute` — rate limit table (requer `CONFIRM_PRODUCTION_MIGRATION_038=true`)
 - `deploy/cloudbuild-governance-check.yaml` — gate CI (`gcloud builds submit . --config=...`)
 - `deploy/cloudbuild-flux-farma-api-gated.yaml` — build API com governança
 

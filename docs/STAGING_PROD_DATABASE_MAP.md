@@ -6,7 +6,7 @@
 
 | Ambiente | Supabase ref | Nome no Dashboard | Secrets |
 |----------|--------------|-------------------|---------|
-| **Produção** (Cloud Run, [aetheraai.online](https://www.aetheraai.online)) | `omhlbavfsttwcnybzvcd` | **plataforma_atendimento** | `production-api.env`, `production-db-url.txt` |
+| **Produção** (Cloud Run, [aetheraai.com.br](https://www.aetheraai.com.br)) | `omhlbavfsttwcnybzvcd` | **plataforma_atendimento** | `production-api.env`, `production-db-url.txt` |
 | **Legado / QA opcional** (projeto pausável) | `ojzzxqqatqncchnspkch` | plataforma-atendimento-staging | backup em `production-api.env.ojzzx-backup` |
 | **Pooler local (scripts)** | `omhlbavfsttwcnybzvcd` | — | `supabase-db-url.txt`, `apps/api-service/.env` |
 

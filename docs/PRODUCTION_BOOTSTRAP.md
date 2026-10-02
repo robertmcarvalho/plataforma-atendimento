@@ -4,7 +4,7 @@ Runbook executado para separar staging de produção, limpar dados de teste e cr
 
 ## Importante: onde ficaram os cadastros
 
-Se você importou planilhas com a API apontando para `apps/api-service/.env` (projeto **omhlb…** / `plataforma_atendimento`), os dados ficaram no **banco de desenvolvimento**, não no que a UI em **aetheraai.online** usa (**ojzzx…** / Secret Manager).
+Se você importou planilhas com a API apontando para `apps/api-service/.env` (projeto **omhlb…** / `plataforma_atendimento`), os dados ficaram no **banco de desenvolvimento**, não no que a UI em **aetheraai.com.br** usa (**ojzzx…** / Secret Manager).
 
 Para copiar cadastros dev → prod:
 
@@ -58,7 +58,7 @@ Geradas em **`reports/platform-owner-bootstrap.txt`** (gitignored). Troque a sen
 
 ## Configuração na UI (pós-login)
 
-1. Login em https://aetheraai.online com `platform_owner`.
+1. Login em https://www.aetheraai.com.br com `platform_owner`.
 2. **Plataforma** → Workspaces: revisar workspace default (`Flux Farma`).
 3. **Plataforma** → Settings: branding, timezone, políticas globais.
 4. **Configurações** → Usuários: provisionar atendentes, supervisores, admins de workspace.
@@ -77,7 +77,7 @@ $env:API_BASE_URL = "http://localhost:3001"   # ou URL Cloud Run staging
 npm run validate:local
 ```
 
-Nunca apontar stress/chaos para `aetheraai.online` sem `CONFIRM_PRODUCTION_STRESS=true`.
+Nunca apontar stress/chaos para `aetheraai.com.br` sem `CONFIRM_PRODUCTION_STRESS=true`.
 
 ## Deploy
 

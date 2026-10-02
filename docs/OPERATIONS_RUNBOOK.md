@@ -20,7 +20,7 @@ Detalhes: [STAGING_PROD_DATABASE_MAP.md](./STAGING_PROD_DATABASE_MAP.md).
 npm run flip:prod:plataforma-atendimento
 ```
 
-3. Validar login, canais WhatsApp/email e inbox em https://www.aetheraai.online.
+3. Validar login, canais WhatsApp/email e inbox em https://www.aetheraai.com.br.
 
 Ver também [PRODUCTION_BOOTSTRAP.md](./PRODUCTION_BOOTSTRAP.md) e [DEPLOY_CLOUD_RUN.md](./DEPLOY_CLOUD_RUN.md).
 

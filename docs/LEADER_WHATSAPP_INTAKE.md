@@ -2,6 +2,33 @@
 
 Fluxo do bot no **orchestrator** para contatos com `profile_type = leader`. Farmácias vêm apenas de `leader_pharmacy_links` (não usa `pharmacies.leader_id`).
 
+## Vincular WhatsApp do líder (OTP no portal)
+
+O portal envia o código via **Meta Cloud API** (`POST /api/leader-portal/whatsapp/otp/start`).
+
+### Produção — template obrigatório
+
+Fora da janela de 24h (líder ainda não conversou com o número Business), a Meta **não entrega** mensagem `type: text`. Use template **Authentication** com botão **Copy code** (ver guia abaixo).
+
+1. Criar e aprovar template na Meta (nome sugerido: `aethera_leader_otp`, idioma `Portuguese (BR)` / `pt_BR`).
+2. Cloud Run `flux-farma-api` → variáveis:
+   - `LEADER_WHATSAPP_OTP_TEMPLATE_NAME` = nome exato do template (minúsculas, underscores)
+   - `LEADER_WHATSAPP_OTP_TEMPLATE_LANGUAGE` = `pt_BR`
+3. Redeploy da API (`scripts/gcp/deploy-production-api.ps1`).
+
+Guia completo: [META_LEADER_OTP_TEMPLATE.md](./META_LEADER_OTP_TEMPLATE.md)
+
+Diagnóstico no banco:
+
+```powershell
+node scripts/diagnose-leader-whatsapp-otp.mjs --url-file .secrets/production-db-url.txt --search robert
+```
+
+| `leader_whatsapp_verifications.status` | Significado |
+|----------------------------------------|-------------|
+| `pending` | API aceitou o pedido; Meta pode ter aceito HTTP sem entrega ao aparelho |
+| `failed` | Erro explícito ao enviar (canal, token ou Meta) |
+
 ## Fluxo
 
 ```mermaid
@@ -11,14 +38,16 @@ flowchart TD
   aboutDriver["Assunto sobre entregador? Sim/Não"]
   driverList[Lista entregadores da farmácia]
   sectors[Lista de setores]
-  route[routeToPharmacyAttendant + SLA]
+  demands[Lista de demandas]
+  route[routeToPharmacyAttendant + demand_key + SLA]
 
   identify --> pharmacy
   pharmacy --> aboutDriver
   aboutDriver -->|Sim| driverList
   aboutDriver -->|Não| sectors
   driverList --> sectors
-  sectors --> route
+  sectors --> demands
+  demands --> route
 ```
 
 ## Passos de sessão (`current_step`)
@@ -29,7 +58,8 @@ flowchart TD
 | `ask_pharmacy` | Várias farmácias (`leader_flow: true`) |
 | `ask_leader_about_driver` | Botões `leader_driver_yes` / `leader_driver_no` |
 | `ask_leader_driver` | Lista ou menu numerado de entregadores |
-| `ask_intent` | Setor → roteamento final |
+| `ask_intent` | Setor → lista de demandas |
+| `ask_demand` | Demanda (`driver` se há `context_driver_id`, senão `pharmacy`) → roteamento + `demand_key` |
 
 ## Comportamentos de borda
 
@@ -47,7 +77,8 @@ flowchart TD
 - `conversations.context_pharmacy_id` — farmácia escolhida
 - `conversations.context_driver_id` — entregador opcional (validado em `driver_pharmacy_links`)
 - `context_leader_id` — em `ensureContactContext`
-- Encerramento: `completeGuidedIntakeSession` com `path: leader_pharmacy_driver_sector`
+- `conversations.demand_key` — demanda escolhida após o setor
+- Encerramento: `completeGuidedIntakeSession` com `path: leader_pharmacy_driver_sector_demand`
 
 ## Mensagens configuráveis
 
@@ -65,14 +96,28 @@ LEADER_ID=<uuid> PHARMACY_ID=<uuid> npm run smoke:leader-intake-flow
 
 Pré-requisito: líder com vínculos em `leader_pharmacy_links` e canal com setores ativos.
 
-- [ ] **N farmácias**: mensagem de boas-vindas → lista → farmácia → Sim/Não → setor → inbox com `context_pharmacy_id` e `sector_id`
+- [ ] **N farmácias**: mensagem de boas-vindas → lista → farmácia → Sim/Não → setor → **lista de demandas** → inbox com `context_pharmacy_id`, `sector_id` e `demand_key`
 - [ ] **1 farmácia**: pula lista; vai direto para Sim/Não entregador
-- [ ] **Sim + entregador**: lista → escolhe entregador → setor → inbox com `context_driver_id`
-- [ ] **Não entregador**: botão Não → setor sem `context_driver_id`
+- [ ] **Sim + entregador**: lista → escolhe entregador → setor → demandas perfil **driver** → inbox com `context_driver_id` e `demand_key`
+- [ ] **Não entregador**: botão Não → setor → demandas perfil **pharmacy** → inbox sem `context_driver_id` e com `demand_key`
 - [ ] **Sim + 0 entregadores**: aviso → setores sem driver
 - [ ] **“Não está na lista”**: setor sem driver
 - [ ] **0 farmácias**: `leader_no_pharmacy` → setor → roteamento por setor (sem farmácia)
 - [ ] **>10 entregadores** (se existir fixture): menu numerado funciona
+
+## Portal do líder (`/lider/chat`)
+
+Triagem espelhada: farmácia → entregador opcional → setor → demanda → `POST /api/leader-portal/conversations/start`.
+
+- Mensagens digitadas no portal: `direction: inbound` (sem envio Meta); respostas do líder no celular chegam via webhook.
+- Bolhas: `MessageBubble` com `viewerRole="leader"` (inbound à direita).
+
+Deploy sugerido (ordem): `flux-farma-api` → `flux-farma-web` → `flux-farma-orchestrator`.
+
+```powershell
+# API (script no repositório); web e orchestrator via pipeline/Cloud Run do projeto
+.\scripts\gcp\deploy-production-api.ps1
+```
 
 Após alterações no orchestrator, fazer deploy do serviço Cloud Run correspondente (ex.: `flux-farma-orchestrator`).
 

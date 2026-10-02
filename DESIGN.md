@@ -2,7 +2,7 @@
 
 Documento de referência de **arquitetura, produto e design de sistema** do monorepo `plataforma_atendimento`. Complementa o [README.md](README.md) (setup) e os runbooks em [`docs/`](docs/).
 
-**Produção:** [https://www.aetheraai.online](https://www.aetheraai.online)  
+**Produção:** [https://www.aetheraai.com.br](https://www.aetheraai.com.br)  
 **Marca na UI:** Aethera (operado pela Flux Farma no workspace padrão).
 
 ---
@@ -121,7 +121,7 @@ Cadastros operacionais (`drivers`, `pharmacies`, `leaders`) são **por workspace
 ### 3.3 Autenticação
 
 - Login: e-mail + senha → Supabase Auth + linha em `users` + JWT emitido pela API ([`apps/api-service/src/routes/auth.ts`](apps/api-service/src/routes/auth.ts)).
-- Provisionamento: admin cria usuário, senha temporária, e-mail de convite ([`buildInviteEmailHtml`](apps/api-service/src/lib/emailSender.ts)); link via `WEB_APP_URL` (ex.: `https://www.aetheraai.online/login`).
+- Provisionamento: admin cria usuário, senha temporária, e-mail de convite ([`buildInviteEmailHtml`](apps/api-service/src/lib/emailSender.ts)); link via `WEB_APP_URL` (ex.: `https://www.aetheraai.com.br/login`).
 - Troca de senha pelo usuário: `PATCH /api/users/me/password` + UI em **Configurações → Perfil**.
 - Recuperação “Esqueci a senha” no login: ainda não implementada (placeholder na UI).
 
@@ -138,7 +138,7 @@ Mapa atual e procedimentos: [`docs/STAGING_PROD_DATABASE_MAP.md`](docs/STAGING_P
 | Área | Rotas / módulos | Backend |
 |------|-----------------|---------|
 | Inbox principal | `/inbox` | `conversations`, `messages`, presence |
-| Inbox unificado / ticketing | `/inbox-unificado` | tickets, SLA, contexto operacional |
+| Caixa de entrada / ticketing | `/inbox` | tickets, SLA, contexto operacional |
 | Contatos | `/contacts` | `contacts`, vínculo driver/pharmacy/leader |
 | Copiloto | painel na inbox | `routes/copilot.ts`, tools, briefing |
 
@@ -285,7 +285,7 @@ Governança de código: `npm run governance:workspace`, `governance:automations`
 | **Imagens** | Artifact Registry `panel-services` |
 | **Cloud Build** | [`deploy/cloudbuild-flux-farma-*.yaml`](deploy/) |
 | **Web** | `NEXT_PUBLIC_*` baked no build da imagem |
-| **Workers** | `min-instances=1`, CPU always allocated recomendado |
+| **Workers** | Perfil piloto: `configure-workers-pilot.ps1` (scheduler `min=1`; orchestrator `min=1`+throttle; campaign `min=0`) |
 | **Checklist** | [`docs/GO_LIVE_CHECKLIST.md`](docs/GO_LIVE_CHECKLIST.md) |
 | **Deploy detalhado** | [`docs/DEPLOY_CLOUD_RUN.md`](docs/DEPLOY_CLOUD_RUN.md) |
 
@@ -339,7 +339,7 @@ plataforma_atendimento/
 | [docs/PRODUCTION_BOOTSTRAP.md](docs/PRODUCTION_BOOTSTRAP.md) | Bootstrap prod, migração cadastros |
 | [docs/GO_LIVE_CHECKLIST.md](docs/GO_LIVE_CHECKLIST.md) | Checklist go-live |
 | [docs/STAGING_PROD_DATABASE_MAP.md](docs/STAGING_PROD_DATABASE_MAP.md) | Refs Supabase por ambiente |
-| [IMPLEMENTATION_REDESIGN_PLAN.md](IMPLEMENTATION_REDESIGN_PLAN.md) | Fases de redesign e gates de qualidade |
+| [archive/plans/IMPLEMENTATION_REDESIGN_PLAN.md](docs/archive/plans/IMPLEMENTATION_REDESIGN_PLAN.md) | Fases de redesign (histórico) |
 | [apps/web/AGENTS.md](apps/web/AGENTS.md) | Notas para agentes no front |
 
 ---
